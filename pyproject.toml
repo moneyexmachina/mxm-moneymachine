@@ -1,0 +1,73 @@
+[tool.poetry]
+name = "mxm-v1"
+version = "0.1.0"
+description = "MVP paper futures trading system for Money ex Machina."
+authors = ["mxm <contact@moneyexmachina.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "mxm", from = "src" }]
+include = [
+  { path = "LICENSE" },
+  { path = "src/mxm/v1/py.typed", format = "wheel" },
+]
+
+classifiers = ["Typing :: Typed"]
+
+[tool.poetry.dependencies]
+python = ">=3.13, <3.15"
+mxm-types = "^0.1.1"
+mxm-secrets = { git = "https://github.com/moneyexmachina/mxm-secrets.git", branch = "master" }
+mxm-refdata = { path = "/Users/mxm/mxm-refdata", develop = true }
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# -------------------------
+# Coding standards
+# -------------------------
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+# Select rulesets; expand gradually if desired
+lint.select = ["E", "F", "B", "ANN"]
+# Exclude common non-source dirs
+exclude = ["build", "dist", ".venv"]
+
+
+[tool.black]
+line-length = 88
+target-version = ["py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+combine_as_imports = true
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["src"]
+exclude = ["build", "dist", "docs", ".venv"]
+pythonVersion = "3.13"
+pythonPlatform = "All"
+reportMissingImports = "error"
+reportMissingTypeStubs = "warning"
+
+[tool.poetry.group.dev.dependencies]
+isort = "^6.0.1"
+black = "^25.9.0"
+ruff = "^0.13.2"
+pytest = "^8.4.2"
+ipython = "^9.6.0"
+pyright = "^1.1.406"
+
+
+[tool.pytest.ini_options]
+# Base configuration
+addopts = "-ra -q"
+
+# Define custom markers
+markers = [
+    "integration: tests hitting external services (API, DB, network)",
+    "slow: long-running tests (>30s, heavy compute/backtest)",
+]
