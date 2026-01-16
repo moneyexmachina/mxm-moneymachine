@@ -18,9 +18,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from mxm.v1.marketdata.schema import coerce_ohlcv_1d, validate_ohlcv_1d
-from mxm.v1.marketdata.store.layout import MarketdataLayout
-from mxm.v1.marketdata.store.parquet_store import read_daily_bars, write_daily_bars
+from mxm.v1.marketdata.schema.ohlcv_1d import coerce_ohlcv_1d, validate_ohlcv_1d
+from mxm.v1.marketdata.stores.layout import MarketdataLayout
+from mxm.v1.marketdata.stores.parquet.daily_bars import (
+    read_daily_bars,
+    write_daily_bars,
+)
 
 
 def _make_dummy_df(

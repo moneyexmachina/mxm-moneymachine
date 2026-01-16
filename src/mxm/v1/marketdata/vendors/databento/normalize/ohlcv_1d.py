@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mxm.v1.marketdata.schema import coerce_ohlcv_1d
+from mxm.v1.marketdata.schema.ohlcv_1d import coerce_ohlcv_1d
 
 
 def normalize_ohlcv_1d(

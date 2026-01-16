@@ -9,7 +9,7 @@ import pandas as pd
 from mxm.dataio.api import CacheMode, DataIoSession
 from mxm.dataio.models import Request, Response
 
-from mxm.v1.marketdata.dataio_config import marketdata_dataio_cfg
+from mxm.v1.marketdata.config.dataio import marketdata_dataio_cfg
 
 SymbolsT = Union[str, Sequence[str]]
 

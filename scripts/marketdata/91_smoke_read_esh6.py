@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mxm.v1.marketdata.store.layout import MarketdataLayout
-from mxm.v1.marketdata.store.parquet_store import read_daily_bars
+from mxm.v1.marketdata.stores.layout import MarketdataLayout
+from mxm.v1.marketdata.stores.parquet.daily_bars import read_daily_bars
 
 
 def main() -> None:

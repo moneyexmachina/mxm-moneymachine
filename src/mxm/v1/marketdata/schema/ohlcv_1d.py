@@ -26,9 +26,9 @@ class Ohlcv1dSchema:
     Canonical schema for daily OHLCV bars (`ohlcv-1d`) used within MXM V1.
 
     This schema is the contract between:
-    - vendor normalization (`mxm.v1.marketdata.databento.normalize`)
-    - storage (`mxm.v1.marketdata.store.parquet_store`)
-    - serving API (`mxm.v1.marketdata.api.daily_bars`)
+    - vendor normalization (`mxm.v1.marketdata.vendors.databento.normalize.ohlcv_1d`)
+    - storage (`mxm.v1.marketdata.stores.parquet.daily_bars`)
+    - serving API (`mxm.v1.marketdata.datasets.ohlcv_1d.api`)
     """
 
     # Canonical column order for persisted/served frames
