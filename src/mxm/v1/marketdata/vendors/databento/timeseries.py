@@ -1,6 +1,7 @@
 # src/mxm/v1/marketdata/databento/timeseries_api_adapter.py
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, Mapping, Optional, Sequence, Union, cast
@@ -106,7 +107,7 @@ def pull_timeseries_df_raw(
     kwargs: Dict[str, Any] = {}
     if extra:
         kwargs.update(dict(extra))
-
+    t0 = time.time()
     resp = client.timeseries.get_range(
         dataset=dataset,
         schema=schema,
@@ -116,7 +117,11 @@ def pull_timeseries_df_raw(
         end=end,
         **kwargs,
     )
+    print(f"[databento] fetched stream in {time.time() - t0:.2f}s; converting to df...")
+    t1 = time.time()
     df = resp.to_df()
+
+    print(f"[databento] to_df() in {time.time() - t1:.2f}s; rows={len(df)}")
     return df
 
 
@@ -139,6 +144,21 @@ class DatabentoTimeseriesFetcher(Fetcher):
 
     client: Any
     source: str = "databento"
+
+    def describe(self) -> str:
+        return (
+            "DatabentoTimeseriesFetcher("
+            "vendor=databento, "
+            "endpoint=timeseries.get_range, "
+            "schemas=ohlcv-1d|definition, "
+            "cache=dataio"
+            ")"
+        )
+
+    def close(self) -> None:
+        # Databento Historical client typically does not require explicit close.
+        # Keep as a no-op for now.
+        return
 
     def fetch(self, request: Request) -> AdapterResult:
         params: Dict[str, Any] = dict(request.params)

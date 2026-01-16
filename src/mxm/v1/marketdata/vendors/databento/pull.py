@@ -10,6 +10,9 @@ from mxm.dataio.api import CacheMode, DataIoSession
 from mxm.dataio.models import Request, Response
 
 from mxm.v1.marketdata.config.dataio import marketdata_dataio_cfg
+from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
+    get_databento_product_root,
+)
 
 SymbolsT = Union[str, Sequence[str]]
 
@@ -148,9 +151,7 @@ def pull_ohlcv_1d(
 
 def pull_instrument_definitions(
     *,
-    dataset: str,
-    symbols: SymbolsT,
-    stype_in: str,
+    product_id: str,
     start: str,
     end: str,
     source: str = "databento",
@@ -158,13 +159,21 @@ def pull_instrument_definitions(
 ) -> pd.DataFrame:
     """
     DataIO-backed pull for Databento instrument definition events (schema="definition").
-    Thin wrapper around pull_timeseries_via_dataio(...).
+
+    This fetches the full event history for all instruments belonging to the
+    Databento product root associated with `product_id` (e.g. ES.FUT),
+    using stype_in="parent".
+
+    The result is an append-only event stream suitable for reconstructing
+    instrument state and building stable mappings.
     """
+    product_root = get_databento_product_root(product_id)
+
     return pull_timeseries(
-        dataset=dataset,
+        dataset=product_root.dataset,
         schema="definition",
-        symbols=symbols,
-        stype_in=stype_in,
+        symbols=product_root.parent,
+        stype_in=product_root.stype_in,
         start=start,
         end=end,
         source=source,
