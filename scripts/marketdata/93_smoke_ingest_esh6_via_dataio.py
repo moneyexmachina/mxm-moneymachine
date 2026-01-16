@@ -7,9 +7,11 @@ from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
 from mxm.v1.marketdata.databento.cost import enforce_cost_cap, estimate_cost_ohlcv_1d
-from mxm.v1.marketdata.databento.fetcher import DatabentoOhlcv1dFetcher
 from mxm.v1.marketdata.databento.normalize import normalize_ohlcv_1d
-from mxm.v1.marketdata.databento.pull_via_dataio import pull_ohlcv_1d_via_dataio
+from mxm.v1.marketdata.databento.pull import pull_ohlcv_1d
+from mxm.v1.marketdata.databento.timeseries_api_adapter import (
+    DatabentoTimeseriesFetcher,
+)
 from mxm.v1.marketdata.store.layout import MarketdataLayout
 from mxm.v1.marketdata.store.parquet_store import write_daily_bars
 
@@ -40,7 +42,7 @@ def _run_ingest_once(
     enforce_cost_cap(estimated_cost_usd=est.estimated_cost_usd, cap_usd=cap_usd)
 
     # ---- Pull via DataIO + normalize ----
-    df_raw = pull_ohlcv_1d_via_dataio(
+    df_raw = pull_ohlcv_1d(
         dataset=dataset,
         symbol=symbol,
         stype_in="raw_symbol",
@@ -95,7 +97,7 @@ def main() -> None:
     # ---- Register DataIO adapter (Fetcher) once ----
     # register() raises on duplicates, so guard it for this smoke script.
     if "databento" not in list_registered():
-        register("databento", DatabentoOhlcv1dFetcher(client=client))
+        register("databento", DatabentoTimeseriesFetcher(client=client))
     print("[dataio] registered adapter 'databento'")
 
     # ---- Proof: run twice in-process with identical request inputs ----
