@@ -13,16 +13,30 @@ from mxm.dataio.models import AdapterResult, Request
 SymbolsT = Union[str, Sequence[str]]
 
 
-def _ensure_ts_event_column(df: pd.DataFrame) -> pd.DataFrame:
+def _materialise_index(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Databento sometimes returns `ts_event` as the index. For downstream consistency,
-    ensure it is a normal column.
+    Make the DataFrame index explicit as columns (single index or MultiIndex).
+
+    Rationale: cached Parquet payloads should be self-contained and not depend on
+    implicit index round-tripping.
     """
-    if "ts_event" in df.columns:
+    # If it's already a trivial RangeIndex, nothing to do.
+    if isinstance(df.index, pd.RangeIndex):
         return df
-    if getattr(df.index, "name", None) == "ts_event":
-        return df.reset_index()
-    return df
+
+    # If it's a named single index and already present as a column, nothing to do.
+    if not isinstance(df.index, pd.MultiIndex):
+        idx_name = getattr(df.index, "name", None)
+        if idx_name is not None and idx_name in df.columns:
+            return df
+
+    # MultiIndex: if all level names are already columns, nothing to do.
+    if isinstance(df.index, pd.MultiIndex):
+        names = [n for n in df.index.names if n is not None]
+        if names and all(n in df.columns for n in names):
+            return df
+
+    return df.reset_index()
 
 
 def _df_to_parquet_bytes(df: pd.DataFrame) -> bytes:
@@ -189,7 +203,7 @@ class DatabentoTimeseriesFetcher(Fetcher):
             extra=extra,
         )
 
-        df = _ensure_ts_event_column(df)
+        df = _materialise_index(df)
         payload = _df_to_parquet_bytes(df)
 
         adapter_meta: Dict[str, Any] = {

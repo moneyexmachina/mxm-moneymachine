@@ -147,3 +147,41 @@ While integrating `mxm-dataio` into MXM V1 (Session 5), a dependency resolution 
 **Notes**
 - This is a packaging hygiene issue, not a functional blocker for MXM V1 marketdata ingestion
 - Resolution should be handled as a dedicated maintenance task, not within an MVP delivery session
+
+
+
+### Selective DataIO cache inspection & eviction tooling
+
+**Deferred to:** later DataIO hardening / ops tooling session  
+**Reason:** Not required to prove marketdata ingestion, persistence, and watermark semantics.
+
+- Add capability to **inspect DataIO cache entries** (request metadata + artifact presence)
+- Support **selective eviction** of cached responses:
+  - by request hash
+  - by source (e.g. `databento`)
+  - by age (e.g. `older-than 30d`)
+  - by simple parameter match (e.g. symbol contains `ES.FUT`)
+- Default to **artifact-only deletion** (soft eviction):
+  - force re-fetch on next request
+  - preserve metadata / audit trail
+- Provide optional **hard eviction** (metadata + artifacts) behind explicit flag
+- Add a **cache doctor / repair** mode:
+  - detect missing artifacts referenced by metadata
+  - report disk usage
+  - optionally clean dangling entries
+
+**Intended interface (illustrative):**
+- `mxm-dataio cache ls [--source databento] [--contains ES.FUT]`
+- `mxm-dataio cache rm --hash <HASH> [--dry-run]`
+- `mxm-dataio cache rm --older-than 30d --source databento`
+- `mxm-dataio cache doctor [--fix]`
+
+**Purpose:**
+- enable controlled cache invalidation during development and debugging
+- avoid full cache wipes or ad-hoc filesystem manipulation
+- preserve DataIO’s auditability while allowing operational hygiene
+
+**Explicitly not required for V1:**
+- automatic eviction policies
+- size-based cache management
+- cross-user or multi-host cache coordination

@@ -13,6 +13,9 @@ from mxm.v1.marketdata.config.dataio import marketdata_dataio_cfg
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
+from mxm.v1.marketdata.vendors.databento.normalize.instrument_definitions import (
+    normalize_instrument_definitions,
+)
 
 SymbolsT = Union[str, Sequence[str]]
 
@@ -20,11 +23,6 @@ SymbolsT = Union[str, Sequence[str]]
 def _parquet_bytes_to_df(payload: bytes) -> pd.DataFrame:
     buf = BytesIO(payload)
     df = pd.read_parquet(buf)
-
-    # Standardize: ensure ts_event is a column, not an index.
-    if "ts_event" not in df.columns and getattr(df.index, "name", None) == "ts_event":
-        df = df.reset_index()
-
     return df
 
 
@@ -168,8 +166,7 @@ def pull_instrument_definitions(
     instrument state and building stable mappings.
     """
     product_root = get_databento_product_root(product_id)
-
-    return pull_timeseries(
+    df = pull_timeseries(
         dataset=product_root.dataset,
         schema="definition",
         symbols=product_root.parent,
@@ -179,3 +176,6 @@ def pull_instrument_definitions(
         source=source,
         extra=extra,
     )
+
+    df = normalize_instrument_definitions(df)
+    return df

@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+import pandas as pd
+
+from mxm.v1.marketdata.schema.instrument_definitions import (
+    TABLE_CURRENT,
+    TABLE_EVENTS,
+    TABLE_WATERMARKS,
+    canonical_json,
+    event_uid_from_payload_json,
+    to_iso_z,
+)
+from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    feed: str
+    events_seen: int
+    events_inserted: int
+    watermark_before: str | None
+    watermark_after: str | None
+    keys_touched: int
+
+
+class InstrumentDefinitionsStore:
+    """
+    Dataset-domain store for instrument definitions.
+
+    Responsibilities:
+    - Normalise incoming frames (materialise ts_recv from index)
+    - Canonicalise payloads and compute deterministic event_uid
+    - Append-only event ingestion (idempotent)
+    - Maintain a materialised current view (one row per publisher_id + instrument_id)
+    - Maintain ingestion watermarks (per feed)
+
+    Non-responsibilities:
+    - No vendor mapping logic (Session 9)
+    - No calendar completeness checks (out of scope)
+    """
+
+    def __init__(self, *, backend: SQLiteBackend) -> None:
+        self._backend = backend
+
+    # -------------------------
+    # Public write API
+    # -------------------------
+
+    def ingest_batch(self, *, feed: str, df: pd.DataFrame) -> IngestResult:
+        """
+        Ingest a batch of instrument definition events (DataFrame indexed by ts_recv).
+
+        Idempotency is enforced via event_uid (sha256 of canonical payload_json).
+        Watermark advances to max(ts_recv) observed in this batch.
+        """
+        if df.empty:
+            # Still ensure migrations exist
+            self._backend.ensure_migrated()
+            before = self.get_watermark(feed=feed)
+            return IngestResult(
+                feed=feed,
+                events_seen=0,
+                events_inserted=0,
+                watermark_before=before,
+                watermark_after=before,
+                keys_touched=0,
+            )
+
+        # Normalise: materialise ts_recv as a column (do not trust index downstream)
+        df_norm = self._normalise_frame(df)
+
+        # Build per-row event records
+        events = self._build_event_rows(feed, df_norm)
+
+        watermark_before = self.get_watermark(feed=feed)
+        watermark_after = max(e["ts_recv"] for e in events)
+
+        keys_touched = len({(e["publisher_id"], e["instrument_id"]) for e in events})
+
+        with self._backend.transaction() as conn:
+            inserted = self._insert_events(conn, events)
+            self._update_current_view(conn, events)
+            self._upsert_watermark(conn, feed=feed, ts_recv_last=watermark_after)
+
+        return IngestResult(
+            feed=feed,
+            events_seen=len(events),
+            events_inserted=inserted,
+            watermark_before=watermark_before,
+            watermark_after=watermark_after,
+            keys_touched=keys_touched,
+        )
+
+    # -------------------------
+    # Public read API
+    # -------------------------
+
+    def get_watermark(self, *, feed: str) -> str | None:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"SELECT ts_recv_last FROM {TABLE_WATERMARKS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()
+            return None if row is None else row["ts_recv_last"]
+
+    def get_current(
+        self, *, publisher_id: int, instrument_id: int
+    ) -> dict[str, Any] | None:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                       security_update_action, rtype, payload_json, event_uid
+                FROM {TABLE_CURRENT}
+                WHERE publisher_id = ? AND instrument_id = ?
+                """,
+                (publisher_id, instrument_id),
+            ).fetchone()
+            return None if row is None else dict(row)
+
+    def list_current(self, *, publisher_id: int | None = None) -> pd.DataFrame:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            if publisher_id is None:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    WHERE publisher_id = ?
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """,
+                    (publisher_id,),
+                ).fetchall()
+
+        return pd.DataFrame([dict(r) for r in rows])
+
+    # -------------------------
+    # Internal helpers
+    # -------------------------
+
+    @staticmethod
+    def _normalise_frame(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+
+        # Case A: ts_recv is the index (preferred)
+        if isinstance(df.index, pd.DatetimeIndex):
+            ts_recv = df.index
+            # Enforce UTC tz-awareness
+            if ts_recv.tz is None:
+                ts_recv = ts_recv.tz_localize("UTC")
+            else:
+                ts_recv = ts_recv.tz_convert("UTC")
+
+            df["ts_recv"] = ts_recv
+            if df.index.name is None:
+                df.index.name = "ts_recv"
+
+        # Case B: ts_recv is provided as a column (acceptable)
+        elif "ts_recv" in df.columns:
+            ts_recv = pd.to_datetime(df["ts_recv"], utc=True, errors="raise")
+            df["ts_recv"] = ts_recv
+
+        # Otherwise: cannot proceed
+        else:
+            raise ValueError(
+                "Instrument definitions frame must have ts_recv as a DatetimeIndex "
+                "or as a 'ts_recv' column; got index type "
+                f"{type(df.index).__name__} and no ts_recv column."
+            )
+
+        # Ensure ts_event is tz-aware UTC
+        if "ts_event" in df.columns:
+            df["ts_event"] = pd.to_datetime(df["ts_event"], utc=True, errors="raise")
+        else:
+            raise ValueError(
+                "Instrument definitions frame missing required column 'ts_event'"
+            )
+
+        return df
+
+    @staticmethod
+    def _build_event_rows(feed: str, df: pd.DataFrame) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+
+        # Iterate row-wise; this is metadata-scale, correctness-first.
+        for _, row in df.iterrows():
+            # Construct a raw record dict that includes all columns + ts_recv
+            record: dict[str, Any] = row.to_dict()
+
+            # Canonicalise timestamps to ISO8601Z strings in top-level typed fields
+            ts_recv_z = to_iso_z(pd.Timestamp(record["ts_recv"]))
+            ts_event_z = to_iso_z(pd.Timestamp(record["ts_event"]))
+
+            # Canonical JSON payload for hashing; include ts_recv explicitly
+            payload = canonical_json(record)
+            uid = event_uid_from_payload_json(payload)
+
+            events.append(
+                {
+                    "event_uid": uid,
+                    "feed": feed,
+                    "publisher_id": int(record["publisher_id"]),
+                    "instrument_id": int(record["instrument_id"]),
+                    "ts_event": ts_event_z,
+                    "ts_recv": ts_recv_z,
+                    "security_update_action": str(record.get("security_update_action")),
+                    "rtype": (
+                        None if pd.isna(record.get("rtype")) else int(record["rtype"])
+                    ),
+                    "payload_json": payload,
+                }
+            )
+
+        # Deterministic ordering for stable behaviour
+        events.sort(
+            key=lambda e: (
+                e["feed"],
+                e["ts_recv"],
+                e["ts_event"],
+                e["publisher_id"],
+                e["instrument_id"],
+            )
+        )
+        return events
+
+    @staticmethod
+    def _insert_events(conn, events: Iterable[dict[str, Any]]) -> int:
+        sql = f"""
+            INSERT OR IGNORE INTO {TABLE_EVENTS} (
+                event_uid, feed, publisher_id, instrument_id,
+                ts_event, ts_recv, security_update_action, rtype, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        rows = [
+            (
+                e["event_uid"],
+                e["feed"],
+                e["publisher_id"],
+                e["instrument_id"],
+                e["ts_event"],
+                e["ts_recv"],
+                e["security_update_action"],
+                e["rtype"],
+                e["payload_json"],
+            )
+            for e in events
+        ]
+
+        if not rows:
+            return 0
+
+        # Reliable inserted-count for INSERT OR IGNORE batches:
+        before = conn.execute(f"SELECT COUNT(*) AS n FROM {TABLE_EVENTS}").fetchone()[
+            "n"
+        ]
+
+        conn.executemany(sql, rows)
+
+        after = conn.execute(f"SELECT COUNT(*) AS n FROM {TABLE_EVENTS}").fetchone()[
+            "n"
+        ]
+
+        inserted = after - before
+        # Defensive: should never be negative, but guard against unexpected concurrent writers.
+        return int(inserted) if inserted > 0 else 0
+
+    @staticmethod
+    def _is_newer(a: tuple[str, str], b: tuple[str, str]) -> bool:
+        """
+        Compare (ts_recv, ts_event) tuples as canonical ISO8601Z strings.
+        Return True if a > b.
+        """
+        return a > b
+
+    def _update_current_view(self, conn, events: list[dict[str, Any]]) -> None:
+        """
+        Materialise the latest state per (publisher_id, instrument_id) using
+        ordering key (ts_recv, ts_event, publisher_id, instrument_id).
+
+        We update per key touched; metadata-scale, correctness-first.
+        """
+        # Reduce to latest event per key in this batch
+        latest_by_key: dict[tuple[int, int], dict[str, Any]] = {}
+        for e in events:
+            key = (e["publisher_id"], e["instrument_id"])
+            if key not in latest_by_key:
+                latest_by_key[key] = e
+                continue
+            cur = latest_by_key[key]
+            if self._is_newer(
+                (e["ts_recv"], e["ts_event"]), (cur["ts_recv"], cur["ts_event"])
+            ):
+                latest_by_key[key] = e
+
+        # For each touched key: compare to existing current row and upsert if newer
+        select_sql = f"""
+            SELECT ts_recv, ts_event
+            FROM {TABLE_CURRENT}
+            WHERE publisher_id = ? AND instrument_id = ?
+        """
+
+        upsert_sql = f"""
+            INSERT INTO {TABLE_CURRENT} (
+                publisher_id, instrument_id, feed, ts_event, ts_recv,
+                security_update_action, rtype, payload_json, event_uid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(publisher_id, instrument_id) DO UPDATE SET
+                feed = excluded.feed,
+                ts_event = excluded.ts_event,
+                ts_recv  = excluded.ts_recv,
+                security_update_action = excluded.security_update_action,
+                rtype = excluded.rtype,
+                payload_json = excluded.payload_json,
+                event_uid = excluded.event_uid,
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        """
+
+        for (publisher_id, instrument_id), e in latest_by_key.items():
+            row = conn.execute(select_sql, (publisher_id, instrument_id)).fetchone()
+            if row is not None:
+                existing = (row["ts_recv"], row["ts_event"])
+                incoming = (e["ts_recv"], e["ts_event"])
+                if not self._is_newer(incoming, existing):
+                    continue
+
+            conn.execute(
+                upsert_sql,
+                (
+                    publisher_id,
+                    instrument_id,
+                    e["feed"],
+                    e["ts_event"],
+                    e["ts_recv"],
+                    e["security_update_action"],
+                    e["rtype"],
+                    e["payload_json"],
+                    e["event_uid"],
+                ),
+            )
+
+    @staticmethod
+    def _upsert_watermark(conn, *, feed: str, ts_recv_last: str) -> None:
+        sql = f"""
+            INSERT INTO {TABLE_WATERMARKS} (feed, ts_recv_last)
+            VALUES (?, ?)
+            ON CONFLICT(feed) DO UPDATE SET
+                ts_recv_last = excluded.ts_recv_last,
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        """
+        conn.execute(sql, (feed, ts_recv_last))

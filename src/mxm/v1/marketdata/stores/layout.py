@@ -45,3 +45,12 @@ class MarketdataLayout:
             )
             / "bars.tmp.parquet"
         )
+
+    def sqlite_db_path(self) -> Path:
+        """
+        Path to the single marketdata SQLite database.
+
+        This DB is owned by marketdata (not vendor-specific) and stores metadata /
+        event-like datasets (instrument definitions, mappings, watermarks, etc.).
+        """
+        return self.root / "marketdata" / "marketdata.sqlite3"
