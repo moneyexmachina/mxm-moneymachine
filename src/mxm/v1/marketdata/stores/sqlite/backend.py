@@ -82,6 +82,12 @@ class SQLiteBackend:
             with self._transaction(conn):
                 yield conn
 
+    @contextmanager
+    def transaction_no_migrate(self) -> Iterator[sqlite3.Connection]:
+        with self.connect() as conn:
+            with self._transaction(conn):
+                yield conn
+
     # -------------------------
     # Internal helpers
     # -------------------------

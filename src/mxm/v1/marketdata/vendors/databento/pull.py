@@ -51,8 +51,11 @@ def _canonical_timeseries_params(
     # - keep str as str
     # - sequences become list[str]
     norm_symbols: Any
+
     if isinstance(symbols, str):
         norm_symbols = symbols
+    elif isinstance(symbols, (int, float)):
+        norm_symbols = str(symbols)
     else:
         norm_symbols = [str(s) for s in symbols]
 
@@ -140,6 +143,26 @@ def pull_ohlcv_1d(
         schema="ohlcv-1d",
         symbols=symbol,
         stype_in=stype_in,
+        start=start,
+        end=end,
+        source=source,
+        extra=extra,
+    )
+
+
+def pull_ohlcv_1d_by_instrument_id(
+    *,
+    dataset: str,
+    instrument_id: int,
+    start: str,
+    end: str,
+    source: str = "databento",
+    extra: Optional[Mapping[str, Any]] = None,
+) -> pd.DataFrame:
+    return pull_ohlcv_1d(
+        dataset=dataset,
+        symbol=str(instrument_id),
+        stype_in="instrument_id",
         start=start,
         end=end,
         source=source,
