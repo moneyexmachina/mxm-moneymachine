@@ -26,6 +26,14 @@ class IngestResult:
     keys_touched: int
 
 
+@dataclass(frozen=True)
+class ResetFeedResult:
+    feed: str
+    events_deleted: int
+    current_deleted: int
+    watermark_deleted: int
+
+
 class InstrumentDefinitionsStore:
     """
     Dataset-domain store for instrument definitions.
@@ -148,6 +156,89 @@ class InstrumentDefinitionsStore:
                 ).fetchall()
 
         return pd.DataFrame([dict(r) for r in rows])
+
+    def reset_feed(self, *, feed: str) -> ResetFeedResult:
+        """
+        Feed-scoped destructive reset.
+
+        Deletes:
+        - all append-only event rows for this feed
+        - all materialised current rows whose provenance feed matches this feed
+        - the watermark row for this feed
+
+        This does not affect other feeds.
+
+        Returns reliable deletion counts (computed via count-before/after).
+        """
+        self._backend.ensure_migrated()
+
+        with self._backend.transaction() as conn:
+            # --- events ---
+            before_events = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_EVENTS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            conn.execute(
+                f"DELETE FROM {TABLE_EVENTS} WHERE feed = ?",
+                (feed,),
+            )
+
+            after_events = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_EVENTS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            events_deleted = int(before_events - after_events)
+
+            # --- current ---
+            before_current = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_CURRENT} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            conn.execute(
+                f"DELETE FROM {TABLE_CURRENT} WHERE feed = ?",
+                (feed,),
+            )
+
+            after_current = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_CURRENT} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            current_deleted = int(before_current - after_current)
+
+            # --- watermark ---
+            before_wm = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_WATERMARKS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            conn.execute(
+                f"DELETE FROM {TABLE_WATERMARKS} WHERE feed = ?",
+                (feed,),
+            )
+
+            after_wm = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_WATERMARKS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()["n"]
+
+            watermark_deleted = int(before_wm - after_wm)
+
+        # Defensive: should never be negative
+        if events_deleted < 0 or current_deleted < 0 or watermark_deleted < 0:
+            raise RuntimeError(
+                "reset_feed produced negative delete counts; unexpected concurrent writers?"
+            )
+
+        return ResetFeedResult(
+            feed=feed,
+            events_deleted=events_deleted,
+            current_deleted=current_deleted,
+            watermark_deleted=watermark_deleted,
+        )
 
     # -------------------------
     # Internal helpers

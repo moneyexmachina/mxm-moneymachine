@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Optional, Tuple
+from typing import Optional
 
 from mxm_refdata.api.ref_data_api import RefDataAPI
 from mxm_refdata.models.contracts.futures_contract import FuturesContract
@@ -82,31 +82,13 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _ensure_aware_utc(dt: datetime) -> datetime:
-    """
-    Ensure dt is timezone-aware and normalised to UTC.
-    If naive, interpret as UTC (sufficient for MVP; upstream should provide aware dt).
-    """
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _as_sqlite_dt(dt: datetime) -> str:
-    """
-    Your Session 9 table uses TEXT timestamps (Proof 96 used ISO strings).
-    We therefore bind ISO8601 strings for validity comparisons.
-    """
-    return dt.isoformat()
-
-
 # ---------------------------------------------------------------------
 # Period lookup (cached)
 # ---------------------------------------------------------------------
 
 
 @lru_cache(maxsize=1)
-def _period_by_id() -> dict[str, object]:
+def period_by_id() -> dict[str, object]:
     """
     Cache Period objects by period_id for this process lifetime.
     Uses RefDataAPI().get_periods(), as in Proof 96.
@@ -121,7 +103,7 @@ def contract_year_month(contract: FuturesContract) -> tuple[int, int]:
     MVP mapping key extraction:
       FuturesContract.period_id -> Period.first_date.year/month
     """
-    p = _period_by_id().get(contract.period_id)
+    p = period_by_id().get(contract.period_id)
     if p is None:
         raise RefdataPeriodLookupError(period_id=contract.period_id)
 
