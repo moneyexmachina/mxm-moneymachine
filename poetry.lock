@@ -1114,14 +1114,14 @@ typer = ">=0.16,<1.0"
 
 [[package]]
 name = "mxm-dataio"
-version = "0.4.0"
+version = "0.4.1"
 description = "**Unified ingestion, caching, and audit layer for Money Ex Machina.**"
 optional = false
 python-versions = "<3.15,>=3.13"
 groups = ["main"]
 files = [
-    {file = "mxm_dataio-0.4.0-py3-none-any.whl", hash = "sha256:471ce25d07b4b4449eea8ce449cd25bdf3cd32ae90011114dc04f14ee0c49c75"},
-    {file = "mxm_dataio-0.4.0.tar.gz", hash = "sha256:c4ca68c74f78ba33508c2007ed6075274d3c8d6e9678cac3071e8d6ca63aea16"},
+    {file = "mxm_dataio-0.4.1-py3-none-any.whl", hash = "sha256:d8253115ebb3c8f1f1b2ff60fde8de9adf6d91752f13e932f4419a94f3aaf33d"},
+    {file = "mxm_dataio-0.4.1.tar.gz", hash = "sha256:59674a093b11313a64bba9816b8b7ccd58bc4b44efc7980e058e4a9fd0eb977b"},
 ]
 
 [package.dependencies]
