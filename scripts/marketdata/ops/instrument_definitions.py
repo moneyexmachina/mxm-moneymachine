@@ -42,7 +42,7 @@ def _to_jsonable(obj: Any) -> Any:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="96_orchestrate_instrument_definitions",
+        prog="instrument_definitions",
         description="Operational orchestrator for instrument definitions (per product_id).",
     )
     p.add_argument("--product-id", required=True)

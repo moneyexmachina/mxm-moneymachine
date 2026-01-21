@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
@@ -14,6 +14,10 @@ from mxm.v1.marketdata.schema.instrument_definitions import (
     to_iso_z,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+
+# ---------------------------------------------------------------------------
+# Result models
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,27 @@ class ResetFeedResult:
     watermark_deleted: int
 
 
+@dataclass(frozen=True)
+class CoverageCheck:
+    """
+    Read-only coverage check for a feed.
+
+    Semantics (MVP):
+      ok iff watermark(feed) >= required_end
+    """
+
+    ok: bool
+    feed: str
+    watermark: Optional[str]
+    required_end: str
+    reason: str  # "ok" | "no_watermark" | "watermark_before_required_end"
+
+
+# ---------------------------------------------------------------------------
+# Store
+# ---------------------------------------------------------------------------
+
+
 class InstrumentDefinitionsStore:
     """
     Dataset-domain store for instrument definitions.
@@ -44,10 +69,12 @@ class InstrumentDefinitionsStore:
     - Append-only event ingestion (idempotent)
     - Maintain a materialised current view (one row per publisher_id + instrument_id)
     - Maintain ingestion watermarks (per feed)
+    - Provide read-only dataset queries (feed-scoped), including coverage checks
 
     Non-responsibilities:
     - No vendor mapping logic (Session 9)
-    - No calendar completeness checks (out of scope)
+    - No mxm-refdata logic
+    - No orchestration policies (windows/cost caps/etc.)
     """
 
     def __init__(self, *, backend: SQLiteBackend) -> None:
@@ -101,61 +128,6 @@ class InstrumentDefinitionsStore:
             watermark_after=watermark_after,
             keys_touched=keys_touched,
         )
-
-    # -------------------------
-    # Public read API
-    # -------------------------
-
-    def get_watermark(self, *, feed: str) -> str | None:
-        self._backend.ensure_migrated()
-        with self._backend.connect() as conn:
-            row = conn.execute(
-                f"SELECT ts_recv_last FROM {TABLE_WATERMARKS} WHERE feed = ?",
-                (feed,),
-            ).fetchone()
-            return None if row is None else row["ts_recv_last"]
-
-    def get_current(
-        self, *, publisher_id: int, instrument_id: int
-    ) -> dict[str, Any] | None:
-        self._backend.ensure_migrated()
-        with self._backend.connect() as conn:
-            row = conn.execute(
-                f"""
-                SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
-                       security_update_action, rtype, payload_json, event_uid
-                FROM {TABLE_CURRENT}
-                WHERE publisher_id = ? AND instrument_id = ?
-                """,
-                (publisher_id, instrument_id),
-            ).fetchone()
-            return None if row is None else dict(row)
-
-    def list_current(self, *, publisher_id: int | None = None) -> pd.DataFrame:
-        self._backend.ensure_migrated()
-        with self._backend.connect() as conn:
-            if publisher_id is None:
-                rows = conn.execute(
-                    f"""
-                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
-                           security_update_action, rtype, payload_json, event_uid
-                    FROM {TABLE_CURRENT}
-                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
-                    """
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"""
-                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
-                           security_update_action, rtype, payload_json, event_uid
-                    FROM {TABLE_CURRENT}
-                    WHERE publisher_id = ?
-                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
-                    """,
-                    (publisher_id,),
-                ).fetchall()
-
-        return pd.DataFrame([dict(r) for r in rows])
 
     def reset_feed(self, *, feed: str) -> ResetFeedResult:
         """
@@ -239,6 +211,209 @@ class InstrumentDefinitionsStore:
             current_deleted=current_deleted,
             watermark_deleted=watermark_deleted,
         )
+
+    # -------------------------
+    # Public read API (feed-scoped)
+    # -------------------------
+
+    def get_watermark(self, *, feed: str) -> str | None:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"SELECT ts_recv_last FROM {TABLE_WATERMARKS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()
+            return None if row is None else row["ts_recv_last"]
+
+    def check_coverage(self, *, feed: str, required_end: str) -> CoverageCheck:
+        """
+        Read-only coverage gate for this dataset.
+
+        Semantics (MVP):
+          ok iff watermark(feed) >= required_end
+
+        Both watermark and required_end are ISO8601Z strings.
+        """
+        wm = self.get_watermark(feed=feed)
+        if wm is None:
+            return CoverageCheck(
+                ok=False,
+                feed=feed,
+                watermark=None,
+                required_end=required_end,
+                reason="no_watermark",
+            )
+
+        # Use string ordering only if format is canonical ISO8601Z with fixed width.
+        # Your store writes ISO8601Z via to_iso_z; required_end should be same style.
+        if wm >= required_end:
+            return CoverageCheck(
+                ok=True,
+                feed=feed,
+                watermark=wm,
+                required_end=required_end,
+                reason="ok",
+            )
+
+        return CoverageCheck(
+            ok=False,
+            feed=feed,
+            watermark=wm,
+            required_end=required_end,
+            reason="watermark_before_required_end",
+        )
+
+    def count_events_by_feed(self, *, feed: str) -> int:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_EVENTS} WHERE feed = ?",
+                (feed,),
+            ).fetchone()
+            return int(row["n"])
+
+    def count_current_by_feed(self, *, feed: str) -> int:
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {TABLE_CURRENT} WHERE feed = ?",
+                (feed,),
+            ).fetchone()
+            return int(row["n"])
+
+    def list_current_outright_maturities_by_feed(
+        self, *, feed: str
+    ) -> set[tuple[int, int]]:
+        """
+        Return the set of (maturity_year, maturity_month) present in instrument_definition_current
+        for this feed, filtered to outright futures (security_type=FUT, instrument_class=F).
+
+        JSON paths correspond to Databento definition schema fields, stored in payload_json.
+        """
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                  json_extract(payload_json, '$.maturity_year')  AS maturity_year,
+                  json_extract(payload_json, '$.maturity_month') AS maturity_month
+                FROM {TABLE_CURRENT}
+                WHERE feed = ?
+                  AND json_extract(payload_json, '$.security_type') = 'FUT'
+                  AND json_extract(payload_json, '$.instrument_class') = 'F'
+                ORDER BY maturity_year, maturity_month;
+                """,
+                (feed,),
+            ).fetchall()
+
+        out: set[tuple[int, int]] = set()
+        for r in rows:
+            if r["maturity_year"] is None or r["maturity_month"] is None:
+                continue
+            out.add((int(r["maturity_year"]), int(r["maturity_month"])))
+        return out
+
+    def get_current(
+        self, *, publisher_id: int, instrument_id: int
+    ) -> dict[str, Any] | None:
+        """
+        Backwards-compatible point lookup (not feed-scoped).
+        """
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                       security_update_action, rtype, payload_json, event_uid
+                FROM {TABLE_CURRENT}
+                WHERE publisher_id = ? AND instrument_id = ?
+                """,
+                (publisher_id, instrument_id),
+            ).fetchone()
+            return None if row is None else dict(row)
+
+    def list_current(
+        self, *, publisher_id: int | None = None, feed: str | None = None
+    ) -> pd.DataFrame:
+        """
+        Backwards-compatible bulk listing, with optional publisher_id filter.
+        Extended: optional feed filter.
+
+        NOTE: This returns a DataFrame for convenience, as you already used it.
+        For bounded reads, prefer read_current_by_feed(...).
+        """
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            if publisher_id is None and feed is None:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """
+                ).fetchall()
+            elif publisher_id is not None and feed is None:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    WHERE publisher_id = ?
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """,
+                    (publisher_id,),
+                ).fetchall()
+            elif publisher_id is None and feed is not None:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    WHERE feed = ?
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """,
+                    (feed,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                           security_update_action, rtype, payload_json, event_uid
+                    FROM {TABLE_CURRENT}
+                    WHERE publisher_id = ? AND feed = ?
+                    ORDER BY ts_recv, ts_event, publisher_id, instrument_id
+                    """,
+                    (publisher_id, feed),
+                ).fetchall()
+
+        return pd.DataFrame([dict(r) for r in rows])
+
+    def read_current_by_feed(
+        self, *, feed: str, limit: int = 1000, newest_first: bool = True
+    ) -> list[dict[str, Any]]:
+        """
+        Bounded read for operational diagnostics.
+        Returns list[dict] to keep it lightweight and avoid pandas dependency in callers.
+        """
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+
+        self._backend.ensure_migrated()
+        order = "DESC" if newest_first else "ASC"
+        with self._backend.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT feed, publisher_id, instrument_id, ts_event, ts_recv,
+                       security_update_action, rtype, payload_json, event_uid
+                FROM {TABLE_CURRENT}
+                WHERE feed = ?
+                ORDER BY ts_recv {order}, ts_event {order}, publisher_id, instrument_id
+                LIMIT ?;
+                """,
+                (feed, int(limit)),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     # -------------------------
     # Internal helpers
