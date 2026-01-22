@@ -21,6 +21,11 @@ from mxm.v1.marketdata.vendors.databento.cost import (
     enforce_cost_cap,
     estimate_cost_instrument_definition,
 )
+from mxm.v1.marketdata.vendors.databento.dataset_range import (
+    clamp_end,
+    clamp_start,
+    get_dataset_range,
+)
 from mxm.v1.marketdata.vendors.databento.pull import pull_instrument_definitions
 
 # Keep vendor availability constraints in orchestration/config, not in the dataset store.
@@ -61,8 +66,11 @@ class InstrumentDefinitionsOrchestratorReport:
     watermark_before: str | None
     watermark_after: str | None
 
-    requested_end: str
     windows_attempted: int
+    requested_end: str
+    requested_end_raw: str | None = None
+    dataset_range_end: str | None = None
+    dataset_range_start: str | None = None
     windows: list[WindowRun] = field(default_factory=list)
 
     cost_cap_usd: float = 0.0
@@ -163,14 +171,14 @@ def ingest_instrument_definitions(
                 f"watermark_deleted={reset_result.watermark_deleted}"
             )
     watermark_before = store.get_watermark(feed=feed)
-    default_start = DATASET_AVAILABLE_START.get(root.dataset)
-    if default_start is None:
-        raise RuntimeError(
-            f"No dataset available-start configured for dataset={root.dataset}. "
-            "Add it to DATASET_AVAILABLE_START (or load from config)."
-        )
-
-    requested_end = end or _utc_now_iso_z()
+    avail = get_dataset_range(
+        client=client,
+        dataset=root.dataset,
+        schema="definition",  # or root.schema if you prefer to pass it through
+    )
+    default_start = avail.start
+    requested_end_raw = end or _utc_now_iso_z()
+    requested_end = clamp_end(end=requested_end_raw, available=avail)
     remaining_cap = float(cost_cap_usd)
 
     report = InstrumentDefinitionsOrchestratorReport(
@@ -186,6 +194,9 @@ def ingest_instrument_definitions(
         watermark_before=watermark_before,
         watermark_after=watermark_before,
         requested_end=requested_end,
+        requested_end_raw=requested_end_raw,
+        dataset_range_start=avail.start,
+        dataset_range_end=avail.end,
         windows_attempted=0,
         cost_cap_usd=float(cost_cap_usd),
         cost_usd_total=0.0,
@@ -198,7 +209,7 @@ def ingest_instrument_definitions(
         default_start=default_start,
         overlap=overlap,
     )
-    start = _clamp_start_to_dataset_available(dataset=root.dataset, start=start)
+    start = clamp_start(start=start, available=avail)
 
     last_watermark = watermark_before
     print(
@@ -304,7 +315,10 @@ def ingest_instrument_definitions(
 
     if report.stopped_reason == "max_windows":
         print(f"[defs][stop] max_windows reached ({max_windows})")
-    print("[defs][stop] reached requested_end")
+    elif report.stopped_reason == "reached_end":
+        print("[defs][stop] reached requested_end")
+    else:
+        print(f"[defs][stop] {report.stopped_reason}")
     print(
         f"[defs][done] windows={report.windows_attempted} "
         f"cost_usd_total={report.cost_usd_total:.6f} "
