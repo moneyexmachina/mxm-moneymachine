@@ -62,7 +62,7 @@ class InstrumentDefinitionMappingsOrchestratorReport:
 
     # Gates (the orchestrator refuses to mutate other datasets)
     gates: list[GateCheck] = field(default_factory=list)
-
+    definitions_watermark: str | None = None
     # Contract universe stats
     refdata_contracts_total: int = 0
     refdata_maturities_total: int = 0
@@ -148,6 +148,7 @@ def rebuild_instrument_definition_mappings(
     # ---------------------------------------------------------------------
     # Gate 1: watermark must exist for feed (definitions have been ingested at least once)
     wm = defs_store.get_watermark(feed=feed)
+    report.definitions_watermark = wm
     if wm is None:
         report.gates.append(
             GateCheck(
