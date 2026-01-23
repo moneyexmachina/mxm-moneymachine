@@ -11,7 +11,8 @@ from mxm_refdata.models.contracts.futures_contract import (
 )
 
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
-    make_instrument_definition_feed,
+    get_watermark_for_product,
+    read_lifecycle_for_product_instrument,
 )
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
@@ -20,6 +21,7 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.api import (
     contract_window_utc_half_open,
     is_complete_level0,
 )
+from mxm.v1.marketdata.datasets.ohlcv_1d.expected import derive_expected_window
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     DatabentoInstrumentIdentity,
@@ -62,7 +64,7 @@ class ContractRun:
     )
     vendor_start: str | None = None
     vendor_end: str | None = None
-
+    vendor_final: bool = False
     cost_usd: float = 0.0
     bars_path: str | None = None
 
@@ -96,23 +98,38 @@ def _utc_now_iso_z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def _dt_utc_from_iso_z(ts: str) -> datetime:
-    # Databento may return nanoseconds; truncate to microseconds for datetime.
-    # Example: 2026-01-22T01:35:01.776253000Z
-    if not ts.endswith("Z"):
-        raise ValueError(f"expected Z timestamp: {ts}")
-    core = ts[:-1]
-    if "." in core:
-        left, frac = core.split(".", 1)
-        frac6 = (frac + "000000")[:6]
-        core = f"{left}.{frac6}"
-    dt = datetime.fromisoformat(core)
-    return dt.replace(tzinfo=timezone.utc)
-
-
 def _contract_key(c: FuturesContract) -> str:
     y, m = contract_year_month(c)
     return f"{c.product_id}:{y:04d}-{m:02d}"
+
+
+def _subset_eligible_contracts(
+    *,
+    contracts_all: list[FuturesContract],
+    dataset_start: pd.Timestamp,
+    dataset_end: pd.Timestamp,  # end-exclusive
+) -> tuple[list[FuturesContract], int]:
+    eligible: list[FuturesContract] = []
+    excluded = 0
+
+    for c in contracts_all:
+        w = contract_window_utc_half_open(
+            start_date=c.first_day_of_interest,
+            end_date_inclusive=c.last_trading_day,
+        )
+        w_start = (
+            w.start.tz_convert("UTC") if w.start.tzinfo else w.start.tz_localize("UTC")
+        )
+        w_end = w.end.tz_convert("UTC") if w.end.tzinfo else w.end.tz_localize("UTC")
+
+        # overlap between [w_start, w_end) and [dataset_start, dataset_end)
+        if w_end <= dataset_start or w_start >= dataset_end:
+            excluded += 1
+            continue
+
+        eligible.append(c)
+
+    return eligible, excluded
 
 
 def _gate_definitions_available(
@@ -124,23 +141,16 @@ def _gate_definitions_available(
     Minimal gate: definitions watermark exists for the product's feed.
     This does NOT ensure “up-to-date”; it ensures the dataset is present at all.
     """
-    root = get_databento_product_root(product_id)
-    feed = make_instrument_definition_feed(
-        source="databento",
-        dataset=root.dataset,
-        symbol=root.parent,
-        stype_in=root.stype_in,
-        schema="definition",
-    ).key()
-
     store = InstrumentDefinitionsStore(backend=backend)
-    wm = store.get_watermark(feed=feed)
+    wm = get_watermark_for_product(store=store, product_id=product_id)
+
     if wm is None:
         return GateResult(
             name="instrument_definitions_watermark_exists",
             ok=False,
-            detail=f"missing watermark for feed={feed}",
+            detail=f"missing watermark for product_id={product_id}",
         )
+
     return GateResult(
         name="instrument_definitions_watermark_exists",
         ok=True,
@@ -237,7 +247,7 @@ def ingest_ohlcv_1d_for_product(
             detail=f"start={avail.start} end={avail.end} (end exclusive)",
         )
     )
-
+    defs_store = InstrumentDefinitionsStore(backend=backend)
     # Convert dataset range to pandas timestamps (UTC) once; do all math in pd.Timestamp.
     avail_start_ts = pd.Timestamp(avail.start)
     avail_end_ts = pd.Timestamp(avail.end)
@@ -254,25 +264,11 @@ def ingest_ohlcv_1d_for_product(
     # Contract enumeration + eligibility filter
     # -------------------------
     contracts_all = _enumerate_contracts(product_id, mode=mode)
-
-    eligible: list[FuturesContract] = []
-    excluded = 0
-    for c in contracts_all:
-        w = contract_window_utc_half_open(
-            start_date=c.first_day_of_interest,
-            end_date_inclusive=c.last_trading_day,
-        )
-        # w.start / w.end are expected to be tz-aware UTC, but normalise defensively.
-        w_start = (
-            w.start.tz_convert("UTC") if w.start.tzinfo else w.start.tz_localize("UTC")
-        )
-        w_end = w.end.tz_convert("UTC") if w.end.tzinfo else w.end.tz_localize("UTC")
-
-        # Overlap test between [w_start, w_end) and [avail_start_ts, avail_end_ts)
-        if w_end <= avail_start_ts or w_start >= avail_end_ts:
-            excluded += 1
-            continue
-        eligible.append(c)
+    eligible, excluded = _subset_eligible_contracts(
+        contracts_all=contracts_all,
+        dataset_start=avail_start_ts,
+        dataset_end=avail_end_ts,
+    )
 
     report.contracts_excluded_unavailable = excluded
     report.contracts_considered = len(eligible)
@@ -292,6 +288,7 @@ def ingest_ohlcv_1d_for_product(
     # Main loop
     # -------------------------
     for c in contracts:
+        # 1) Interest window (for reporting only)
         window = contract_window_utc_half_open(
             start_date=c.first_day_of_interest,
             end_date_inclusive=c.last_trading_day,
@@ -307,30 +304,8 @@ def ingest_ohlcv_1d_for_product(
             else window.end.tz_localize("UTC")
         )
 
-        # Clamp contract window to dataset range
-        effective_start = max(w_start, avail_start_ts)
-        effective_end = min(w_end, avail_end_ts)  # avail_end is exclusive
-
-        # If nothing remains after clamping, skip cleanly (half-open: require start < end)
-        if effective_end <= effective_start:
-            report.runs.append(
-                ContractRun(
-                    contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=str(w_start),
-                    target_end=str(w_end),
-                    vendor_start=None,
-                    vendor_end=None,
-                    stored_min=None,
-                    stored_max=None,
-                    stored_rows=0,
-                    status="skipped_unavailable_range",
-                )
-            )
-            continue
-
-        start_s = effective_start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_s = effective_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        interest_start_s = w_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        interest_end_s = w_end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Resolve mapping (no vendor calls)
         try:
@@ -339,14 +314,16 @@ def ingest_ohlcv_1d_for_product(
             )
             report.contracts_mapped += 1
         except Exception:
+            # Mapping unsuccessful: Status UNMAPPED
             report.runs.append(
                 ContractRun(
                     contract_id=str(c.contract_id),
                     contract_key=_contract_key(c),
-                    target_start=str(w_start),
-                    target_end=str(w_end),
-                    vendor_start=start_s,
-                    vendor_end=end_s,
+                    target_start=interest_start_s,
+                    target_end=interest_end_s,
+                    vendor_start=None,
+                    vendor_end=None,
+                    vendor_final=False,
                     stored_min=None,
                     stored_max=None,
                     stored_rows=0,
@@ -355,6 +332,56 @@ def ingest_ohlcv_1d_for_product(
             )
             continue
 
+        # TODO(S12+): Assert lifecycle completeness.
+        # Invariant (desired): mapped Databento instruments should always have
+        # at least an expiration timestamp in instrument_definitions.
+        # Empirically this holds today; if violated, we should fail fast
+        # with a dedicated InstrumentLifecycleMissingError.
+        lifecycle = read_lifecycle_for_product_instrument(
+            store=defs_store,
+            product_id=product_id,
+            publisher_id=ident.publisher_id,
+            instrument_id=ident.instrument_id,
+        )
+        activation_ns, expiration_ns = (
+            lifecycle if lifecycle is not None else (None, None)
+        )
+
+        # 4) Strong expected window = interest ∩ dataset_range ∩ lifecycle
+        ew = derive_expected_window(
+            product_id=product_id,
+            contract_id=str(c.contract_id),
+            first_day_of_interest=c.first_day_of_interest,
+            last_trading_day=c.last_trading_day,
+            dataset_start=avail_start_ts,
+            dataset_end=avail_end_ts,
+            activation=activation_ns,
+            expiration=expiration_ns,
+        )
+        exp_start_s = ew.expected_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        exp_end_s = ew.expected_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        interest_start_s = ew.interest_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        interest_end_s = ew.interest_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        if ew.is_empty:
+            report.runs.append(
+                ContractRun(
+                    contract_id=str(c.contract_id),
+                    contract_key=_contract_key(c),
+                    target_start=interest_start_s,
+                    target_end=interest_end_s,
+                    vendor_start=None,
+                    vendor_end=None,
+                    vendor_final=ew.vendor_final,
+                    stored_min=None,
+                    stored_max=None,
+                    stored_rows=0,
+                    status="skipped_empty_expected_window",
+                )
+            )
+            continue
+
+        # 5) Use expected window as the request window
         # Optional: local reset for this identity (parquet only)
         if reset_local:
             store.delete(
@@ -372,8 +399,8 @@ def ingest_ohlcv_1d_for_product(
             stored_min=cov_before.min_ts,
             stored_max=cov_before.max_ts,
             row_count=cov_before.row_count,
-            target_start=effective_start,
-            target_end=effective_end,
+            target_start=ew.expected_start,
+            target_end=ew.expected_end,
         )
 
         if complete_before:
@@ -382,10 +409,11 @@ def ingest_ohlcv_1d_for_product(
                 ContractRun(
                     contract_id=str(c.contract_id),
                     contract_key=_contract_key(c),
-                    target_start=str(w_start),
-                    target_end=str(w_end),
-                    vendor_start=start_s,
-                    vendor_end=end_s,
+                    target_start=interest_start_s,
+                    target_end=interest_end_s,
+                    vendor_start=exp_start_s,
+                    vendor_end=exp_end_s,
+                    vendor_final=ew.vendor_final,
                     stored_min=(
                         str(cov_before.min_ts)
                         if cov_before.min_ts is not None
@@ -408,10 +436,11 @@ def ingest_ohlcv_1d_for_product(
                 ContractRun(
                     contract_id=str(c.contract_id),
                     contract_key=_contract_key(c),
-                    target_start=str(w_start),
-                    target_end=str(w_end),
-                    vendor_start=start_s,
-                    vendor_end=end_s,
+                    target_start=interest_start_s,
+                    target_end=interest_end_s,
+                    vendor_start=exp_start_s,
+                    vendor_end=exp_end_s,
+                    vendor_final=ew.vendor_final,
                     stored_min=(
                         str(cov_before.min_ts)
                         if cov_before.min_ts is not None
@@ -434,10 +463,11 @@ def ingest_ohlcv_1d_for_product(
                 ContractRun(
                     contract_id=str(c.contract_id),
                     contract_key=_contract_key(c),
-                    target_start=str(w_start),
-                    target_end=str(w_end),
-                    vendor_start=start_s,
-                    vendor_end=end_s,
+                    target_start=interest_start_s,
+                    target_end=interest_end_s,
+                    vendor_start=exp_start_s,
+                    vendor_end=exp_end_s,
+                    vendor_final=ew.vendor_final,
                     stored_min=(
                         str(cov_before.min_ts)
                         if cov_before.min_ts is not None
@@ -464,16 +494,16 @@ def ingest_ohlcv_1d_for_product(
             dataset=ident.dataset,
             symbols=str(ident.instrument_id),
             stype_in="instrument_id",
-            start=start_s,
-            end=end_s,
+            start=exp_start_s,
+            end=exp_end_s,
         )
         enforce_cost_cap(estimated_cost_usd=est.estimated_cost_usd, cap_usd=remaining)
 
         df_raw = pull_ohlcv_1d_by_instrument_id(
             dataset=ident.dataset,
             instrument_id=ident.instrument_id,
-            start=start_s,
-            end=end_s,
+            start=exp_start_s,
+            end=exp_end_s,
             source="databento",
         )
         df = normalize_ohlcv_1d(
@@ -499,8 +529,8 @@ def ingest_ohlcv_1d_for_product(
             stored_min=cov_after.min_ts,
             stored_max=cov_after.max_ts,
             row_count=cov_after.row_count,
-            target_start=effective_start,
-            target_end=effective_end,
+            target_start=ew.expected_start,
+            target_end=ew.expected_end,
         )
 
         status = "ingested" if complete_after else "incomplete"
@@ -511,10 +541,11 @@ def ingest_ohlcv_1d_for_product(
             ContractRun(
                 contract_id=str(c.contract_id),
                 contract_key=_contract_key(c),
-                target_start=str(w_start),
-                target_end=str(w_end),
-                vendor_start=start_s,
-                vendor_end=end_s,
+                target_start=interest_start_s,
+                target_end=interest_end_s,
+                vendor_start=exp_start_s,
+                vendor_end=exp_end_s,
+                vendor_final=ew.vendor_final,
                 stored_min=(
                     str(cov_after.min_ts) if cov_after.min_ts is not None else None
                 ),

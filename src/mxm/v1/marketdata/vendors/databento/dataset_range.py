@@ -33,7 +33,9 @@ def get_dataset_range(
 
     Uses: client.metadata.get_dataset_range(dataset=...)
     """
-    payload = client.metadata.get_dataset_range(dataset=dataset)
+    payload: dict[str, str | dict[str, str]] = client.metadata.get_dataset_range(
+        dataset=dataset
+    )
 
     if schema:
         schema_map = payload.get("schema") or {}

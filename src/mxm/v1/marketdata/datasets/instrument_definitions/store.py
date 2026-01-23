@@ -332,6 +332,51 @@ class InstrumentDefinitionsStore:
             ).fetchone()
             return None if row is None else dict(row)
 
+    def read_lifecycle_by_feed_and_identity(
+        self,
+        *,
+        feed: str,
+        publisher_id: int,
+        instrument_id: int,
+    ) -> tuple[int | None, int | None] | None:
+        """
+        Read activation/expiration (ns since epoch) for an instrument from the current view.
+
+        Returns:
+          (activation_ns, expiration_ns) if found, where each may be None,
+          or None if no current row exists for this (feed, publisher_id, instrument_id).
+
+        Notes:
+        - We intentionally read from TABLE_CURRENT (materialised latest state).
+        - Values are stored inside payload_json per Databento definition schema.
+        """
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT
+                  json_extract(payload_json, '$.activation') AS activation,
+                  json_extract(payload_json, '$.expiration') AS expiration
+                FROM {TABLE_CURRENT}
+                WHERE feed = ?
+                  AND publisher_id = ?
+                  AND instrument_id = ?
+                LIMIT 1;
+                """,
+                (feed, int(publisher_id), int(instrument_id)),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        activation = row["activation"]
+        expiration = row["expiration"]
+
+        activation_ns = None if activation is None else int(activation)
+        expiration_ns = None if expiration is None else int(expiration)
+
+        return (activation_ns, expiration_ns)
+
     def list_current(
         self, *, publisher_id: int | None = None, feed: str | None = None
     ) -> pd.DataFrame:

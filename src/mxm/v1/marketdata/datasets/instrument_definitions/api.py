@@ -231,3 +231,21 @@ def read_current_for_product(
         limit=limit,
         newest_first=newest_first,
     )
+
+
+def read_lifecycle_for_product_instrument(
+    *,
+    store: InstrumentDefinitionsStore,
+    product_id: str,
+    publisher_id: int,
+    instrument_id: int,
+) -> tuple[int | None, int | None] | None:
+    """
+    Convenience: resolve product scope -> feed, then read lifecycle for a specific instrument identity.
+    """
+    scope = resolve_scope_for_product(product_id=product_id)
+    return store.read_lifecycle_by_feed_and_identity(
+        feed=scope.feed,
+        publisher_id=publisher_id,
+        instrument_id=instrument_id,
+    )
