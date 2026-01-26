@@ -15,9 +15,31 @@ from mxm.v1.marketdata.schema.instrument_definitions import (
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 
+
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
+def _as_nullable_scalar(v: Any) -> Any:
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):  # type: ignore[arg-type]
+            return None
+    except Exception:
+        pass
+    # sqlite can return bytes sometimes
+    if isinstance(v, (bytes, bytearray)):
+        try:
+            return v.decode("utf-8")
+        except Exception:
+            return str(v)
+    # normalize pandas/numpy scalars
+    if hasattr(v, "item"):
+        try:
+            return v.item()
+        except Exception:
+            pass
+    return v
 
 
 @dataclass(frozen=True)
@@ -372,8 +394,8 @@ class InstrumentDefinitionsStore:
         activation = row["activation"]
         expiration = row["expiration"]
 
-        activation_ns = None if activation is None else int(activation)
-        expiration_ns = None if expiration is None else int(expiration)
+        activation_ns = None if activation is None else _as_nullable_scalar(activation)
+        expiration_ns = None if expiration is None else _as_nullable_scalar(expiration)
 
         return (activation_ns, expiration_ns)
 

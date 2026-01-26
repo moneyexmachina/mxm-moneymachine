@@ -234,7 +234,7 @@ class OHLCV1DAttemptsStore:
                     dataset, publisher_id, instrument_id, raw_symbol
                 FROM {TABLE}
                 WHERE product_id = ? AND contract_id = ?
-                ORDER BY created_at DESC
+                ORDER BY run_ts_utc DESC, created_at DESC, attempt_uid DESC
                 LIMIT 1;
                 """,
                 (product_id, contract_id),
@@ -303,7 +303,7 @@ class OHLCV1DAttemptsStore:
                     dataset, publisher_id, instrument_id, raw_symbol
                 FROM {TABLE}
                 WHERE contract_key = ?
-                ORDER BY created_at DESC
+                ORDER BY run_ts_utc DESC, created_at DESC, attempt_uid DESC
                 LIMIT 1;
                 """,
                 (contract_key,),

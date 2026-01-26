@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS ohlcv_1d_attempts (
 
 -- Primary operational index: latest attempts per (product_id, contract_id)
 CREATE INDEX IF NOT EXISTS idx_ohlcv1d_attempts_contract_ordering
-ON ohlcv_1d_attempts (product_id, contract_id, created_at);
+ON ohlcv_1d_attempts (product_id, contract_id, run_ts_utc, created_at);
 
 -- Useful for vendor-side diagnosis: latest attempts per instrument identity
 CREATE INDEX IF NOT EXISTS idx_ohlcv1d_attempts_vendor_ordering

@@ -40,15 +40,53 @@ class ExpectedWindow:
 # -----------------------------
 
 
-def _ts_utc(ts: pd.Timestamp) -> pd.Timestamp:
-    """Ensure tz-aware UTC pandas Timestamp."""
-    if ts.tzinfo is None:
-        return ts.tz_localize("UTC")
-    return ts.tz_convert("UTC")
+def _coerce_to_date(d: Any) -> date:
+    """
+    Accept date-like inputs used by refdata:
+      - datetime.date
+      - datetime.datetime
+      - pandas.Timestamp
+      - ISO8601 / YYYY-MM-DD strings
+    Return a datetime.date.
+    """
+    if d is None:
+        raise TypeError("date value is None")
+
+    if isinstance(d, date) and not isinstance(d, datetime):
+        return d
+
+    if isinstance(d, datetime):
+        return d.date()
+
+    if isinstance(d, pd.Timestamp):
+        # Timestamp may be tz-aware or naive; date() is stable.
+        return d.date()
+
+    if isinstance(d, str):
+        # pd.Timestamp parses YYYY-MM-DD and ISO8601 variants robustly.
+        return pd.Timestamp(d).date()
+
+    raise TypeError(f"unsupported date type: {type(d).__name__} value={d!r}")
 
 
-def _day_start_utc(d: date) -> pd.Timestamp:
-    return pd.Timestamp(datetime(d.year, d.month, d.day, tzinfo=timezone.utc))
+def _ts_utc(ts: Any) -> pd.Timestamp:
+    t = pd.Timestamp(ts)
+    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+
+
+def _day_start_utc(d: Any) -> pd.Timestamp:
+    dd = _coerce_to_date(d)
+    return pd.Timestamp(datetime(dd.year, dd.month, dd.day, tzinfo=timezone.utc))
+
+
+def _day_end_utc_exclusive(d: Any) -> pd.Timestamp:
+    """
+    End-exclusive day boundary: start of the next day.
+    """
+    dd = _coerce_to_date(d)
+    return pd.Timestamp(
+        datetime(dd.year, dd.month, dd.day, tzinfo=timezone.utc)
+    ) + pd.Timedelta(days=1)
 
 
 def _ceil_to_next_utc_day(dt_utc: datetime) -> pd.Timestamp:
@@ -95,19 +133,45 @@ def _extract_ns(value: Any) -> int | None:
     """
     Extract a nanoseconds-since-epoch integer from likely input shapes.
 
-    Expected sources:
-      - instrument_definitions fields often arrive as int-like, possibly numpy scalars.
-      - allow None / NaN.
+    Accepted inputs:
+      - int-like (ns since epoch)
+      - ISO8601 timestamp string (e.g. "2026-01-01T00:00:00Z")
+      - datetime / pandas.Timestamp
+      - None / NaN
     """
     if value is None:
         return None
+
     # pandas / numpy NaN handling
     try:
         if pd.isna(value):  # type: ignore[arg-type]
             return None
     except Exception:
         pass
-    # numpy scalar -> python int
+
+    # If already int-like (including numpy scalars)
+    if isinstance(value, (int,)):
+        return int(value)
+
+    # datetime / pandas.Timestamp
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        return int(pd.Timestamp(dt).value)  # ns since epoch
+
+    if isinstance(value, pd.Timestamp):
+        t = value if value.tzinfo is not None else value.tz_localize("UTC")
+        return int(t.value)  # ns since epoch
+
+    # ISO8601 string
+    if isinstance(value, str):
+        try:
+            t = pd.Timestamp(value)
+            t = t if t.tzinfo is not None else t.tz_localize("UTC")
+            return int(t.value)
+        except Exception as e:
+            raise TypeError(f"could not parse timestamp string: {value!r}") from e
+
+    # Fallback: try int(...) last, but with better error
     try:
         return int(value)
     except Exception as e:
@@ -121,15 +185,15 @@ def _extract_ns(value: Any) -> int | None:
 
 def derive_interest_window(
     *,
-    first_day_of_interest: date,
-    last_trading_day: date,
+    first_day_of_interest: Any,
+    last_trading_day: Any,
 ) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
     Interest window in half-open UTC form:
       [first_day_of_interest@00:00Z, (last_trading_day + 1d)@00:00Z)
     """
     start = _day_start_utc(first_day_of_interest)
-    end = _day_start_utc(last_trading_day + timedelta(days=1))
+    end = _day_end_utc_exclusive(last_trading_day)
     return start, end
 
 
@@ -163,8 +227,8 @@ def derive_expected_window(
     *,
     product_id: str,
     contract_id: str,
-    first_day_of_interest: date,
-    last_trading_day: date,
+    first_day_of_interest: Any,
+    last_trading_day: Any,
     dataset_start: pd.Timestamp,
     dataset_end: pd.Timestamp,  # end-exclusive
     activation: Any = None,

@@ -21,7 +21,17 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.api import (
     contract_window_utc_half_open,
     is_complete_level0,
 )
+from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (  # S12.1
+    CoverageSnapshot,
+    OHLCV1DAttemptsStore,
+)
 from mxm.v1.marketdata.datasets.ohlcv_1d.expected import derive_expected_window
+from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
+    BudgetContext,
+    RetryPolicy,
+    decide_action,
+    derive_state,
+)
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     DatabentoInstrumentIdentity,
@@ -33,7 +43,6 @@ from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.marketdata.vendors.databento.cost import (
-    enforce_cost_cap,
     estimate_cost_ohlcv_1d,
 )
 from mxm.v1.marketdata.vendors.databento.dataset_range import get_dataset_range
@@ -59,9 +68,7 @@ class ContractRun:
     stored_min: str | None
     stored_max: str | None
     stored_rows: int
-    status: (
-        str  # complete | ingested | unmapped | skipped_cost_cap | dry_run | incomplete
-    )
+    status: str  # complete | ingested | unmapped | skipped_cost_cap | dry_run | incomplete | error
     vendor_start: str | None = None
     vendor_end: str | None = None
     vendor_final: bool = False
@@ -176,12 +183,44 @@ def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract
     if mode == "bootstrap":
         return contracts
 
-    # mode == "update"
     today = date.today()
-    # Conservative: only touch contracts that could plausibly still be “live/recent”.
-    # You can refine later using an explicit refdata "active" query.
     cutoff = today.replace(year=today.year - 1)
     return [c for c in contracts if c.last_trading_day >= cutoff]
+
+
+def _to_ts_utc(x: str) -> pd.Timestamp:
+    ts = pd.Timestamp(x)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+
+def _fmt_ts_utc(ts: pd.Timestamp) -> str:
+    """
+    Keep consistent with attempts_store formatting: UTC ISO8601Z, second resolution.
+    """
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        t = t.tz_localize("UTC")
+    else:
+        t = t.tz_convert("UTC")
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _cov_snapshot(cov) -> CoverageSnapshot:
+    """
+    Adapter for OHLCV1DStore.scan_coverage(...) return.
+    Expected attributes:
+      - min_ts, max_ts, row_count, bars_path
+    """
+    return CoverageSnapshot(
+        min_ts=getattr(cov, "min_ts", None),
+        max_ts=getattr(cov, "max_ts", None),
+        row_count=int(getattr(cov, "row_count", 0)),
+        bars_path=(
+            str(getattr(cov, "bars_path"))
+            if getattr(cov, "bars_path", None) is not None
+            else None
+        ),
+    )
 
 
 def ingest_ohlcv_1d_for_product(
@@ -206,6 +245,13 @@ def ingest_ohlcv_1d_for_product(
 
     Completeness:
     - Level 0, half-open windows as defined in datasets/ohlcv_1d/api.py.
+
+    S12.1:
+    - Record exactly one ohlcv_1d_attempts row per contract considered.
+
+    S12.2:
+    - Derive per-contract DerivedState + Decision (noop/attempt_ingest/stop_run),
+      then execute decision and record attempt row.
     """
     if cost_cap_usd <= 0:
         raise ValueError("cost_cap_usd must be > 0")
@@ -217,6 +263,12 @@ def ingest_ohlcv_1d_for_product(
         cost_cap_usd=float(cost_cap_usd),
         cost_usd_total=0.0,
         stopped_reason="",
+    )
+
+    attempts_store = OHLCV1DAttemptsStore(backend=backend)
+    retry_policy = RetryPolicy(
+        max_consecutive_errors=3,
+        stop_run_on_systemic_error=True,
     )
 
     # -------------------------
@@ -231,7 +283,6 @@ def ingest_ohlcv_1d_for_product(
         )
 
     root = get_databento_product_root(product_id)
-
     avail = get_dataset_range(
         client=client,
         dataset=root.dataset,
@@ -247,18 +298,11 @@ def ingest_ohlcv_1d_for_product(
             detail=f"start={avail.start} end={avail.end} (end exclusive)",
         )
     )
+
     defs_store = InstrumentDefinitionsStore(backend=backend)
-    # Convert dataset range to pandas timestamps (UTC) once; do all math in pd.Timestamp.
-    avail_start_ts = pd.Timestamp(avail.start)
-    avail_end_ts = pd.Timestamp(avail.end)
-    if avail_start_ts.tzinfo is None:
-        avail_start_ts = avail_start_ts.tz_localize("UTC")
-    else:
-        avail_start_ts = avail_start_ts.tz_convert("UTC")
-    if avail_end_ts.tzinfo is None:
-        avail_end_ts = avail_end_ts.tz_localize("UTC")
-    else:
-        avail_end_ts = avail_end_ts.tz_convert("UTC")
+
+    avail_start_ts = _to_ts_utc(avail.start)
+    avail_end_ts = _to_ts_utc(avail.end)
 
     # -------------------------
     # Contract enumeration + eligibility filter
@@ -288,281 +332,377 @@ def ingest_ohlcv_1d_for_product(
     # Main loop
     # -------------------------
     for c in contracts:
-        # 1) Interest window (for reporting only)
-        window = contract_window_utc_half_open(
-            start_date=c.first_day_of_interest,
-            end_date_inclusive=c.last_trading_day,
-        )
-        w_start = (
-            window.start.tz_convert("UTC")
-            if window.start.tzinfo
-            else window.start.tz_localize("UTC")
-        )
-        w_end = (
-            window.end.tz_convert("UTC")
-            if window.end.tzinfo
-            else window.end.tz_localize("UTC")
-        )
+        # ---- per-contract attempt context (filled progressively) ----
+        ident: DatabentoInstrumentIdentity | None = None
+        ew = None
 
-        interest_start_s = w_start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        interest_end_s = w_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        cov_before: CoverageSnapshot | None = None
+        cov_after: CoverageSnapshot | None = None
 
-        # Resolve mapping (no vendor calls)
+        status: str | None = None
+        status_detail: str | None = None
+
+        cost_estimated_usd: float | None = None
+        cost_used_usd: float | None = None
+        cost_charged_usd: float | None = None
+
+        error_type: str | None = None
+        error_message: str | None = None
+
+        should_break_after = False  # stop after recording attempt row
+
+        # For report surface fields
+        interest_start_s: str | None = None
+        interest_end_s: str | None = None
+        exp_start_s: str | None = None
+        exp_end_s: str | None = None
+
+        # For state/decision
+        latest_attempt = None
+        decision = None
+        derived_state = None
+
+        # Track “complete now” for mapping to ledger/report
+        is_complete_now: bool | None = None
+
         try:
-            ident: DatabentoInstrumentIdentity = resolve_databento_instrument(
-                backend, c
+            # 1) Interest window (baseline surfaces)
+            window = contract_window_utc_half_open(
+                start_date=c.first_day_of_interest,
+                end_date_inclusive=c.last_trading_day,
             )
-            report.contracts_mapped += 1
-        except Exception:
-            # Mapping unsuccessful: Status UNMAPPED
-            report.runs.append(
-                ContractRun(
+            w_start = (
+                window.start.tz_convert("UTC")
+                if window.start.tzinfo
+                else window.start.tz_localize("UTC")
+            )
+            w_end = (
+                window.end.tz_convert("UTC")
+                if window.end.tzinfo
+                else window.end.tz_localize("UTC")
+            )
+            interest_start_s = _fmt_ts_utc(w_start)
+            interest_end_s = _fmt_ts_utc(w_end)
+
+            # 2) Resolve mapping
+            try:
+                ident = resolve_databento_instrument(backend, c)
+                report.contracts_mapped += 1
+            except Exception as e:
+                # Still produce ew (no lifecycle bounds available)
+                ew = derive_expected_window(
+                    product_id=product_id,
                     contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=interest_start_s,
-                    target_end=interest_end_s,
-                    vendor_start=None,
-                    vendor_end=None,
-                    vendor_final=False,
-                    stored_min=None,
-                    stored_max=None,
-                    stored_rows=0,
-                    status="unmapped",
+                    first_day_of_interest=c.first_day_of_interest,
+                    last_trading_day=c.last_trading_day,
+                    dataset_start=avail_start_ts,
+                    dataset_end=avail_end_ts,
+                    activation=None,
+                    expiration=None,
                 )
+                exp_start_s = _fmt_ts_utc(ew.expected_start)
+                exp_end_s = _fmt_ts_utc(ew.expected_end)
+                interest_start_s = _fmt_ts_utc(ew.interest_start)
+                interest_end_s = _fmt_ts_utc(ew.interest_end)
+
+                status = "unmapped"
+                status_detail = f"mapping_failed:{type(e).__name__}"
+                continue
+
+            # 3) Lifecycle bounds (from instrument_definitions)
+            lifecycle = read_lifecycle_for_product_instrument(
+                store=defs_store,
+                product_id=product_id,
+                publisher_id=ident.publisher_id,
+                instrument_id=ident.instrument_id,
             )
-            continue
+            activation_ns, expiration_ns = (
+                lifecycle if lifecycle is not None else (None, None)
+            )
 
-        # TODO(S12+): Assert lifecycle completeness.
-        # Invariant (desired): mapped Databento instruments should always have
-        # at least an expiration timestamp in instrument_definitions.
-        # Empirically this holds today; if violated, we should fail fast
-        # with a dedicated InstrumentLifecycleMissingError.
-        lifecycle = read_lifecycle_for_product_instrument(
-            store=defs_store,
-            product_id=product_id,
-            publisher_id=ident.publisher_id,
-            instrument_id=ident.instrument_id,
-        )
-        activation_ns, expiration_ns = (
-            lifecycle if lifecycle is not None else (None, None)
-        )
+            # 4) Strong expected window
+            ew = derive_expected_window(
+                product_id=product_id,
+                contract_id=str(c.contract_id),
+                first_day_of_interest=c.first_day_of_interest,
+                last_trading_day=c.last_trading_day,
+                dataset_start=avail_start_ts,
+                dataset_end=avail_end_ts,
+                activation=activation_ns,
+                expiration=expiration_ns,
+            )
+            exp_start_s = _fmt_ts_utc(ew.expected_start)
+            exp_end_s = _fmt_ts_utc(ew.expected_end)
+            interest_start_s = _fmt_ts_utc(ew.interest_start)
+            interest_end_s = _fmt_ts_utc(ew.interest_end)
 
-        # 4) Strong expected window = interest ∩ dataset_range ∩ lifecycle
-        ew = derive_expected_window(
-            product_id=product_id,
-            contract_id=str(c.contract_id),
-            first_day_of_interest=c.first_day_of_interest,
-            last_trading_day=c.last_trading_day,
-            dataset_start=avail_start_ts,
-            dataset_end=avail_end_ts,
-            activation=activation_ns,
-            expiration=expiration_ns,
-        )
-        exp_start_s = ew.expected_start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        exp_end_s = ew.expected_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-        interest_start_s = ew.interest_start.strftime("%Y-%m-%dT%H:%M:%SZ")
-        interest_end_s = ew.interest_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Fetch latest attempt (used for retry/systemic error policy)
+            latest_attempt = attempts_store.get_latest_attempt_for_contract(
+                product_id=product_id,
+                contract_id=str(c.contract_id),
+            )
 
-        if ew.is_empty:
-            report.runs.append(
-                ContractRun(
-                    contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=interest_start_s,
-                    target_end=interest_end_s,
-                    vendor_start=None,
-                    vendor_end=None,
-                    vendor_final=ew.vendor_final,
-                    stored_min=None,
-                    stored_max=None,
-                    stored_rows=0,
-                    status="skipped_empty_expected_window",
+            # If expected is empty, decision is trivially noop; still record attempt
+            if ew.is_empty:
+                status = "skipped_empty_expected_window"
+                status_detail = "expected_window_empty"
+                continue
+
+            # 5) Optional local reset for this identity (parquet only)
+            # Note: this remains a run-level knob for now.
+            if reset_local and not dry_run:
+                store.delete(
+                    dataset=ident.dataset,
+                    publisher_id=ident.publisher_id,
+                    instrument_id=ident.instrument_id,
                 )
-            )
-            continue
 
-        # 5) Use expected window as the request window
-        # Optional: local reset for this identity (parquet only)
-        if reset_local:
-            store.delete(
+            # 6) Coverage now (pre-decision surface)
+            if reset_local and dry_run:
+                # simulate reset without deleting on disk
+                cov0 = CoverageSnapshot(min_ts=None, max_ts=None, row_count=0)
+            else:
+                cov0 = store.scan_coverage(
+                    dataset=ident.dataset,
+                    publisher_id=ident.publisher_id,
+                    instrument_id=ident.instrument_id,
+                )
+            cov_before = _cov_snapshot(cov0)
+
+            is_complete_now = is_complete_level0(
+                stored_min=cov0.min_ts,
+                stored_max=cov0.max_ts,
+                row_count=cov0.row_count,
+                target_start=ew.expected_start,
+                target_end=ew.expected_end,
+            )
+
+            # Derived state + decision
+            derived_state = derive_state(
+                latest_attempt=latest_attempt,
+                ew=ew,
+                coverage_now=cov_before,
+                is_mapped=True,
+                reset_local=reset_local,
+            )
+            decision = decide_action(
+                state=derived_state,
+                policy=retry_policy,
+                budgets=BudgetContext(remaining_usd=float(remaining)),
+                latest_attempt=latest_attempt,
+            )
+
+            # Dry-run overrides: never vendor-call; record as dry_run regardless
+            if dry_run:
+                status = "dry_run"
+                status_detail = f"dry_run_decision={decision.action}"
+                continue
+            # Map decision/state to ledger status for noop paths
+            if decision.action == "noop":
+                if derived_state.value == "done":
+                    # DONE may be complete or vendor_final partial.
+                    if is_complete_now:
+                        report.complete_before += 1
+                        status = "complete"
+                        status_detail = "already_complete"
+                    else:
+                        # Vendor-final partial “done” (explicitly tagged)
+                        status = "complete"
+                        status_detail = "vendor_final_partial_done"
+                elif derived_state.value == "blocked_unmapped":
+                    status = "unmapped"
+                    status_detail = "blocked_unmapped"
+                elif derived_state.value == "blocked_empty_expected":
+                    status = "skipped_empty_expected_window"
+                    status_detail = "expected_window_empty"
+                elif derived_state.value == "skipped_budget":
+                    status = "skipped_cost_cap"
+                    status_detail = "skipped_budget"
+                else:
+                    # Includes "final_error" and other noop-returning states
+                    status = "dry_run" if dry_run else "complete"
+                    status_detail = decision.reason
+                continue
+
+            if decision.action == "stop_run":
+                status = "error"
+                status_detail = f"stop_run:{decision.reason}"
+                report.stopped_reason = "stop_run"
+                should_break_after = True
+                continue
+
+            # decision.action == "attempt_ingest"
+            # Budget hard stop: no remaining budget means stop run (after recording attempt)
+            if remaining <= 0:
+                status = "skipped_cost_cap"
+                status_detail = "cost_cap_reached"
+                report.stopped_reason = "cost_cap"
+                should_break_after = True
+                continue
+
+            # -------------------------
+            # Vendor call + normalise + persist
+            # -------------------------
+            est = estimate_cost_ohlcv_1d(
+                client=client,
+                dataset=ident.dataset,
+                symbols=str(ident.instrument_id),
+                stype_in="instrument_id",
+                start=exp_start_s,
+                end=exp_end_s,
+            )
+            cost_estimated_usd = float(est.estimated_cost_usd)
+
+            # Budget gate: insufficient remaining for this contract is a normal skip, not an error.
+            # Do NOT break: later contracts may be cheaper.
+            if cost_estimated_usd > remaining:
+                status = "skipped_cost_cap"
+                status_detail = "estimate_exceeds_remaining"
+                continue
+
+            df_raw = pull_ohlcv_1d_by_instrument_id(
+                dataset=ident.dataset,
+                instrument_id=ident.instrument_id,
+                start=exp_start_s,
+                end=exp_end_s,
+                source="databento",
+            )
+            df = normalize_ohlcv_1d(
+                df_raw, dataset=ident.dataset, raw_symbol=ident.raw_symbol
+            )
+
+            store.write(
+                dataset=ident.dataset,
+                publisher_id=ident.publisher_id,
+                instrument_id=ident.instrument_id,
+                df_new=df,
+            )
+
+            # MVP: treat estimate as used/charged
+            cost_used_usd = cost_estimated_usd
+            cost_charged_usd = cost_estimated_usd
+
+            report.cost_usd_total += cost_used_usd
+            remaining -= cost_used_usd
+
+            cov1 = store.scan_coverage(
                 dataset=ident.dataset,
                 publisher_id=ident.publisher_id,
                 instrument_id=ident.instrument_id,
             )
+            cov_after = _cov_snapshot(cov1)
 
-        cov_before = store.scan_coverage(
-            dataset=ident.dataset,
-            publisher_id=ident.publisher_id,
-            instrument_id=ident.instrument_id,
-        )
-        complete_before = is_complete_level0(
-            stored_min=cov_before.min_ts,
-            stored_max=cov_before.max_ts,
-            row_count=cov_before.row_count,
-            target_start=ew.expected_start,
-            target_end=ew.expected_end,
-        )
-
-        if complete_before:
-            report.complete_before += 1
-            report.runs.append(
-                ContractRun(
-                    contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=interest_start_s,
-                    target_end=interest_end_s,
-                    vendor_start=exp_start_s,
-                    vendor_end=exp_end_s,
-                    vendor_final=ew.vendor_final,
-                    stored_min=(
-                        str(cov_before.min_ts)
-                        if cov_before.min_ts is not None
-                        else None
-                    ),
-                    stored_max=(
-                        str(cov_before.max_ts)
-                        if cov_before.max_ts is not None
-                        else None
-                    ),
-                    stored_rows=int(cov_before.row_count),
-                    status="complete",
-                    bars_path=str(cov_before.bars_path),
-                )
+            complete_after = is_complete_level0(
+                stored_min=cov1.min_ts,
+                stored_max=cov1.max_ts,
+                row_count=cov1.row_count,
+                target_start=ew.expected_start,
+                target_end=ew.expected_end,
             )
-            continue
 
-        if dry_run:
-            report.runs.append(
-                ContractRun(
+            if complete_after:
+                status = "ingested"
+                status_detail = "ingested_complete"
+                report.completed_this_run += 1
+            elif ew.vendor_final:
+                status = "ingested"
+                status_detail = "vendor_final_partial_done"
+                report.completed_this_run += 1
+            else:
+                status = "incomplete"
+                status_detail = "incomplete_after_ingest"
+
+        except Exception as e:
+            status = "error"
+            status_detail = "exception"
+            error_type = type(e).__name__
+            error_message = str(e)[:500]
+
+        finally:
+            # Ensure ew always exists (ledger invariant)
+            if ew is None:
+                ew = derive_expected_window(
+                    product_id=product_id,
                     contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=interest_start_s,
-                    target_end=interest_end_s,
-                    vendor_start=exp_start_s,
-                    vendor_end=exp_end_s,
-                    vendor_final=ew.vendor_final,
-                    stored_min=(
-                        str(cov_before.min_ts)
-                        if cov_before.min_ts is not None
-                        else None
-                    ),
-                    stored_max=(
-                        str(cov_before.max_ts)
-                        if cov_before.max_ts is not None
-                        else None
-                    ),
-                    stored_rows=int(cov_before.row_count),
-                    status="dry_run",
-                    bars_path=str(cov_before.bars_path),
+                    first_day_of_interest=c.first_day_of_interest,
+                    last_trading_day=c.last_trading_day,
+                    dataset_start=avail_start_ts,
+                    dataset_end=avail_end_ts,
+                    activation=None,
+                    expiration=None,
                 )
-            )
-            continue
+                exp_start_s = _fmt_ts_utc(ew.expected_start)
+                exp_end_s = _fmt_ts_utc(ew.expected_end)
+                interest_start_s = _fmt_ts_utc(ew.interest_start)
+                interest_end_s = _fmt_ts_utc(ew.interest_end)
 
-        if remaining <= 0:
-            report.runs.append(
-                ContractRun(
-                    contract_id=str(c.contract_id),
-                    contract_key=_contract_key(c),
-                    target_start=interest_start_s,
-                    target_end=interest_end_s,
-                    vendor_start=exp_start_s,
-                    vendor_end=exp_end_s,
-                    vendor_final=ew.vendor_final,
-                    stored_min=(
-                        str(cov_before.min_ts)
-                        if cov_before.min_ts is not None
-                        else None
-                    ),
-                    stored_max=(
-                        str(cov_before.max_ts)
-                        if cov_before.max_ts is not None
-                        else None
-                    ),
-                    stored_rows=int(cov_before.row_count),
-                    status="skipped_cost_cap",
-                    bars_path=str(cov_before.bars_path),
-                )
-            )
-            report.stopped_reason = "cost_cap"
-            break
-
-        # -------------------------
-        # Vendor call + normalise + persist
-        # -------------------------
-        est = estimate_cost_ohlcv_1d(
-            client=client,
-            dataset=ident.dataset,
-            symbols=str(ident.instrument_id),
-            stype_in="instrument_id",
-            start=exp_start_s,
-            end=exp_end_s,
-        )
-        enforce_cost_cap(estimated_cost_usd=est.estimated_cost_usd, cap_usd=remaining)
-
-        df_raw = pull_ohlcv_1d_by_instrument_id(
-            dataset=ident.dataset,
-            instrument_id=ident.instrument_id,
-            start=exp_start_s,
-            end=exp_end_s,
-            source="databento",
-        )
-        df = normalize_ohlcv_1d(
-            df_raw, dataset=ident.dataset, raw_symbol=ident.raw_symbol
-        )
-
-        store.write(
-            dataset=ident.dataset,
-            publisher_id=ident.publisher_id,
-            instrument_id=ident.instrument_id,
-            df_new=df,
-        )
-
-        report.cost_usd_total += float(est.estimated_cost_usd)
-        remaining -= float(est.estimated_cost_usd)
-
-        cov_after = store.scan_coverage(
-            dataset=ident.dataset,
-            publisher_id=ident.publisher_id,
-            instrument_id=ident.instrument_id,
-        )
-        complete_after = is_complete_level0(
-            stored_min=cov_after.min_ts,
-            stored_max=cov_after.max_ts,
-            row_count=cov_after.row_count,
-            target_start=ew.expected_start,
-            target_end=ew.expected_end,
-        )
-
-        status = "ingested" if complete_after else "incomplete"
-        if complete_after:
-            report.completed_this_run += 1
-
-        report.runs.append(
-            ContractRun(
+            # Record attempt row (exactly once per contract considered)
+            attempts_store.record_attempt(
+                run_ts_utc=report.ts_utc,
+                mode=mode,
+                dry_run=bool(dry_run),
+                reset_local=bool(reset_local),
+                cost_cap_usd=float(cost_cap_usd),
+                product_id=product_id,
                 contract_id=str(c.contract_id),
                 contract_key=_contract_key(c),
-                target_start=interest_start_s,
-                target_end=interest_end_s,
-                vendor_start=exp_start_s,
-                vendor_end=exp_end_s,
-                vendor_final=ew.vendor_final,
-                stored_min=(
-                    str(cov_after.min_ts) if cov_after.min_ts is not None else None
-                ),
-                stored_max=(
-                    str(cov_after.max_ts) if cov_after.max_ts is not None else None
-                ),
-                stored_rows=int(cov_after.row_count),
-                status=status,
-                cost_usd=float(est.estimated_cost_usd),
-                bars_path=str(cov_after.bars_path),
+                feed=getattr(ident, "feed", None) if ident else None,
+                dataset=getattr(ident, "dataset", None) if ident else None,
+                publisher_id=getattr(ident, "publisher_id", None) if ident else None,
+                instrument_id=getattr(ident, "instrument_id", None) if ident else None,
+                raw_symbol=getattr(ident, "raw_symbol", None) if ident else None,
+                ew=ew,
+                status=(status or "error"),
+                status_detail=status_detail,
+                cost_estimated_usd=cost_estimated_usd,
+                cost_used_usd=cost_used_usd,
+                cost_charged_usd=cost_charged_usd,
+                coverage_before=cov_before,
+                coverage_after=cov_after,
+                error_type=error_type,
+                error_message=error_message,
             )
-        )
+
+            # Emit report row (prefer after coverage if present)
+            cov_for_report = cov_after or cov_before
+            stored_min = (
+                _fmt_ts_utc(cov_for_report.min_ts)
+                if cov_for_report and cov_for_report.min_ts is not None
+                else None
+            )
+            stored_max = (
+                _fmt_ts_utc(cov_for_report.max_ts)
+                if cov_for_report and cov_for_report.max_ts is not None
+                else None
+            )
+            stored_rows = int(cov_for_report.row_count) if cov_for_report else 0
+            bars_path = cov_for_report.bars_path if cov_for_report else None
+
+            report.runs.append(
+                ContractRun(
+                    contract_id=str(c.contract_id),
+                    contract_key=_contract_key(c),
+                    target_start=interest_start_s or _fmt_ts_utc(ew.interest_start),
+                    target_end=interest_end_s or _fmt_ts_utc(ew.interest_end),
+                    vendor_start=exp_start_s,
+                    vendor_end=exp_end_s,
+                    vendor_final=bool(getattr(ew, "vendor_final", False)),
+                    stored_min=stored_min,
+                    stored_max=stored_max,
+                    stored_rows=stored_rows,
+                    status=(status or "error"),
+                    cost_usd=float(cost_used_usd or 0.0),
+                    bars_path=bars_path,
+                )
+            )
+
+        if should_break_after:
+            break
 
     report.incomplete_remaining = sum(
         1
         for r in report.runs
-        if r.status in ("incomplete", "dry_run", "skipped_cost_cap")
+        if r.status in ("incomplete", "dry_run", "skipped_cost_cap", "error")
     )
 
     if report.stopped_reason == "":
