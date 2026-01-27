@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
@@ -99,6 +99,12 @@ class OHLCV1DOrchestratorReport:
     runs: list[ContractRun] = field(default_factory=list)
 
     stopped_reason: str = ""  # ok | cost_cap | max_contracts
+
+    # Meta-orchestrator fields:
+    counts: dict[str, Any] = field(default_factory=dict)
+    cost_used_usd: float = 0.0
+    stage_status: str = ""
+    stop_reason: str = ""
 
 
 def _utc_now_iso_z() -> str:
@@ -707,5 +713,26 @@ def ingest_ohlcv_1d_for_product(
 
     if report.stopped_reason == "":
         report.stopped_reason = "ok"
+    # --- meta-orchestrator surface (Session 13) ---
+    report.cost_used_usd = float(report.cost_usd_total)
+    report.stop_reason = report.stopped_reason
 
+    if report.stopped_reason == "ok":
+        report.stage_status = "ok"
+    else:
+        report.stage_status = "halted"
+
+    report.counts = {
+        "contracts_total": int(report.contracts_total),
+        "contracts_mapped": int(report.contracts_mapped),
+        "complete_before": int(report.complete_before),
+        "completed_this_run": int(report.completed_this_run),
+        "incomplete_remaining": int(report.incomplete_remaining),
+        "contracts_excluded_unavailable": int(report.contracts_excluded_unavailable),
+        "contracts_considered": int(report.contracts_considered),
+        "runs": int(len(report.runs)),
+        "dataset_range_start": report.dataset_range_start,
+        "dataset_range_end": report.dataset_range_end,
+        "stopped_reason": report.stopped_reason,
+    }
     return report

@@ -80,6 +80,11 @@ class InstrumentDefinitionsOrchestratorReport:
         ""  # e.g. "reached_end" | "max_windows" | "cost_cap" | "no_progress"
     )
 
+    cost_used_usd: float = 0.0
+    stage_status: str = ""
+    stop_reason: str = ""
+    counts: dict[str, object] = field(default_factory=dict)
+
 
 def _utc_now_iso_z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -115,6 +120,24 @@ def _clamp_start_to_dataset_available(*, dataset: str, start: str) -> str:
 
     ts = max(ts_start, ts_avail)
     return ts.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _is_vendor_final(
+    *, watermark: str | None, dataset_end: str | None, tolerance: str = "1D"
+) -> bool:
+    if watermark is None or dataset_end is None:
+        return False
+    wm = pd.Timestamp(watermark)
+    end = pd.Timestamp(dataset_end)
+    if wm.tzinfo is None:
+        wm = wm.tz_localize("UTC")
+    else:
+        wm = wm.tz_convert("UTC")
+    if end.tzinfo is None:
+        end = end.tz_localize("UTC")
+    else:
+        end = end.tz_convert("UTC")
+    return wm >= (end - pd.Timedelta(tolerance))
 
 
 def ingest_instrument_definitions(
@@ -284,10 +307,24 @@ def ingest_instrument_definitions(
         )
 
         # Progress / safety stop
+
         if wm_after_i == last_watermark:
-            report.stopped_reason = "no_progress"
-            report.watermark_after = wm_after_i
-            print(f"[defs][stop] no_progress (watermark did not advance: {wm_after_i})")
+            if _is_vendor_final(
+                watermark=wm_after_i,
+                dataset_end=report.dataset_range_end,
+                tolerance="1D",
+            ):
+                report.stopped_reason = "vendor_final"
+                report.watermark_after = wm_after_i
+                print(
+                    f"[defs][stop] vendor_final (watermark at dataset end: {wm_after_i})"
+                )
+            else:
+                report.stopped_reason = "no_progress"
+                report.watermark_after = wm_after_i
+                print(
+                    f"[defs][stop] no_progress (watermark did not advance: {wm_after_i})"
+                )
             break
 
         # Advance start from the updated watermark
@@ -325,4 +362,28 @@ def ingest_instrument_definitions(
         f"watermark_after={report.watermark_after} "
         f"stopped_reason={report.stopped_reason}"
     )
+
+    # --- meta-orchestrator surface  ---
+    report.cost_used_usd = float(report.cost_usd_total)
+    report.stop_reason = report.stopped_reason
+    events_inserted_total = int(sum(w.events_inserted for w in report.windows))
+
+    if report.stopped_reason in ("no_progress",):
+        # conservative: if we inserted something this run, do not block downstream
+        report.stage_status = "halted" if events_inserted_total == 0 else "ok"
+    else:
+        report.stage_status = "ok"
+
+    report.counts = {
+        "windows_attempted": int(report.windows_attempted),
+        "events_seen_total": int(sum(w.events_seen for w in report.windows)),
+        "events_inserted_total": events_inserted_total,
+        "watermark_before": report.watermark_before,
+        "watermark_after": report.watermark_after,
+        "dataset": report.dataset,
+        "symbol": report.symbol,
+        "stype_in": report.stype_in,
+        "stopped_reason": report.stopped_reason,
+    }
+
     return report

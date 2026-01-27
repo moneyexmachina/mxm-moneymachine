@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
 
@@ -73,10 +73,12 @@ class InstrumentDefinitionMappingsOrchestratorReport:
     build_result: BuildResult | None = None
 
     stopped_reason: str = ""  # "ok" | "gate_failed" | "no_overlap" | "no_contracts"
-
-
-def _utc_now_iso_z() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    # --- meta-orchestrator surface (Session 13) ---
+    cost_used_usd: float = 0.0
+    stage_status: str = ""
+    stop_reason: str = ""
+    mapping_ready_for_ohlcv: bool = False
+    counts: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -246,12 +248,45 @@ def rebuild_instrument_definition_mappings(
     )
 
     report.stopped_reason = "ok"
-    return report
+    return _finalize_report(report)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _utc_now_iso_z() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _finalize_report(
+    report: InstrumentDefinitionMappingsOrchestratorReport,
+) -> InstrumentDefinitionMappingsOrchestratorReport:
+    report.cost_used_usd = 0.0
+    report.stop_reason = report.stopped_reason
+    report.mapping_ready_for_ohlcv = report.stopped_reason == "ok"
+
+    if report.stopped_reason == "ok":
+        report.stage_status = "ok"
+    else:
+        report.stage_status = "halted"
+
+    br = report.build_result
+    report.counts = {
+        "definitions_watermark": report.definitions_watermark,
+        "refdata_contracts_total": int(report.refdata_contracts_total),
+        "refdata_maturities_total": int(report.refdata_maturities_total),
+        "vendor_maturities_total": int(report.vendor_maturities_total),
+        "overlap_attempted": int(report.overlap_attempted),
+        "build_attempted": int(br.contracts_attempted) if br else 0,
+        "build_inserted": int(br.inserted) if br else 0,
+        "build_ignored": int(br.ignored) if br else 0,
+        "build_unmapped": int(len(br.unmapped)) if br else 0,
+        "stopped_reason": report.stopped_reason,
+        "mapping_ready_for_ohlcv": report.mapping_ready_for_ohlcv,
+    }
+    return report
 
 
 def _print_gate_fail(report: InstrumentDefinitionMappingsOrchestratorReport) -> None:
