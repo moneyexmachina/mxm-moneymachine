@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +37,7 @@ from mxm.v1.marketdata.orchestrators.instrument_definition_mappings import (
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -88,7 +84,7 @@ def main() -> None:
     args = _parse_args()
 
     root = Path(args.root).expanduser() if args.root else (Path.home() / ".mxm")
-
+    now_iso = utc_now_run_ts()
     # ---- SQLite store wiring ----
     layout = MarketdataLayout(root=root)
     backend = SQLiteBackend(layout=layout)
@@ -97,7 +93,7 @@ def main() -> None:
     mappings_store = InstrumentDefinitionMappingsStore(backend=backend)
 
     print("\nMXM V1 — ops: instrument_definition_mappings")
-    print(f"[run] ts_utc={_utc_now_iso()}")
+    print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
     print(f"[args] reset={bool(args.reset)}")
@@ -113,7 +109,7 @@ def main() -> None:
     )
 
     payload = {
-        "ts_utc": _utc_now_iso(),
+        "ts_utc": now_iso,
         "args": vars(args),
         "report": _to_jsonable(report),
     }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import lru_cache
 from typing import Optional
 
@@ -11,6 +11,7 @@ from mxm_refdata.api.ref_data_api import RefDataAPI
 from mxm_refdata.models.contracts.futures_contract import FuturesContract
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_ts
 
 
 @dataclass(frozen=True)
@@ -71,15 +72,6 @@ class RefdataPeriodLookupError(DatabentoInstrumentResolutionError):
 
     def __str__(self) -> str:
         return f"Unable to resolve FuturesContract.period_id={self.period_id!r} to a refdata Period."
-
-
-# ---------------------------------------------------------------------
-# Time helpers
-# ---------------------------------------------------------------------
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------
@@ -147,7 +139,7 @@ def resolve_databento_instrument(
     # Keep it in the signature to avoid churn; later it will support time-travel resolution
     # once we introduce true mapping-regime semantics.
     _ = as_of_dt
-
+    as_of_dt_utc = utc_now_ts()
     y, m = contract_year_month(contract)
 
     tx = getattr(backend, "transaction_no_migrate", backend.transaction)
@@ -167,7 +159,6 @@ def resolve_databento_instrument(
 
     if len(rows) == 0:
         # Keep as_of_dt in error for now; use "now" only for message completeness.
-        as_of_dt_utc = _utc_now()
         raise InstrumentNotMappedError(
             product_id=contract.product_id,
             period_id=contract.period_id,
@@ -177,7 +168,6 @@ def resolve_databento_instrument(
         )
 
     if len(rows) > 1:
-        as_of_dt_utc = _utc_now()
         raise InstrumentAmbiguityError(
             product_id=contract.product_id,
             period_id=contract.period_id,

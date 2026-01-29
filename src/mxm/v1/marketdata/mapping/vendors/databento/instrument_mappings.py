@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Iterable
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 
 
 @dataclass(frozen=True)
@@ -23,10 +23,6 @@ class MappingCandidate:
     expiration: str | None
     ts_event: str
     definition_event_uid: str
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _sha256_hex(s: str) -> str:
@@ -163,7 +159,7 @@ def upsert_mappings_append_only(
         """,
         (
             uid,
-            _utc_now_iso(),
+            utc_now_run_ts(),
             product_id,
             contract_year,
             contract_month,

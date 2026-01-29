@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from mxm.v1.marketdata.time_utils import fmt_run_ts
+
 # ----------------------------
 # Table names (SQLite)
 # ----------------------------
@@ -16,29 +18,6 @@ import pandas as pd
 TABLE_EVENTS = "instrument_definition_events"
 TABLE_WATERMARKS = "instrument_definition_watermarks"
 TABLE_CURRENT = "instrument_definition_current"
-
-
-# ----------------------------
-# Canonical timestamp handling
-# ----------------------------
-
-
-def to_iso_z(ts: pd.Timestamp) -> str:
-    """
-    Convert a pandas Timestamp to canonical ISO8601 UTC with 'Z'.
-    Includes microseconds to preserve ordering stability.
-    """
-    if not isinstance(ts, pd.Timestamp):
-        ts = pd.Timestamp(ts)
-
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    else:
-        ts = ts.tz_convert("UTC")
-
-    # Always include microseconds for deterministic formatting.
-    # Example: 2010-10-01T00:00:00.000000Z
-    return ts.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 # ----------------------------
@@ -64,7 +43,7 @@ def _json_safe_scalar(x: Any) -> Any:
 
     # Timestamps
     if isinstance(x, pd.Timestamp):
-        return to_iso_z(x)
+        return fmt_run_ts(x)
 
     # numpy scalar -> python scalar
     if isinstance(x, (np.generic,)):

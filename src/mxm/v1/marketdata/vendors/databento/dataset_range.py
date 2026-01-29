@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from mxm.v1.marketdata.types import InstrumentDefinitionsClient
+
 
 @dataclass(frozen=True)
 class DatasetRange:
@@ -24,7 +26,7 @@ def _range_from_payload(payload: dict[str, Any]) -> DatasetRange:
 
 def get_dataset_range(
     *,
-    client,  # databento.Historical; keep untyped to avoid hard dependency
+    client: InstrumentDefinitionsClient,
     dataset: str,
     schema: str | None = None,
 ) -> DatasetRange:

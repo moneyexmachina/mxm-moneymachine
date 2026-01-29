@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Literal
 
 import pandas as pd
@@ -42,6 +42,7 @@ from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.cost import (
     estimate_cost_ohlcv_1d,
 )
@@ -105,10 +106,6 @@ class OHLCV1DOrchestratorReport:
     cost_used_usd: float = 0.0
     stage_status: str = ""
     stop_reason: str = ""
-
-
-def _utc_now_iso_z() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _contract_key(c: FuturesContract) -> str:
@@ -265,7 +262,7 @@ def ingest_ohlcv_1d_for_product(
     report = OHLCV1DOrchestratorReport(
         product_id=product_id,
         mode=mode,
-        ts_utc=_utc_now_iso_z(),
+        ts_utc=utc_now_run_ts(),
         cost_cap_usd=float(cost_cap_usd),
         cost_usd_total=0.0,
         stopped_reason="",

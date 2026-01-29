@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 
 # ---------------------------------------------------------------------------
 # Results / report structures (typed, dataset-scoped)
@@ -288,10 +288,6 @@ class InstrumentDefinitionMappingsStore:
     # ---------------------------------------------------------------------
 
     @staticmethod
-    def _utc_now_iso_z() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-    @staticmethod
     def _sha256_hex(s: str) -> str:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
@@ -456,7 +452,7 @@ class InstrumentDefinitionMappingsStore:
             """,
             (
                 uid,
-                self._utc_now_iso_z(),
+                utc_now_run_ts(),
                 product_id,
                 int(contract_year),
                 int(contract_month),

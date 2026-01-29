@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from typing import Literal
-
-import pandas as pd
 
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
     get_start_from_watermark,
@@ -17,6 +15,13 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
+from mxm.v1.marketdata.time_utils import (
+    format_iso_z,
+    parse_duration,
+    parse_iso_z,
+    utc_now_iso_z,
+)
+from mxm.v1.marketdata.types import InstrumentDefinitionsClient
 from mxm.v1.marketdata.vendors.databento.cost import (
     enforce_cost_cap,
     estimate_cost_instrument_definition,
@@ -27,13 +32,6 @@ from mxm.v1.marketdata.vendors.databento.dataset_range import (
     get_dataset_range,
 )
 from mxm.v1.marketdata.vendors.databento.pull import pull_instrument_definitions
-
-# Keep vendor availability constraints in orchestration/config, not in the dataset store.
-# You can later move this into config.
-DATASET_AVAILABLE_START: dict[str, str] = {
-    "GLBX.MDP3": "2010-06-06T00:00:00.000000Z",
-}
-
 
 Mode = Literal["bootstrap", "update"]
 
@@ -86,65 +84,56 @@ class InstrumentDefinitionsOrchestratorReport:
     counts: dict[str, object] = field(default_factory=dict)
 
 
-def _utc_now_iso_z() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
-def _add_days_iso_z(start_iso_z: str, days: int) -> str:
-    ts = pd.Timestamp(start_iso_z)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    else:
-        ts = ts.tz_convert("UTC")
-    ts2 = ts + pd.Timedelta(days=days)
-    return ts2.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
-def _clamp_start_to_dataset_available(*, dataset: str, start: str) -> str:
-    avail = DATASET_AVAILABLE_START.get(dataset)
-    if not avail:
-        return start
-
-    ts_start = pd.Timestamp(start)
-    ts_avail = pd.Timestamp(avail)
-
-    if ts_start.tzinfo is None:
-        ts_start = ts_start.tz_localize("UTC")
-    else:
-        ts_start = ts_start.tz_convert("UTC")
-
-    if ts_avail.tzinfo is None:
-        ts_avail = ts_avail.tz_localize("UTC")
-    else:
-        ts_avail = ts_avail.tz_convert("UTC")
-
-    ts = max(ts_start, ts_avail)
-    return ts.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
 def _is_vendor_final(
     *, watermark: str | None, dataset_end: str | None, tolerance: str = "1D"
 ) -> bool:
+    """
+    Heuristic: treat the feed as vendor-final if the watermark is within `tolerance`
+    of the dataset's end boundary.
+
+    Parameters
+    ----------
+    watermark:
+        The last-seen vendor timestamp for this feed (control-plane), as canonical
+        ISO8601Z with microseconds (e.g. '2026-01-27T00:00:00.000000Z').
+    dataset_end:
+        The dataset availability end timestamp (exclusive end boundary) returned by
+        vendor metadata, as canonical ISO8601Z with microseconds.
+    tolerance:
+        A small duration string subtracted from dataset_end to define "close enough"
+        (e.g. '1d', '12h', '30m'). This is a pragmatic guard against tiny vendor-side
+        boundary effects and aligns with the idea that daily ingest may consider the
+        most recent boundary "final" once sufficiently close.
+
+    Returns
+    -------
+    bool
+        True if watermark >= dataset_end - tolerance, else False.
+
+    Notes
+    -----
+    - This is a *control-plane* check only. It does not assert anything about the
+      completeness of stored data, merely that the vendor watermark is effectively at
+      the dataset end boundary for this schema.
+    - If watermark or dataset_end is missing, returns False (not vendor-final).
+    """
     if watermark is None or dataset_end is None:
         return False
-    wm = pd.Timestamp(watermark)
-    end = pd.Timestamp(dataset_end)
-    if wm.tzinfo is None:
-        wm = wm.tz_localize("UTC")
-    else:
-        wm = wm.tz_convert("UTC")
-    if end.tzinfo is None:
-        end = end.tz_localize("UTC")
-    else:
-        end = end.tz_convert("UTC")
-    return wm >= (end - pd.Timedelta(tolerance))
+
+    wm: datetime = parse_iso_z(watermark)
+    end: datetime = parse_iso_z(dataset_end)
+
+    # Accept common tolerance notations like "1D" by normalising to lowercase.
+    td = parse_duration(tolerance.strip().lower())
+
+    return wm >= (end - td)
 
 
 def ingest_instrument_definitions(
     *,
     store: InstrumentDefinitionsStore,
     product_id: str,
-    client,  # databento.Historical; keep untyped here to avoid hard dependency
+    client: InstrumentDefinitionsClient,
     mode: Mode,
     cost_cap_usd: float,
     window_days: int = 31,
@@ -197,10 +186,11 @@ def ingest_instrument_definitions(
     avail = get_dataset_range(
         client=client,
         dataset=root.dataset,
-        schema="definition",  # or root.schema if you prefer to pass it through
+        schema="definition",
     )
     default_start = avail.start
-    requested_end_raw = end or _utc_now_iso_z()
+    now = utc_now_iso_z()
+    requested_end_raw = end or now
     requested_end = clamp_end(end=requested_end_raw, available=avail)
     remaining_cap = float(cost_cap_usd)
 
@@ -211,7 +201,7 @@ def ingest_instrument_definitions(
         symbol=root.parent,
         stype_in=root.stype_in,
         mode=mode,
-        ts_utc=_utc_now_iso_z(),
+        ts_utc=now,
         reset_requested=reset,
         reset_result=reset_result,
         watermark_before=watermark_before,
@@ -235,22 +225,26 @@ def ingest_instrument_definitions(
     start = clamp_start(start=start, available=avail)
 
     last_watermark = watermark_before
+    end_target_dt = parse_iso_z(requested_end)
     print(
         f"[defs][start] watermark_before={watermark_before} "
         f"default_start={default_start} "
         f"computed_start={start} "
         f"requested_end={requested_end}"
     )
+
     for _ in range(max_windows):
-        # Stop if we are at or beyond the end target
-        if pd.Timestamp(start) >= pd.Timestamp(requested_end):
+        start_dt = parse_iso_z(start)
+
+        if start_dt >= end_target_dt:
             report.stopped_reason = "reached_end"
             break
 
         # Compute this window's end (bounded by requested_end)
-        end_i = _add_days_iso_z(start, window_days)
-        if pd.Timestamp(end_i) > pd.Timestamp(requested_end):
-            end_i = requested_end
+        end_dt = start_dt + timedelta(days=window_days)
+        if end_dt > end_target_dt:
+            end_dt = end_target_dt
+        end_i = format_iso_z(end_dt)
         print(
             f"[defs][window {report.windows_attempted + 1}] start={start} end={end_i}"
         )
@@ -335,7 +329,7 @@ def ingest_instrument_definitions(
             default_start=default_start,
             overlap=overlap,
         )
-        start = _clamp_start_to_dataset_available(dataset=root.dataset, start=start)
+        start = clamp_start(start=start, available=avail)
 
         # Cost cap stop
         if remaining_cap <= 0:

@@ -11,9 +11,9 @@ from mxm.v1.marketdata.schema.instrument_definitions import (
     TABLE_WATERMARKS,
     canonical_json,
     event_uid_from_payload_json,
-    to_iso_z,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import fmt_run_ts
 
 
 # ---------------------------------------------------------------------------
@@ -534,10 +534,8 @@ class InstrumentDefinitionsStore:
         for _, row in df.iterrows():
             # Construct a raw record dict that includes all columns + ts_recv
             record: dict[str, Any] = row.to_dict()
-
-            # Canonicalise timestamps to ISO8601Z strings in top-level typed fields
-            ts_recv_z = to_iso_z(pd.Timestamp(record["ts_recv"]))
-            ts_event_z = to_iso_z(pd.Timestamp(record["ts_event"]))
+            ts_recv_z = fmt_run_ts(record["ts_recv"])
+            ts_event_z = fmt_run_ts(record["ts_event"])
 
             # Canonical JSON payload for hashing; include ts_recv explicitly
             payload = canonical_json(record)

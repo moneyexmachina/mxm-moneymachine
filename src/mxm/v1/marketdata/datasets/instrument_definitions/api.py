@@ -4,8 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-import pandas as pd
-
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     CoverageCheck,
     InstrumentDefinitionsStore,
@@ -13,6 +11,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
+from mxm.v1.marketdata.time_utils import format_iso_z, parse_duration, parse_iso_z
 
 # ---------------------------------------------------------------------------
 # Feed identity (vendor-scoped)
@@ -94,32 +93,35 @@ def get_start_from_watermark(
     """
     Compute the next pull 'start' for a given feed watermark.
 
-    Semantics:
-    - If watermark is None: this feed has never been ingested -> return default_start.
-    - If watermark exists: return (watermark - overlap), expressed as ISO8601 UTC with Z.
+    Inputs
+    ------
+    watermark:
+        The last-seen vendor timestamp for this feed, stored as canonical ISO8601Z
+        with microseconds (e.g. '2026-01-27T10:54:09.082336Z'), or None if never run.
+    default_start:
+        Canonical ISO8601Z string used when watermark is None.
+    overlap:
+        A small duration string (e.g. '0s', '1s', '5m', '1h', '1d') that is subtracted
+        from the watermark to create a safe re-fetch overlap. Ignored when watermark is None.
 
-    Notes:
-    - overlap exists to safely handle vendor-side boundary conditions and to allow
-      idempotent re-fetching across the last seen boundary.
-    - The store enforces idempotency via event_uid, so overlaps are safe.
+    Semantics
+    ---------
+    - If watermark is None: this feed has never been ingested -> return default_start.
+    - If watermark exists: return (watermark - overlap), formatted as canonical ISO8601Z.
+
+    Notes
+    -----
+    - Overlap exists to handle vendor-side boundary conditions and allow idempotent
+      re-fetching around the last seen boundary.
+    - Overlaps are safe because the store enforces idempotency (e.g. via event_uid).
     """
     if watermark is None:
-        ts = pd.Timestamp(default_start)
-    else:
-        ts = pd.Timestamp(watermark)
+        # Strict parse enforces canonical ISO8601Z inputs.
+        return format_iso_z(parse_iso_z(default_start))
 
-    # Normalize to UTC
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    else:
-        ts = ts.tz_convert("UTC")
-
-    td = pd.Timedelta(overlap)
-
-    ts_start = ts - td if watermark is not None else ts
-
-    # Canonical ISO8601 UTC with Z
-    return ts_start.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    wm = parse_iso_z(watermark)
+    td = parse_duration(overlap)
+    return format_iso_z(wm - td)
 
 
 # ---------------------------------------------------------------------------

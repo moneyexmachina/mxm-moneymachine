@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
@@ -16,19 +16,20 @@ class OHLCV1DWindow:
     end: pd.Timestamp
 
 
-def _coerce_date(x: date | str) -> date:
+def _coerce_date(x: date | datetime | str) -> date:
     """
-    Coerce a YYYY-MM-DD string (or date) into a date object.
+    Coerce an ISO date string ('YYYY-MM-DD') or date/datetime into `datetime.date`.
+
+    Accepted:
+      - datetime.date
+      - datetime.datetime (converted via .date())
+      - str in ISO 'YYYY-MM-DD' form
     """
     if isinstance(x, date) and not isinstance(x, datetime):
         return x
-    if isinstance(x, str):
-        # Expect ISO 'YYYY-MM-DD'
-        return date.fromisoformat(x)
-    # If a datetime slips through, convert to date
     if isinstance(x, datetime):
         return x.date()
-    raise TypeError(f"Expected date|str for date field, got {type(x)}: {x!r}")
+    return date.fromisoformat(x)
 
 
 def contract_window_utc_half_open(

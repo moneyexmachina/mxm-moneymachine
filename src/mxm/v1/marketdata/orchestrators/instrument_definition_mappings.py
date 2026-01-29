@@ -24,6 +24,7 @@ from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 
 Mode = Literal["bootstrap", "update"]
 
@@ -123,7 +124,7 @@ def rebuild_instrument_definition_mappings(
     report = InstrumentDefinitionMappingsOrchestratorReport(
         product_id=product_id,
         mode=mode,
-        ts_utc=_utc_now_iso_z(),
+        ts_utc=utc_now_run_ts(),
         feed=feed,
         dataset=root.dataset,
         symbol=root.parent,
@@ -254,10 +255,6 @@ def rebuild_instrument_definition_mappings(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _utc_now_iso_z() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _finalize_report(

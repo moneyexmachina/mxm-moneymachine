@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +26,8 @@ from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -78,7 +74,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-
+    now_iso = utc_now_run_ts()
     root = Path(args.root) if args.root else (Path.home() / ".mxm")
     layout = MarketdataLayout(root=root)
     backend = SQLiteBackend(layout=layout)
@@ -108,7 +104,7 @@ def main() -> None:
     )
 
     print("\nMXM V1 — ops: product_marketdata")
-    print(f"[run] ts_utc={_utc_now_iso()}")
+    print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
     print(f"[args] cost_cap_usd={args.cost_cap_usd}")
@@ -131,11 +127,11 @@ def main() -> None:
         reset_local=bool(args.reset_local),
         max_windows=(None if args.max_windows is None else int(args.max_windows)),
         max_contracts=(None if args.max_contracts is None else int(args.max_contracts)),
-        run_ts_utc=_utc_now_iso(),
+        run_ts_utc=now_iso,
     )
 
     payload = {
-        "ts_utc": _utc_now_iso(),
+        "ts_utc": now_iso,
         "args": vars(args),
         "report": _to_jsonable(report),
     }

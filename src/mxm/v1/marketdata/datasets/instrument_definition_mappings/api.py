@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable, Optional
 
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
@@ -11,11 +11,7 @@ from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     DatabentoInstrumentIdentity,
 )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
+from mxm.v1.marketdata.time_utils import utc_now_ts
 
 # ---------------------------------------------------------------------------
 # Read models (API-level)
@@ -116,7 +112,7 @@ def get_mapping_coverage(
 
     return MappingCoverageReport(
         product_id=product_id,
-        as_of_dt=_utc_now(),
+        as_of_dt=utc_now_ts(),
         ref_total=len(ref_set),
         mapped_total=len(mapped),
         unmapped_total=len(unmapped),

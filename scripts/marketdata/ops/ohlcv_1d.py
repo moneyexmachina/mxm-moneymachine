@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +14,8 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.orchestrators.ohlcv_1d import ingest_ohlcv_1d_for_product
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -62,7 +58,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-
+    now_iso = utc_now_run_ts()
     root = Path(args.root) if args.root else (Path.home() / ".mxm")
     layout = MarketdataLayout(root=root)
     backend = SQLiteBackend(layout=layout)
@@ -80,7 +76,7 @@ def main() -> None:
     store = OHLCV1DStore(layout=layout)
 
     print("\nMXM V1 — ops: ohlcv_1d")
-    print(f"[run] ts_utc={_utc_now_iso()}")
+    print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
     print(f"[args] cost_cap_usd={args.cost_cap_usd}")
@@ -102,7 +98,7 @@ def main() -> None:
     )
 
     payload = {
-        "ts_utc": _utc_now_iso(),
+        "ts_utc": now_iso,
         "args": vars(args),
         "report": _to_jsonable(report),
     }
