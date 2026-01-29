@@ -19,6 +19,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from mxm.v1.marketdata.time_utils import ensure_utc_datetime_series
+
 
 @dataclass(frozen=True)
 class Ohlcv1dSchema:
@@ -151,7 +153,7 @@ def coerce_ohlcv_1d(
 
     # Ensure ts_event is tz-aware UTC
     # If already tz-aware, convert; if naive, localize.
-    out["ts_event"] = pd.to_datetime(out["ts_event"], utc=True)
+    out["ts_event"] = ensure_utc_datetime_series(out["ts_event"])
 
     if dataset is not None:
         out["dataset"] = dataset

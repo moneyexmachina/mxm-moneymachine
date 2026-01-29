@@ -306,3 +306,30 @@ def add_days(ts: UtcTimestampInput, days: int) -> pd.Timestamp:
     """
     t = to_utc_ts(ts)
     return t + pd.Timedelta(days=int(days))
+
+
+def ensure_utc_datetimeindex(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """
+    Ensure a DatetimeIndex is tz-aware and in UTC.
+
+    - If tz-naive: localize to UTC (no conversion)
+    - If tz-aware: convert to UTC
+    """
+    if idx.tz is None:
+        return idx.tz_localize("UTC")
+    return idx.tz_convert("UTC")
+
+
+def ensure_utc_datetime_series(s: pd.Series) -> pd.Series:
+    """
+    Ensure a Series is datetime64[ns, UTC].
+
+    Uses pandas to_datetime with utc=True and errors='raise' to avoid silent coercions.
+    """
+    return pd.to_datetime(s, utc=True, errors="raise")
+
+
+def ceil_to_utc_day(ts: pd.Timestamp) -> pd.Timestamp:
+    t = to_utc_ts(ts)
+    day = to_utc_day(t)
+    return day if t == day else day + pd.Timedelta(days=1)

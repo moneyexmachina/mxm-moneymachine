@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from mxm.v1.marketdata.time_utils import ensure_utc_datetime_series
+
 
 def normalize_instrument_definitions(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -40,8 +42,8 @@ def normalize_instrument_definitions(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     # Coerce to tz-aware UTC
-    out["ts_event"] = pd.to_datetime(out["ts_event"], utc=True, errors="raise")
-    out["ts_recv"] = pd.to_datetime(out["ts_recv"], utc=True, errors="raise")
+    out["ts_event"] = ensure_utc_datetime_series(out["ts_event"])
+    out["ts_recv"] = ensure_utc_datetime_series(out["ts_recv"])
 
     # Do not allow callers to accidentally depend on index semantics
     return out.reset_index(drop=True)

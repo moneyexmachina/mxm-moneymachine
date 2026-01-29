@@ -7,6 +7,7 @@ import pandas as pd
 
 from mxm.v1.marketdata.schema.ohlcv_1d import coerce_ohlcv_1d, validate_ohlcv_1d
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
+from mxm.v1.marketdata.time_utils import to_utc_ts
 
 
 def _ensure_parent_dir(path: Path) -> None:
@@ -93,19 +94,11 @@ def read_daily_bars(
     )
 
     if start is not None:
-        start = (
-            pd.Timestamp(start, tz="UTC")
-            if pd.Timestamp(start).tzinfo is None
-            else pd.Timestamp(start).tz_convert("UTC")
-        )
+        start = to_utc_ts(start)
         df = df[df["ts_event"] >= start]
 
     if end is not None:
-        end = (
-            pd.Timestamp(end, tz="UTC")
-            if pd.Timestamp(end).tzinfo is None
-            else pd.Timestamp(end).tz_convert("UTC")
-        )
+        end = to_utc_ts(end)
         df = df[df["ts_event"] < end]
 
     return df.reset_index(drop=True)

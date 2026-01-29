@@ -38,6 +38,7 @@ from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
     ProductMarketdataAttemptsStore,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.v1.marketdata.time_utils import utc_now_run_ts
 
 Mode = Literal["bootstrap", "update"]
 
@@ -145,7 +146,7 @@ def ingest_product_marketdata(
 
     # We prefer caller-provided run_ts_utc for reproducible logs; otherwise store uses started_at.
     # In most MXM orchestrators, you already have a now_utc_iso() helper; wire it here.
-    ts_now = _now_utc_iso()
+    ts_now = utc_now_run_ts()
     run_ts = run_ts_utc or ts_now
 
     attempts = stores.product_attempts
@@ -380,7 +381,7 @@ def ingest_product_marketdata(
             attempt_uid=attempt_uid,
             status="error",
             stop_reason=stop_reason.value,
-            finished_at=_now_utc_iso(),
+            finished_at=utc_now_run_ts(),
             cost_used_usd=_sum_costs(stages),
             remaining_usd=max(0.0, float(cost_cap_usd) - _sum_costs(stages)),
             summary=_summary_json(
@@ -630,7 +631,7 @@ def _finalize_attempt_and_report(
     stop_reason: ProductStopReason,
     message: str | None,
 ) -> ProductMarketDataReport:
-    finished_at = _now_utc_iso()
+    finished_at = utc_now_run_ts()
     cost_used = _sum_costs(stages)
 
     attempts.finish_attempt(
@@ -708,11 +709,3 @@ def _summary_json(
 
 def _sum_costs(stages: list[StageEnvelope]) -> float:
     return float(sum(s.cost_used_usd for s in stages))
-
-
-def _now_utc_iso() -> str:
-    # Prefer to reuse your existing mxm time helper if you have one.
-    # This local helper avoids adding extra dependencies in the draft.
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

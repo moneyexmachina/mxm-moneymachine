@@ -13,7 +13,11 @@ from mxm.v1.marketdata.schema.instrument_definitions import (
     event_uid_from_payload_json,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import fmt_run_ts
+from mxm.v1.marketdata.time_utils import (
+    ensure_utc_datetime_series,
+    ensure_utc_datetimeindex,
+    fmt_run_ts,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -491,22 +495,16 @@ class InstrumentDefinitionsStore:
         df = df.copy()
 
         # Case A: ts_recv is the index (preferred)
-        if isinstance(df.index, pd.DatetimeIndex):
-            ts_recv = df.index
-            # Enforce UTC tz-awareness
-            if ts_recv.tz is None:
-                ts_recv = ts_recv.tz_localize("UTC")
-            else:
-                ts_recv = ts_recv.tz_convert("UTC")
 
+        if isinstance(df.index, pd.DatetimeIndex):
+            ts_recv = ensure_utc_datetimeindex(df.index)
             df["ts_recv"] = ts_recv
             if df.index.name is None:
                 df.index.name = "ts_recv"
 
         # Case B: ts_recv is provided as a column (acceptable)
         elif "ts_recv" in df.columns:
-            ts_recv = pd.to_datetime(df["ts_recv"], utc=True, errors="raise")
-            df["ts_recv"] = ts_recv
+            df["ts_recv"] = ensure_utc_datetime_series(df["ts_recv"])
 
         # Otherwise: cannot proceed
         else:
@@ -518,7 +516,7 @@ class InstrumentDefinitionsStore:
 
         # Ensure ts_event is tz-aware UTC
         if "ts_event" in df.columns:
-            df["ts_event"] = pd.to_datetime(df["ts_event"], utc=True, errors="raise")
+            df["ts_event"] = ensure_utc_datetime_series(df["ts_event"])
         else:
             raise ValueError(
                 "Instrument definitions frame missing required column 'ts_event'"

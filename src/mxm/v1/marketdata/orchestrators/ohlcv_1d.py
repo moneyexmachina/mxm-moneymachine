@@ -366,16 +366,8 @@ def ingest_ohlcv_1d_for_product(
                 start_date=c.first_day_of_interest,
                 end_date_inclusive=c.last_trading_day,
             )
-            w_start = (
-                window.start.tz_convert("UTC")
-                if window.start.tzinfo
-                else window.start.tz_localize("UTC")
-            )
-            w_end = (
-                window.end.tz_convert("UTC")
-                if window.end.tzinfo
-                else window.end.tz_localize("UTC")
-            )
+            w_start = to_utc_ts(window.start)
+            w_end = to_utc_ts(window.start)
             interest_start_s = fmt_day_ts(w_start)
             interest_end_s = fmt_day_ts(w_end)
 
