@@ -8,8 +8,8 @@ from typing import Literal
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
+from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import ContractCoverage
 from mxm.v1.marketdata.inspect.contracts import contract_coverage_from_attempt_row
-from mxm.v1.marketdata.inspect.models import ContractCoverage
 
 SystemProductStatus = Literal["done", "partial", "blocked", "error"]
 

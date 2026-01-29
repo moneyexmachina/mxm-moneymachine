@@ -7,7 +7,7 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
     OHLCV1DAttemptRow,
     OHLCV1DAttemptsStore,
 )
-from mxm.v1.marketdata.inspect.models import (
+from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
     AttemptSummary,
     ContractCoverage,
     CoverageSurfaces,

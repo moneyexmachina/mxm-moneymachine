@@ -11,15 +11,17 @@ from mxm.v1.marketdata.stores.parquet.daily_bars import (
     read_daily_bars,
     write_daily_bars,
 )
+from mxm.v1.marketdata.time_utils import to_utc_ts
 
 
 @dataclass(frozen=True)
-class CoverageWindow:
+class CoverageSnapshot:
     """
-    Observed coverage in local parquet store for a single instrument identity.
+    Observed coverage snapshot in the local parquet store for a single instrument identity.
 
-    min_ts/max_ts are dates (UTC) derived from ts_event.
-    None indicates no stored data.
+    - min_ts / max_ts are observed UTC timestamps (min/max of ts_event), not day-aligned.
+    - Use coverage.ObservedRange(...).to_day_window() to normalize into a day window.
+    - exists indicates whether the bars parquet file exists.
     """
 
     bars_path: Path
@@ -95,13 +97,13 @@ class OHLCV1DStore:
 
     def scan_coverage(
         self, *, dataset: str, publisher_id: int, instrument_id: int
-    ) -> CoverageWindow:
+    ) -> CoverageSnapshot:
         path = self.bars_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
 
         if not path.exists():
-            return CoverageWindow(
+            return CoverageSnapshot(
                 bars_path=path,
                 exists=False,
                 row_count=0,
@@ -114,31 +116,18 @@ class OHLCV1DStore:
         df = pd.read_parquet(path)
 
         if df.empty:
-            return CoverageWindow(
+            return CoverageSnapshot(
                 bars_path=path,
                 exists=True,
                 row_count=0,
                 min_ts=None,
                 max_ts=None,
             )
+        # ts_event is expected to be present and already schema-coerced.
+        ts_min = to_utc_ts(df["ts_event"].min())
+        ts_max = to_utc_ts(df["ts_event"].max())
 
-        # ts_event is expected to be present and UTC-normalised by schema coercion.
-        ts_min = pd.Timestamp(df["ts_event"].min())
-        ts_max = pd.Timestamp(df["ts_event"].max())
-
-        # Ensure UTC tz-awareness for stable comparisons
-        ts_min = (
-            ts_min.tz_localize("UTC")
-            if ts_min.tzinfo is None
-            else ts_min.tz_convert("UTC")
-        )
-        ts_max = (
-            ts_max.tz_localize("UTC")
-            if ts_max.tzinfo is None
-            else ts_max.tz_convert("UTC")
-        )
-
-        return CoverageWindow(
+        return CoverageSnapshot(
             bars_path=path,
             exists=True,
             row_count=int(len(df)),
