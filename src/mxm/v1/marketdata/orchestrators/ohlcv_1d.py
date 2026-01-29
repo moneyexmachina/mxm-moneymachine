@@ -17,13 +17,14 @@ from mxm.v1.marketdata.datasets.instrument_definitions.api import (
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
 )
-from mxm.v1.marketdata.datasets.ohlcv_1d.api import (
-    contract_window_utc_half_open,
-    is_complete_level0,
-)
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (  # S12.1
-    CoverageSnapshot,
+from mxm.v1.marketdata.datasets.ohlcv_1d.api import contract_window_utc_half_open
+from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
+    AttemptsCoverageSnapshot,
     OHLCV1DAttemptsStore,
+)
+from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
+    DayRange,
+    complete_from_expected_and_observed,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.expected import derive_expected_window
 from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
@@ -32,7 +33,10 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
     decide_action,
     derive_state,
 )
-from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
+from mxm.v1.marketdata.datasets.ohlcv_1d.store import (
+    OHLCV1DStore,
+    StoreCoverageSnapshot,
+)
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     DatabentoInstrumentIdentity,
     contract_year_month,
@@ -42,7 +46,13 @@ from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.marketdata.time_utils import (
+    fmt_day_ts,
+    fmt_run_ts,
+    parse_ts,
+    to_utc_ts,
+    utc_now_run_ts,
+)
 from mxm.v1.marketdata.vendors.databento.cost import (
     estimate_cost_ohlcv_1d,
 )
@@ -127,13 +137,11 @@ def _subset_eligible_contracts(
             start_date=c.first_day_of_interest,
             end_date_inclusive=c.last_trading_day,
         )
-        w_start = (
-            w.start.tz_convert("UTC") if w.start.tzinfo else w.start.tz_localize("UTC")
-        )
-        w_end = w.end.tz_convert("UTC") if w.end.tzinfo else w.end.tz_localize("UTC")
 
-        # overlap between [w_start, w_end) and [dataset_start, dataset_end)
-        if w_end <= dataset_start or w_start >= dataset_end:
+        w_range = DayRange(start=to_utc_ts(w.start), end=to_utc_ts(w.end))
+        ds_range = DayRange(start=dataset_start, end=dataset_end)
+
+        if not w_range.intersects(ds_range):
             excluded += 1
             continue
 
@@ -191,36 +199,20 @@ def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract
     return [c for c in contracts if c.last_trading_day >= cutoff]
 
 
-def _to_ts_utc(x: str) -> pd.Timestamp:
-    ts = pd.Timestamp(x)
-    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
-
-
-def _fmt_ts_utc(ts: pd.Timestamp) -> str:
-    """
-    Keep consistent with attempts_store formatting: UTC ISO8601Z, second resolution.
-    """
-    t = pd.Timestamp(ts)
-    if t.tzinfo is None:
-        t = t.tz_localize("UTC")
-    else:
-        t = t.tz_convert("UTC")
-    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _cov_snapshot(cov) -> CoverageSnapshot:
+def _cov_snapshot(coverage: StoreCoverageSnapshot) -> AttemptsCoverageSnapshot:
     """
     Adapter for OHLCV1DStore.scan_coverage(...) return.
-    Expected attributes:
+
+    Expected attributes (store snapshot):
       - min_ts, max_ts, row_count, bars_path
     """
-    return CoverageSnapshot(
-        min_ts=getattr(cov, "min_ts", None),
-        max_ts=getattr(cov, "max_ts", None),
-        row_count=int(getattr(cov, "row_count", 0)),
+    return AttemptsCoverageSnapshot(
+        min_ts=getattr(coverage, "min_ts", None),
+        max_ts=getattr(coverage, "max_ts", None),
+        row_count=int(getattr(coverage, "row_count", 0)),
         bars_path=(
-            str(getattr(cov, "bars_path"))
-            if getattr(cov, "bars_path", None) is not None
+            str(getattr(coverage, "bars_path"))
+            if getattr(coverage, "bars_path", None) is not None
             else None
         ),
     )
@@ -304,8 +296,8 @@ def ingest_ohlcv_1d_for_product(
 
     defs_store = InstrumentDefinitionsStore(backend=backend)
 
-    avail_start_ts = _to_ts_utc(avail.start)
-    avail_end_ts = _to_ts_utc(avail.end)
+    avail_start_ts = parse_ts(avail.start)
+    avail_end_ts = parse_ts(avail.end)
 
     # -------------------------
     # Contract enumeration + eligibility filter
@@ -339,8 +331,8 @@ def ingest_ohlcv_1d_for_product(
         ident: DatabentoInstrumentIdentity | None = None
         ew = None
 
-        cov_before: CoverageSnapshot | None = None
-        cov_after: CoverageSnapshot | None = None
+        cov_before: AttemptsCoverageSnapshot | None = None
+        cov_after: AttemptsCoverageSnapshot | None = None
 
         status: str | None = None
         status_detail: str | None = None
@@ -384,8 +376,8 @@ def ingest_ohlcv_1d_for_product(
                 if window.end.tzinfo
                 else window.end.tz_localize("UTC")
             )
-            interest_start_s = _fmt_ts_utc(w_start)
-            interest_end_s = _fmt_ts_utc(w_end)
+            interest_start_s = fmt_day_ts(w_start)
+            interest_end_s = fmt_day_ts(w_end)
 
             # 2) Resolve mapping
             try:
@@ -403,10 +395,10 @@ def ingest_ohlcv_1d_for_product(
                     activation=None,
                     expiration=None,
                 )
-                exp_start_s = _fmt_ts_utc(ew.expected_start)
-                exp_end_s = _fmt_ts_utc(ew.expected_end)
-                interest_start_s = _fmt_ts_utc(ew.interest_start)
-                interest_end_s = _fmt_ts_utc(ew.interest_end)
+                exp_start_s = fmt_day_ts(ew.expected_start)
+                exp_end_s = fmt_day_ts(ew.expected_end)
+                interest_start_s = fmt_day_ts(ew.interest_start)
+                interest_end_s = fmt_day_ts(ew.interest_end)
 
                 status = "unmapped"
                 status_detail = f"mapping_failed:{type(e).__name__}"
@@ -434,10 +426,10 @@ def ingest_ohlcv_1d_for_product(
                 activation=activation_ns,
                 expiration=expiration_ns,
             )
-            exp_start_s = _fmt_ts_utc(ew.expected_start)
-            exp_end_s = _fmt_ts_utc(ew.expected_end)
-            interest_start_s = _fmt_ts_utc(ew.interest_start)
-            interest_end_s = _fmt_ts_utc(ew.interest_end)
+            exp_start_s = fmt_day_ts(ew.expected_start)
+            exp_end_s = fmt_day_ts(ew.expected_end)
+            interest_start_s = fmt_day_ts(ew.interest_start)
+            interest_end_s = fmt_day_ts(ew.interest_end)
 
             # Fetch latest attempt (used for retry/systemic error policy)
             latest_attempt = attempts_store.get_latest_attempt_for_contract(
@@ -463,23 +455,27 @@ def ingest_ohlcv_1d_for_product(
             # 6) Coverage now (pre-decision surface)
             if reset_local and dry_run:
                 # simulate reset without deleting on disk
-                cov0 = CoverageSnapshot(min_ts=None, max_ts=None, row_count=0)
-            else:
-                cov0 = store.scan_coverage(
-                    dataset=ident.dataset,
-                    publisher_id=ident.publisher_id,
-                    instrument_id=ident.instrument_id,
+                cov_before = AttemptsCoverageSnapshot(
+                    min_ts=None,
+                    max_ts=None,
+                    row_count=0,
                 )
-            cov_before = _cov_snapshot(cov0)
+            else:
+                cov_before = _cov_snapshot(
+                    store.scan_coverage(
+                        dataset=ident.dataset,
+                        publisher_id=ident.publisher_id,
+                        instrument_id=ident.instrument_id,
+                    )
+                )
 
-            is_complete_now = is_complete_level0(
-                stored_min=cov0.min_ts,
-                stored_max=cov0.max_ts,
-                row_count=cov0.row_count,
-                target_start=ew.expected_start,
-                target_end=ew.expected_end,
+            is_complete_now = complete_from_expected_and_observed(
+                expected_start=ew.expected_start,
+                expected_end=ew.expected_end,
+                row_count=cov_before.row_count if cov_before else 0,
+                min_ts=cov_before.min_ts if cov_before else None,
+                max_ts=cov_before.max_ts if cov_before else None,
             )
-
             # Derived state + decision
             derived_state = derive_state(
                 latest_attempt=latest_attempt,
@@ -588,19 +584,19 @@ def ingest_ohlcv_1d_for_product(
             report.cost_usd_total += cost_used_usd
             remaining -= cost_used_usd
 
-            cov1 = store.scan_coverage(
-                dataset=ident.dataset,
-                publisher_id=ident.publisher_id,
-                instrument_id=ident.instrument_id,
+            cov_after = _cov_snapshot(
+                store.scan_coverage(
+                    dataset=ident.dataset,
+                    publisher_id=ident.publisher_id,
+                    instrument_id=ident.instrument_id,
+                )
             )
-            cov_after = _cov_snapshot(cov1)
-
-            complete_after = is_complete_level0(
-                stored_min=cov1.min_ts,
-                stored_max=cov1.max_ts,
-                row_count=cov1.row_count,
-                target_start=ew.expected_start,
-                target_end=ew.expected_end,
+            complete_after = complete_from_expected_and_observed(
+                expected_start=ew.expected_start,
+                expected_end=ew.expected_end,
+                row_count=cov_after.row_count if cov_after else 0,
+                min_ts=cov_after.min_ts if cov_after else None,
+                max_ts=cov_after.max_ts if cov_after else None,
             )
 
             if complete_after:
@@ -634,10 +630,10 @@ def ingest_ohlcv_1d_for_product(
                     activation=None,
                     expiration=None,
                 )
-                exp_start_s = _fmt_ts_utc(ew.expected_start)
-                exp_end_s = _fmt_ts_utc(ew.expected_end)
-                interest_start_s = _fmt_ts_utc(ew.interest_start)
-                interest_end_s = _fmt_ts_utc(ew.interest_end)
+                exp_start_s = fmt_day_ts(ew.expected_start)
+                exp_end_s = fmt_day_ts(ew.expected_end)
+                interest_start_s = fmt_day_ts(ew.interest_start)
+                interest_end_s = fmt_day_ts(ew.interest_end)
 
             # Record attempt row (exactly once per contract considered)
             attempts_store.record_attempt(
@@ -669,12 +665,12 @@ def ingest_ohlcv_1d_for_product(
             # Emit report row (prefer after coverage if present)
             cov_for_report = cov_after or cov_before
             stored_min = (
-                _fmt_ts_utc(cov_for_report.min_ts)
+                fmt_run_ts(cov_for_report.min_ts)
                 if cov_for_report and cov_for_report.min_ts is not None
                 else None
             )
             stored_max = (
-                _fmt_ts_utc(cov_for_report.max_ts)
+                fmt_run_ts(cov_for_report.max_ts)
                 if cov_for_report and cov_for_report.max_ts is not None
                 else None
             )
@@ -685,8 +681,8 @@ def ingest_ohlcv_1d_for_product(
                 ContractRun(
                     contract_id=str(c.contract_id),
                     contract_key=_contract_key(c),
-                    target_start=interest_start_s or _fmt_ts_utc(ew.interest_start),
-                    target_end=interest_end_s or _fmt_ts_utc(ew.interest_end),
+                    target_start=interest_start_s or fmt_day_ts(ew.interest_start),
+                    target_end=interest_end_s or fmt_day_ts(ew.interest_end),
                     vendor_start=exp_start_s,
                     vendor_end=exp_end_s,
                     vendor_final=bool(getattr(ew, "vendor_final", False)),
@@ -710,7 +706,6 @@ def ingest_ohlcv_1d_for_product(
 
     if report.stopped_reason == "":
         report.stopped_reason = "ok"
-    # --- meta-orchestrator surface (Session 13) ---
     report.cost_used_usd = float(report.cost_usd_total)
     report.stop_reason = report.stopped_reason
 

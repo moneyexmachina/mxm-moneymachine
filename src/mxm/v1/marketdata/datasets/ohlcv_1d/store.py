@@ -15,7 +15,7 @@ from mxm.v1.marketdata.time_utils import to_utc_ts
 
 
 @dataclass(frozen=True)
-class CoverageSnapshot:
+class StoreCoverageSnapshot:
     """
     Observed coverage snapshot in the local parquet store for a single instrument identity.
 
@@ -97,13 +97,13 @@ class OHLCV1DStore:
 
     def scan_coverage(
         self, *, dataset: str, publisher_id: int, instrument_id: int
-    ) -> CoverageSnapshot:
+    ) -> StoreCoverageSnapshot:
         path = self.bars_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
 
         if not path.exists():
-            return CoverageSnapshot(
+            return StoreCoverageSnapshot(
                 bars_path=path,
                 exists=False,
                 row_count=0,
@@ -116,7 +116,7 @@ class OHLCV1DStore:
         df = pd.read_parquet(path)
 
         if df.empty:
-            return CoverageSnapshot(
+            return StoreCoverageSnapshot(
                 bars_path=path,
                 exists=True,
                 row_count=0,
@@ -127,7 +127,7 @@ class OHLCV1DStore:
         ts_min = to_utc_ts(df["ts_event"].min())
         ts_max = to_utc_ts(df["ts_event"].max())
 
-        return CoverageSnapshot(
+        return StoreCoverageSnapshot(
             bars_path=path,
             exists=True,
             row_count=int(len(df)),

@@ -257,3 +257,40 @@ class CoverageWindows:
             self.expected.start == self.available.start
             and self.expected.end == self.available.end
         )
+
+
+def complete_from_expected_and_observed(
+    *,
+    expected_start: pd.Timestamp,
+    expected_end: pd.Timestamp,
+    row_count: int,
+    min_ts: pd.Timestamp | None,
+    max_ts: pd.Timestamp | None,
+) -> bool:
+    """
+    Canonical MVP completeness check for OHLCV-1D.
+
+    - expected is a day-aligned half-open window [start,end)
+    - observed is min/max ts_event (instants) + row_count
+    - empty expected is vacuously complete
+    """
+    expected = DayRange(start=expected_start, end=expected_end)
+
+    stored_observed = None
+    stored_window = None
+
+    if row_count > 0 and min_ts is not None and max_ts is not None:
+        stored_observed = ObservedRange(
+            min_ts=to_utc_ts(min_ts),
+            max_ts=to_utc_ts(max_ts),
+        )
+        stored_window = stored_observed.to_day_window()
+
+    windows = CoverageWindows(
+        available=None,
+        expected=expected,
+        stored_observed=stored_observed,
+        stored_window=stored_window,
+        row_count=int(row_count),
+    )
+    return windows.complete

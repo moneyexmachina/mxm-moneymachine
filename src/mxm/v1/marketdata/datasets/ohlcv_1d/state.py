@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.api import is_complete_level0
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
-    CoverageSnapshot,
+    AttemptsCoverageSnapshot,
     OHLCV1DAttemptRow,
+)
+from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
+    complete_from_expected_and_observed,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
 
@@ -96,7 +98,7 @@ def _consecutive_error_count(latest_attempt: OHLCV1DAttemptRow | None) -> int:
     return 1 if latest_attempt.status == "error" else 0
 
 
-def _has_any_local_data(cov: CoverageSnapshot | None) -> bool:
+def _has_any_local_data(cov: AttemptsCoverageSnapshot | None) -> bool:
     if cov is None:
         return False
     if (cov.row_count or 0) > 0:
@@ -115,7 +117,7 @@ def derive_state(
     *,
     latest_attempt: OHLCV1DAttemptRow | None,
     ew: ExpectedWindow,
-    coverage_now: CoverageSnapshot | None,
+    coverage_now: AttemptsCoverageSnapshot | None,
     is_mapped: bool,
     reset_local: bool,
 ) -> DerivedState:
@@ -142,24 +144,35 @@ def derive_state(
         return DerivedState.NEEDS_INGEST
 
     has_data_now = _has_any_local_data(coverage_now)
-
     # Coverage-based evaluation
     if has_data_now:
-        is_complete_now = is_complete_level0(
-            stored_min=coverage_now.min_ts,  # type: ignore[union-attr]
-            stored_max=coverage_now.max_ts,  # type: ignore[union-attr]
-            row_count=coverage_now.row_count,  # type: ignore[union-attr]
-            target_start=ew.expected_start,
-            target_end=ew.expected_end,
-        )
-        if is_complete_now:
-            return DerivedState.DONE
+        # pyright narrowing: we are about to access fields
+        if coverage_now is None:
+            # defensive: should be impossible given has_data_now, but keeps types strict
+            return DerivedState.NEEDS_INGEST
 
-        # Not complete now: accept vendor-final partial only if there is some local data
+        # Only compute completeness if we have a trustworthy observed range
+        has_observed_range = (
+            int(coverage_now.row_count) > 0
+            and coverage_now.min_ts is not None
+            and coverage_now.max_ts is not None
+        )
+
+        if has_observed_range:
+            is_complete_now = complete_from_expected_and_observed(
+                expected_start=ew.expected_start,
+                expected_end=ew.expected_end,
+                row_count=int(coverage_now.row_count),
+                min_ts=coverage_now.min_ts,
+                max_ts=coverage_now.max_ts,
+            )
+            if is_complete_now:
+                return DerivedState.DONE
+
+        # Not complete (or cannot prove complete). Vendor-final partial acceptance
         if ew.vendor_final:
             return DerivedState.DONE
 
-        # Has data but incomplete and not vendor_final -> needs ingest
         return DerivedState.NEEDS_INGEST
 
     # No local data now (empty coverage): vendor_final does NOT imply DONE.

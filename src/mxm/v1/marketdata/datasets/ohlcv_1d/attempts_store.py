@@ -24,7 +24,7 @@ TABLE = "ohlcv_1d_attempts"
 
 
 @dataclass(frozen=True)
-class CoverageSnapshot:
+class AttemptsCoverageSnapshot:
     min_ts: pd.Timestamp | None
     max_ts: pd.Timestamp | None
     row_count: int
@@ -46,6 +46,7 @@ class OHLCV1DAttemptRow:
     contract_key: str
 
     # Vendor identity (nullable if unmapped / pre-mapping failures)
+    feed: str | None
     dataset: str | None
     publisher_id: int | None
     instrument_id: int | None
@@ -63,6 +64,10 @@ class OHLCV1DAttemptRow:
     expected_start: str
     expected_end: str
     is_empty: bool
+
+    # Diagnostics on why expected differs from interest  (persisted)
+    is_vendor_limited: bool
+    is_lifecycle_limited: bool
 
     # Derived flags
     vendor_final: bool
@@ -86,9 +91,11 @@ class OHLCV1DAttemptRow:
     stored_max_after: str | None
     bars_path_after: str | None
 
-    # (Optional) cost accounting — snapshot at time of attempt
+    # Cost accounting — snapshot at time of attempt (persisted)
     cost_cap_usd: float | None = None
     cost_estimated_usd: float | None = None
+    cost_used_usd: float | None = None
+    cost_charged_usd: float | None = None
 
 
 def _bool01(v: Any) -> bool:
@@ -145,8 +152,8 @@ class OHLCV1DAttemptsStore:
         cost_used_usd: float | None = None,
         cost_charged_usd: float | None = None,
         # coverage snapshots
-        coverage_before: CoverageSnapshot | None = None,
-        coverage_after: CoverageSnapshot | None = None,
+        coverage_before: AttemptsCoverageSnapshot | None = None,
+        coverage_after: AttemptsCoverageSnapshot | None = None,
         # error capture (optional)
         error_type: str | None = None,
         error_message: str | None = None,
@@ -260,6 +267,7 @@ class OHLCV1DAttemptsStore:
             contract_id=str(row["contract_id"]),
             contract_key=str(row["contract_key"]),
             # Vendor identity
+            feed=None if row["feed"] is None else str(row["feed"]),
             dataset=None if row["dataset"] is None else str(row["dataset"]),
             publisher_id=_int_or_none(row["publisher_id"]),
             instrument_id=_int_or_none(row["instrument_id"]),
@@ -283,6 +291,9 @@ class OHLCV1DAttemptsStore:
             expected_start=str(row["expected_start"]),
             expected_end=str(row["expected_end"]),
             is_empty=_bool01(row["is_empty"]),
+            # Limiting diagnostics (persisted)
+            is_vendor_limited=_bool01(row["is_vendor_limited"]),
+            is_lifecycle_limited=_bool01(row["is_lifecycle_limited"]),
             # Derived flags
             vendor_final=_bool01(row["vendor_final"]),
             # Result
@@ -360,7 +371,7 @@ class OHLCV1DAttemptsStore:
                     product_id, contract_id, contract_key,
     
                     -- vendor identity
-                    dataset, publisher_id, instrument_id, raw_symbol,
+                    feed, dataset, publisher_id, instrument_id, raw_symbol,
     
                     -- surfaces (day-aligned, half-open)
                     interest_start, interest_end,
@@ -369,7 +380,7 @@ class OHLCV1DAttemptsStore:
     
                     -- expected window + flags
                     expected_start, expected_end,
-                    is_empty, vendor_final,
+                    is_empty, is_vendor_limited, is_lifecycle_limited, vendor_final,
     
                     -- result / diagnostics
                     status, status_detail,
@@ -384,7 +395,7 @@ class OHLCV1DAttemptsStore:
                     bars_path_after,
     
                     -- optional cost accounting (safe to include; may be NULL)
-                    cost_cap_usd, cost_estimated_usd
+                    cost_cap_usd, cost_estimated_usd, cost_used_usd, cost_charged_usd
     
                 FROM {TABLE}
                 WHERE product_id = ? AND contract_id = ?
@@ -416,7 +427,7 @@ class OHLCV1DAttemptsStore:
                     product_id, contract_id, contract_key,
     
                     -- vendor identity
-                    dataset, publisher_id, instrument_id, raw_symbol,
+                    feed, dataset, publisher_id, instrument_id, raw_symbol,
     
                     -- surfaces (day-aligned, half-open)
                     interest_start, interest_end,
@@ -425,7 +436,7 @@ class OHLCV1DAttemptsStore:
     
                     -- expected window + flags
                     expected_start, expected_end,
-                    is_empty, vendor_final,
+                    is_empty, is_vendor_limited, is_lifecycle_limited, vendor_final,
     
                     -- result / diagnostics
                     status, status_detail,
@@ -440,7 +451,7 @@ class OHLCV1DAttemptsStore:
                     bars_path_after,
     
                     -- optional cost accounting (supported fields only)
-                    cost_cap_usd, cost_estimated_usd
+                    cost_cap_usd, cost_estimated_usd, cost_used_usd, cost_charged_usd
     
                 FROM {TABLE}
                 WHERE contract_key = ?
@@ -486,7 +497,7 @@ class OHLCV1DAttemptsStore:
                     a.product_id, a.contract_id, a.contract_key,
     
                     -- vendor identity
-                    a.dataset, a.publisher_id, a.instrument_id, a.raw_symbol,
+                    a.feed, a.dataset, a.publisher_id, a.instrument_id, a.raw_symbol,
     
                     -- surfaces (day-aligned, half-open)
                     a.interest_start, a.interest_end,
@@ -495,7 +506,7 @@ class OHLCV1DAttemptsStore:
     
                     -- expected window + flags
                     a.expected_start, a.expected_end,
-                    a.is_empty, a.vendor_final,
+                    a.is_empty, a.is_vendor_limited, a.is_lifecycle_limited, a.vendor_final,
     
                     -- result / diagnostics
                     a.status, a.status_detail,
@@ -510,7 +521,7 @@ class OHLCV1DAttemptsStore:
                     a.bars_path_after,
     
                     -- optional cost accounting (supported fields only)
-                    a.cost_cap_usd, a.cost_estimated_usd
+                    a.cost_cap_usd, a.cost_estimated_usd, a.cost_used_usd, a.cost_charged_usd
     
                 FROM {TABLE} a
                 JOIN latest_created lc
@@ -553,7 +564,7 @@ class OHLCV1DAttemptsStore:
                     a.product_id, a.contract_id, a.contract_key,
     
                     -- vendor identity
-                    a.dataset, a.publisher_id, a.instrument_id, a.raw_symbol,
+                    a.feed, a.dataset, a.publisher_id, a.instrument_id, a.raw_symbol,
     
                     -- surfaces (day-aligned, half-open)
                     a.interest_start, a.interest_end,
@@ -562,7 +573,7 @@ class OHLCV1DAttemptsStore:
     
                     -- expected window + flags
                     a.expected_start, a.expected_end,
-                    a.is_empty, a.vendor_final,
+                    a.is_empty, a.is_vendor_limited, a.is_lifecycle_limited, a.vendor_final,
     
                     -- result / diagnostics
                     a.status, a.status_detail,
@@ -577,7 +588,7 @@ class OHLCV1DAttemptsStore:
                     a.bars_path_after,
     
                     -- optional cost accounting (supported fields only)
-                    a.cost_cap_usd, a.cost_estimated_usd
+                    a.cost_cap_usd, a.cost_estimated_usd, a.cost_used_usd, a.cost_charged_usd
     
                 FROM {TABLE} a
                 JOIN latest_created lc
