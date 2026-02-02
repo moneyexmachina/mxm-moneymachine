@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
 from mxm.v1.marketdata.inspect.contracts import list_contract_coverages_for_product
-from mxm.v1.marketdata.inspect.models import ContractCoverage
+from mxm.v1.marketdata.inspect.models import (
+    AttemptStatus,
+    ContractCoverage,
+    ProductStatus,
+)
 from mxm.v1.marketdata.time_utils import parse_ts
-
-ProductStatus = Literal["never_run", "done", "partial", "blocked", "error"]
 
 
 @dataclass(frozen=True)
@@ -49,15 +50,58 @@ class ProductCoverageSummary:
           - *_ts_utc is a canonical string
           - *_ts is a pd.Timestamp
         """
-        return (
-            parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc is not None else None
-        )
+        return parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc else None
 
 
 @dataclass(frozen=True)
 class ProductCoverageReport:
     summary: ProductCoverageSummary
     contracts: tuple[ContractCoverage, ...]
+
+
+def compute_product_status(contracts: list[ContractCoverage]) -> ProductStatus:
+    """
+    Authoritative product status precedence (normative semantics):
+
+      1) never_run if no attempts exist
+      2) done if all contracts windows.complete AND none are unmapped/cost-blocked/error
+      3) error if any contract error OR contradiction (attempt says 'complete' but windows incomplete w/o vendor_final)
+      4) blocked if any unmapped or cost-blocked and no errors
+      5) partial otherwise
+    """
+    if len(contracts) == 0:
+        return ProductStatus.never_run
+
+    any_error = False
+    any_blocked = False
+    all_complete = True
+
+    for cc in contracts:
+        w_complete = bool(cc.windows.complete)
+        st = cc.last_attempt.status
+
+        contradiction_complete = (
+            st == AttemptStatus.complete
+            and not w_complete
+            and not cc.last_attempt.vendor_final
+        )
+
+        if st == AttemptStatus.error or contradiction_complete:
+            any_error = True
+
+        if st in (AttemptStatus.unmapped, AttemptStatus.skipped_cost_cap):
+            any_blocked = True
+
+        if not w_complete:
+            all_complete = False
+
+    if all_complete and not any_error and not any_blocked:
+        return ProductStatus.done
+    if any_error:
+        return ProductStatus.error
+    if any_blocked:
+        return ProductStatus.blocked
+    return ProductStatus.partial
 
 
 # -------------------------
@@ -70,6 +114,11 @@ def get_product_coverage_report(
 ) -> ProductCoverageReport:
     """
     Read-only coverage report for a product, based on the latest attempt per contract_key.
+
+    Normative discipline:
+    - Completeness truth comes ONLY from c.windows.complete.
+    - Attempt status is a persisted fact used for blocker/error bucketing.
+    - status_detail is never used for bucketing.
     """
     coverages = list_contract_coverages_for_product(
         attempts=attempts, product_id=product_id
@@ -78,7 +127,7 @@ def get_product_coverage_report(
     if len(coverages) == 0:
         summary = ProductCoverageSummary(
             product_id=product_id,
-            status="never_run",
+            status=ProductStatus.never_run,
             status_reason="no attempts recorded for product",
             contracts_total=0,
             contracts_complete=0,
@@ -96,17 +145,18 @@ def get_product_coverage_report(
         )
         return ProductCoverageReport(summary=summary, contracts=())
 
-    # Aggregate counts
+    # -------------------------
+    # Aggregate counts + drilldowns
+    # -------------------------
     total = len(coverages)
-    complete = 0
-    incomplete = 0
-    empty_expected = 0
-    vendor_final = 0
-    unmapped = 0
-    errors = 0
-    blocked_cost = 0
 
-    complete_keys: list[str] = []
+    contracts_complete = 0
+    contracts_empty_expected = 0
+    contracts_vendor_final = 0
+    contracts_unmapped = 0
+    contracts_error = 0
+    contracts_blocked_cost = 0
+
     incomplete_keys: list[str] = []
     error_keys: list[str] = []
     unmapped_keys: list[str] = []
@@ -117,98 +167,75 @@ def get_product_coverage_report(
 
     for c in coverages:
         la = c.last_attempt
-        run_ts = la.run_ts
-        # latest run timestamp (max)
-        if last_run_ts is None or run_ts > last_run_ts:
-            last_run_ts = run_ts
+
+        # Latest run timestamp (max)
+        rt = la.run_ts
+        if last_run_ts is None or rt > last_run_ts:
+            last_run_ts = rt
             last_run_ts_utc = la.run_ts_utc
             last_mode = la.mode
 
-        # vendor_final and is_empty: prefer AttemptSummary if present
-        is_empty = la.is_empty
-        vf = la.vendor_final
+        # Descriptors
+        if la.is_empty:
+            contracts_empty_expected += 1
+        if la.vendor_final:
+            contracts_vendor_final += 1
 
-        if is_empty:
-            empty_expected += 1
-        if vf:
-            vendor_final += 1
+        # Canonical truth
+        is_complete = bool(c.windows.complete)
+        if is_complete:
+            contracts_complete += 1
+        else:
+            incomplete_keys.append(c.contract_key)
 
-        # status bucketing
+        # Blockers / error signals (facts + contradictions)
         st = la.status
 
-        if st == "unmapped":
-            unmapped += 1
+        if st == AttemptStatus.unmapped:
+            contracts_unmapped += 1
             unmapped_keys.append(c.contract_key)
-            incomplete_keys.append(c.contract_key)
-            continue
 
-        if st == "skipped_cost_cap":
-            blocked_cost += 1
-            incomplete_keys.append(c.contract_key)
-            continue
+        if st == AttemptStatus.skipped_cost_cap:
+            contracts_blocked_cost += 1
 
-        if st in ("error",):
-            errors += 1
-            error_keys.append(c.contract_key)
-            incomplete_keys.append(c.contract_key)
-            continue
-
-        # For everything else, use window completeness as the canonical criterion
-        if c.windows.complete:
-            complete += 1
-            complete_keys.append(c.contract_key)
-        else:
-            incomplete_keys.append(c.contract_key)
-
-            # If the attempt says complete but windows are not, flag as error-like
-            if st in ("complete",) and c.windows.complete is False:
-                # treat as an error signal for summary purposes
-                errors += 1
-                error_keys.append(c.contract_key)
-    incomplete = total - complete
-
-    if len(incomplete_keys) != total - len(complete_keys):
-        raise RuntimeError(
-            f"inconsistent classification for product_id={product_id!r}: "
-            f"total={total} complete={len(complete_keys)} incomplete_keys={len(incomplete_keys)}"
+        contradiction_complete = (
+            st == AttemptStatus.complete and (not is_complete) and (not la.vendor_final)
         )
+        if st == AttemptStatus.error or contradiction_complete:
+            contracts_error += 1
+            error_keys.append(c.contract_key)
 
-    # Roll-up status semantics
-    if total == 0:
-        status: ProductStatus = "never_run"
+    contracts_incomplete = total - contracts_complete
+
+    # -------------------------
+    # Roll-up status (authoritative precedence)
+    # -------------------------
+    status = compute_product_status(coverages)
+
+    # Stable reason strings (avoid smuggling new semantics)
+    if status == ProductStatus.never_run:
         reason = "no attempts recorded for product"
-    elif complete == total:
-        status = "done"
-        reason = "all contracts complete"
+    elif status == ProductStatus.done:
+        reason = "all contracts windows.complete and no blockers/errors"
+    elif status == ProductStatus.error:
+        reason = "one or more contracts error or contradictory completeness"
+    elif status == ProductStatus.blocked:
+        reason = "one or more contracts blocked (unmapped or cost cap) and no errors"
     else:
-        # If any hard errors or unmapped or cost blocks exist, pick strongest status
-        if errors > 0:
-            status = "error"
-            reason = (
-                "one or more contracts have error status or inconsistent completeness"
-            )
-        elif unmapped > 0:
-            status = "blocked"
-            reason = "one or more contracts unmapped"
-        elif blocked_cost > 0:
-            status = "blocked"
-            reason = "one or more contracts blocked by cost cap"
-        else:
-            status = "partial"
-            reason = "some contracts incomplete"
+        reason = "some contracts incomplete and no blockers/errors"
 
     summary = ProductCoverageSummary(
         product_id=product_id,
         status=status,
         status_reason=reason,
         contracts_total=total,
-        contracts_complete=complete,
-        contracts_incomplete=incomplete,
-        contracts_empty_expected=empty_expected,
-        contracts_vendor_final=vendor_final,
-        contracts_unmapped=unmapped,
-        contracts_error=errors,
-        contracts_blocked_cost=blocked_cost,
+        contracts_complete=contracts_complete,
+        contracts_incomplete=contracts_incomplete,
+        contracts_empty_expected=contracts_empty_expected,
+        contracts_vendor_final=contracts_vendor_final,
+        contracts_unmapped=contracts_unmapped,
+        contracts_error=contracts_error,
+        contracts_blocked_cost=contracts_blocked_cost,
         last_run_ts_utc=last_run_ts_utc,
         last_mode=last_mode,
         incomplete_contract_keys=tuple(incomplete_keys),
@@ -216,6 +243,6 @@ def get_product_coverage_report(
         unmapped_contract_keys=tuple(unmapped_keys),
     )
 
-    # stable ordering (nice for reports)
+    # Stable ordering (nice for reports)
     coverages_sorted = tuple(sorted(coverages, key=lambda x: x.contract_key))
     return ProductCoverageReport(summary=summary, contracts=coverages_sorted)

@@ -42,7 +42,7 @@ def main() -> int:
     print(f"product_id:   {s.product_id}")
     print(f"status:       {s.status} ({s.status_reason})")
     print(
-        f"last_run:     {s.last_run_ts_utc.isoformat() if s.last_run_ts_utc else None} mode={s.last_mode}"
+        f"last_run:     {s.last_run_ts_utc if s.last_run_ts_utc else None} mode={s.last_mode}"
     )
     print()
     print(

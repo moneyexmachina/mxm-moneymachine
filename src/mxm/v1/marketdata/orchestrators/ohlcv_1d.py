@@ -80,6 +80,7 @@ class ContractRun:
     stored_max: str | None
     stored_rows: int
     status: str  # complete | ingested | unmapped | skipped_cost_cap | dry_run | incomplete | error
+    windows_complete: bool
     vendor_start: str | None = None
     vendor_end: str | None = None
     vendor_final: bool = False
@@ -176,15 +177,16 @@ def _gate_definitions_available(
     )
 
 
-def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
-    """
-    Deterministic enumeration of refdata contracts.
+def _as_date(x: Any) -> date:
+    if isinstance(x, date):
+        return x
+    if isinstance(x, str):
+        # expects ISO 'YYYY-MM-DD'
+        return date.fromisoformat(x)
+    raise TypeError(f"expected date or ISO date string, got {type(x).__name__}: {x!r}")
 
-    For now:
-      - bootstrap: all contracts for product
-      - update: contracts whose last_trading_day is within a recent horizon
-               (simple, conservative; avoids reprocessing deep history)
-    """
+
+def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
     api = RefDataAPI()
     contracts = list(api.get_contracts_for_product(product_id))
 
@@ -196,7 +198,16 @@ def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract
 
     today = date.today()
     cutoff = today.replace(year=today.year - 1)
-    return [c for c in contracts if c.last_trading_day >= cutoff]
+
+    # Normalize types defensively
+    eligible: list[FuturesContract] = []
+    for c in contracts:
+        ltd = _as_date(getattr(c, "last_trading_day", None))
+        # optional: also normalize first_day_of_interest if you use it elsewhere
+        # fdoi = _as_date(getattr(c, "first_day_of_interest", None))
+        if ltd >= cutoff:
+            eligible.append(c)
+    return eligible
 
 
 def _cov_snapshot(coverage: StoreCoverageSnapshot) -> AttemptsCoverageSnapshot:
@@ -357,6 +368,7 @@ def ingest_ohlcv_1d_for_product(
         decision = None
         derived_state = None
 
+        windows_complete: bool = False
         # Track “complete now” for mapping to ledger/report
         is_complete_now: bool | None = None
 
@@ -367,7 +379,7 @@ def ingest_ohlcv_1d_for_product(
                 end_date_inclusive=c.last_trading_day,
             )
             w_start = to_utc_ts(window.start)
-            w_end = to_utc_ts(window.start)
+            w_end = to_utc_ts(window.end)
             interest_start_s = fmt_day_ts(w_start)
             interest_end_s = fmt_day_ts(w_end)
 
@@ -468,6 +480,8 @@ def ingest_ohlcv_1d_for_product(
                 min_ts=cov_before.min_ts if cov_before else None,
                 max_ts=cov_before.max_ts if cov_before else None,
             )
+
+            windows_complete = bool(is_complete_now)
             # Derived state + decision
             derived_state = derive_state(
                 latest_attempt=latest_attempt,
@@ -488,31 +502,53 @@ def ingest_ohlcv_1d_for_product(
                 status = "dry_run"
                 status_detail = f"dry_run_decision={decision.action}"
                 continue
-            # Map decision/state to ledger status for noop paths
+
+            # -------------------------
+            # Map decision/state to ledger status for NOOP paths
+            # -------------------------
             if decision.action == "noop":
-                if derived_state.value == "done":
-                    # DONE may be complete or vendor_final partial.
+                s = getattr(derived_state, "value", None)
+
+                if s == "done":
+                    # Under state.py semantics:
+                    # - done + is_complete_now => locally complete (no vendor call required)
+                    # - done + not complete => only allowed when vendor_final=True AND there is evidence of local data
                     if is_complete_now:
                         report.complete_before += 1
                         status = "complete"
                         status_detail = "already_complete"
                     else:
-                        # Vendor-final partial “done” (explicitly tagged)
-                        status = "incomplete"
-                        status_detail = "vendor_final_partial_done"
-                elif derived_state.value == "blocked_unmapped":
+                        # Vendor-final partial acceptance without vendor call.
+                        # Must NOT be recorded as "incomplete" because no ingest occurred.
+                        if bool(getattr(ew, "vendor_final", False)):
+                            status = "complete"
+                            status_detail = "vendor_final_noop_partial"
+                        else:
+                            status = "error"
+                            status_detail = "inconsistent_done_without_vendor_final"
+
+                elif s == "blocked_unmapped":
                     status = "unmapped"
                     status_detail = "blocked_unmapped"
-                elif derived_state.value == "blocked_empty_expected":
+
+                elif s == "blocked_empty_expected":
                     status = "skipped_empty_expected_window"
                     status_detail = "expected_window_empty"
-                elif derived_state.value == "skipped_budget":
+
+                elif s == "skipped_budget":
                     status = "skipped_cost_cap"
                     status_detail = "skipped_budget"
+
+                elif s in ("retryable_error", "unknown", "needs_ingest"):
+                    # A noop decision in these states is semantically suspicious.
+                    # Record as error to force operator inspection.
+                    status = "error"
+                    status_detail = f"noop_in_state:{s}:{decision.reason}"
+
                 else:
-                    # Includes "final_error" and other noop-returning states
-                    status = "dry_run" if dry_run else "complete"
-                    status_detail = decision.reason
+                    status = "error"
+                    status_detail = f"noop_unhandled_state:{s}:{decision.reason}"
+
                 continue
 
             if decision.action == "stop_run":
@@ -595,13 +631,15 @@ def ingest_ohlcv_1d_for_product(
                 status = "ingested"
                 status_detail = "ingested_complete"
                 report.completed_this_run += 1
+                windows_complete = True
             elif ew.vendor_final:
                 status = "ingested"
-                status_detail = "vendor_final_partial_done"
-                report.completed_this_run += 1
+                status_detail = "vendor_final_partial"
+                windows_complete = False
             else:
                 status = "incomplete"
                 status_detail = "incomplete_after_ingest"
+                windows_complete = False
 
         except Exception as e:
             status = "error"
@@ -682,6 +720,7 @@ def ingest_ohlcv_1d_for_product(
                     stored_max=stored_max,
                     stored_rows=stored_rows,
                     status=(status or "error"),
+                    windows_complete=windows_complete,
                     cost_usd=float(cost_used_usd or 0.0),
                     bars_path=bars_path,
                 )
@@ -690,18 +729,14 @@ def ingest_ohlcv_1d_for_product(
         if should_break_after:
             break
 
-    report.incomplete_remaining = sum(
-        1
-        for r in report.runs
-        if r.status in ("incomplete", "dry_run", "skipped_cost_cap", "error")
-    )
+    report.incomplete_remaining = sum(1 for r in report.runs if not r.windows_complete)
 
     if report.stopped_reason == "":
         report.stopped_reason = "ok"
     report.cost_used_usd = float(report.cost_usd_total)
     report.stop_reason = report.stopped_reason
 
-    if report.stopped_reason == "ok":
+    if report.stopped_reason in ("ok", "max_contracts"):
         report.stage_status = "ok"
     else:
         report.stage_status = "halted"

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     CoverageCheck,
@@ -11,7 +11,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
-from mxm.v1.marketdata.time_utils import format_iso_z, parse_duration, parse_iso_z
+from mxm.v1.marketdata.time_utils import fmt_run_ts, parse_duration, parse_ts
 
 # ---------------------------------------------------------------------------
 # Feed identity (vendor-scoped)
@@ -117,11 +117,11 @@ def get_start_from_watermark(
     """
     if watermark is None:
         # Strict parse enforces canonical ISO8601Z inputs.
-        return format_iso_z(parse_iso_z(default_start))
+        return fmt_run_ts(parse_ts(default_start))
 
-    wm = parse_iso_z(watermark)
+    wm = parse_ts(watermark)
     td = parse_duration(overlap)
-    return format_iso_z(wm - td)
+    return fmt_run_ts(wm - td)
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ def read_current_for_product(
     product_id: str,
     limit: int = 1000,
     newest_first: bool = True,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
     Bounded read of current rows for operational diagnostics. No SQL here.
     """

@@ -45,7 +45,7 @@ def main() -> int:
     )
     print()
     print(
-        f"last_attempt: ts={la.run_ts_utc.isoformat()} mode={la.mode} status={la.status} detail={la.status_detail}"
+        f"last_attempt: ts={la.run_ts_utc} mode={la.mode} status={la.status} detail={la.status_detail}"
     )
     print(
         f"attempt:      is_empty={getattr(la, 'is_empty', None)} vendor_final={getattr(la, 'vendor_final', None)}"
@@ -91,7 +91,7 @@ def main() -> int:
             )
     print()
     print(f"complete:     {w.complete}")
-    print(f"derived_vendor_final: {w.vendor_final}")
+    print(f"derived_vendor_final: {la.vendor_final}")
 
     return 0
 

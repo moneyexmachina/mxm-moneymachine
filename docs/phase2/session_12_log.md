@@ -94,7 +94,7 @@ In practice, the session converged on a simpler and more robust rule:
 
 - **`ingested`** now covers:
   - fully complete coverage (`ingested_complete`)
-  - vendor-final partial coverage (`vendor_final_partial_done`)
+  - vendor-final partial coverage (`vendor_final_partial`)
 - **`complete`** is reserved for *pre-existing* completeness
 - **`incomplete`** is reserved exclusively for:
   - retryable, non-vendor-final cases

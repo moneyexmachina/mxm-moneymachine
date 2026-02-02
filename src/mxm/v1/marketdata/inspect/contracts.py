@@ -32,7 +32,11 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
     OHLCV1DAttemptsStore,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import coverage_from_attempt_row
-from mxm.v1.marketdata.inspect.models import AttemptSummary, ContractCoverage
+from mxm.v1.marketdata.inspect.models import (
+    AttemptStatus,
+    AttemptSummary,
+    ContractCoverage,
+)
 
 # -------------------------
 # Public API
@@ -86,7 +90,7 @@ def contract_coverage_from_attempt_row(row: OHLCV1DAttemptRow) -> ContractCovera
         run_ts_utc=row.run_ts_utc,
         mode=row.mode,
         dry_run=bool(row.dry_run),
-        status=row.status,
+        status=AttemptStatus(row.status),
         status_detail=row.status_detail,
         cost_cap_usd=getattr(row, "cost_cap_usd", None),
         cost_estimated_usd=getattr(row, "cost_estimated_usd", None),

@@ -29,7 +29,9 @@ def main() -> int:
         print("[inspect] no attempts recorded")
         return 0
 
-    print(f"products: {len(report.products)}   contracts: {report.contracts_total}")
+    print(
+        f"products: {len(report.products)}   contracts: {report.summary.contracts_total}"
+    )
     print()
     print(
         "product_id | status | total | complete | incomplete | unmapped | cost_blocked | errors | last_run | mode"
@@ -38,7 +40,7 @@ def main() -> int:
     for i, r in enumerate(report.products):
         if i >= args.limit:
             break
-        last_run = r.last_run_ts_utc.isoformat() if r.last_run_ts_utc else ""
+        last_run = r.last_run_ts_utc if r.last_run_ts_utc else ""
         mode = r.last_mode or ""
         print(
             f"{r.product_id} | {r.status} | {r.contracts_total} | {r.contracts_complete} | "

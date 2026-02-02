@@ -35,7 +35,7 @@ class AttemptSummary:
     mode: str
     dry_run: bool
 
-    status: str
+    status: AttemptStatus
     status_detail: str | None
 
     cost_cap_usd: float | None
@@ -82,6 +82,14 @@ class ContractCoverage:
     last_attempt: AttemptSummary
 
 
+class ProductStatus(str, Enum):
+    never_run = "never_run"
+    done = "done"
+    partial = "partial"
+    blocked = "blocked"
+    error = "error"
+
+
 @dataclass(frozen=True)
 class ProductCoverage:
     product_id: str
@@ -91,29 +99,36 @@ class ProductCoverage:
     contracts_unmapped: int
     contracts_error: int
     contracts_empty_expected: int
-
+    status: ProductStatus
     # Optional rollups
     stored_earliest: pd.Timestamp | None
     stored_latest: pd.Timestamp | None
     expected_earliest: pd.Timestamp | None
     expected_latest: pd.Timestamp | None
 
-    last_run_ts_utc: pd.Timestamp | None
+    last_run_ts_utc: str | None
 
     @property
-    def complete(self) -> bool:
-        return (
-            self.contracts_total > 0
-            and self.contracts_incomplete == 0
-            and self.contracts_unmapped == 0
-            and self.contracts_error == 0
-        )
+    def last_run_ts(self) -> pd.Timestamp | None:
+        """
+        Parsed timestamp view of last_run_ts_utc.
+
+        Naming discipline:
+          - *_ts_utc is a canonical string
+          - *_ts is a pd.Timestamp
+        """
+        return parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc else None
+
+    @property
+    def done(self) -> bool:
+        return self.status == ProductStatus.done
 
 
 @dataclass(frozen=True)
 class SystemSummary:
     products_total: int
     products_never_run: int
-    products_complete: int
+    products_done: int
     products_partial: int
-    products_error_only: int
+    products_blocked: int
+    products_error: int

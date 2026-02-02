@@ -1138,7 +1138,7 @@ If derived_state == done:
   - `status_detail = "already_complete"`
 - else (vendor-final partial done):
   - `status = "complete"`
-  - `status_detail = "vendor_final_partial_done"`
+  - `status_detail = "vendor_final_partial"`
 
 If derived_state == blocked_unmapped:
 - `status = "unmapped"`
@@ -1201,7 +1201,7 @@ If complete_after:
 
 Elif ew.vendor_final:
 - `status = "ingested"`
-- `status_detail = "vendor_final_partial_done"`
+- `status_detail = "vendor_final_partial"`
 - `report.completed_this_run += 1`
 
 Else:

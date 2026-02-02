@@ -22,7 +22,6 @@ class DerivedState(str, Enum):
     BLOCKED_EMPTY_EXPECTED = "blocked_empty_expected"
     NEEDS_INGEST = "needs_ingest"
     RETRYABLE_ERROR = "retryable_error"
-    FINAL_ERROR = "final_error"
     SKIPPED_BUDGET = "skipped_budget"
     UNKNOWN = "unknown"
 
@@ -207,15 +206,20 @@ def decide_action(
     """
     Pure decision. No vendor calls. No IO.
     """
+
     if state in (
         DerivedState.DONE,
         DerivedState.BLOCKED_UNMAPPED,
         DerivedState.BLOCKED_EMPTY_EXPECTED,
-        DerivedState.SKIPPED_BUDGET,
-        DerivedState.FINAL_ERROR,
     ):
         return Decision(action="noop", reason=state.value)
 
+    if state == DerivedState.SKIPPED_BUDGET:
+        # Budget was insufficient on a previous attempt.
+        # If budget is now available, we should try again.
+        if budgets.remaining_usd <= 0:
+            return Decision(action="noop", reason="budget_exhausted")
+        return Decision(action="attempt_ingest", reason="budget_available_retry")
     if state == DerivedState.UNKNOWN:
         return Decision(action="stop_run", reason="unknown_state")
 

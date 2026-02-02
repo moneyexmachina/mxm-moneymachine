@@ -5,7 +5,7 @@ from __future__ import annotations
 System-level inspection rollups for OHLCV-1D coverage.
 
 This module is part of the *inspection* layer. It is intentionally read-only and
-exists to aggregate contract-level inspection models into a simple system-wide
+exists to aggregate product-level inspection models into a simple system-wide
 report.
 
 Normative constraints (MXM V1):
@@ -15,45 +15,36 @@ Normative constraints (MXM V1):
 - This module MUST NOT perform ad-hoc timestamp manipulation.
   Persisted timestamp facts are stored as canonical ISO8601Z strings (e.g. *_ts_utc),
   and typed views (e.g. *_ts) are obtained only via explicit parse_ts at the model edge.
-- Status fields (status, status_detail, vendor_final, is_empty) are treated as
-  authoritative facts from the attempts ledger and are never inferred.
+- Product status semantics MUST be delegated to inspect/product.py (single authority).
 
 Design notes:
 - Product ordering in the returned report is stable by product_id (sorted).
-- Within a product, we preserve the store-provided ordering of latest attempts.
-- Incomplete count is derived as total - complete with an invariant check to detect
-  classification drift.
-
-This report is "freshness-ish": last_run_ts reflects the most recent attempt recorded
-per product, not live vendor staleness.
+- This report is "freshness-ish": last_run_ts reflects the most recent attempt recorded
+  per product, not live vendor staleness.
 """
 
 from dataclasses import dataclass
-from typing import Literal
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
-    OHLCV1DAttemptRow,
-    OHLCV1DAttemptsStore,
-)
-from mxm.v1.marketdata.inspect.contracts import contract_coverage_from_attempt_row
-from mxm.v1.marketdata.inspect.models import ContractCoverage
+from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
+from mxm.v1.marketdata.inspect.models import ProductStatus
+from mxm.v1.marketdata.inspect.product import get_product_coverage_report
 from mxm.v1.marketdata.time_utils import parse_ts
-
-SystemProductStatus = Literal["done", "partial", "blocked", "error"]
 
 
 @dataclass(frozen=True)
 class SystemProductRow:
     product_id: str
 
-    status: SystemProductStatus
+    status: ProductStatus
     status_reason: str
 
     contracts_total: int
     contracts_complete: int
     contracts_incomplete: int
+    contracts_empty_expected: int
+    contracts_vendor_final: int
     contracts_unmapped: int
     contracts_blocked_cost: int
     contracts_error: int
@@ -70,130 +61,136 @@ class SystemProductRow:
           - *_ts_utc is a canonical string
           - *_ts is a pd.Timestamp
         """
-        return (
-            parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc is not None else None
-        )
+        return parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc else None
+
+
+@dataclass(frozen=True)
+class SystemSummary:
+    products_total: int
+    products_never_run: int
+    products_done: int
+    products_partial: int
+    products_blocked: int
+    products_error: int
+
+    contracts_total: int
+    contracts_complete: int
+    contracts_incomplete: int
+    contracts_unmapped: int
+    contracts_blocked_cost: int
+    contracts_error: int
 
 
 @dataclass(frozen=True)
 class SystemCoverageReport:
+    summary: SystemSummary
     products: tuple[SystemProductRow, ...]
-    contracts_total: int
 
 
 def get_system_coverage_report(
     *, attempts: OHLCV1DAttemptsStore
 ) -> SystemCoverageReport:
     """
-    System-wide read-only rollup across the latest attempt per contract_key.
+    System-wide read-only rollup across products.
+
+    Single semantic authority:
+    - Per-product status and counts are delegated to get_product_coverage_report().
     """
-    rows = attempts.list_latest_attempts_all_contracts()
-    if not rows:
-        return SystemCoverageReport(products=(), contracts_total=0)
+    product_ids = attempts.list_products_with_attempts()
+    if not product_ids:
+        summary = SystemSummary(
+            products_total=0,
+            products_never_run=0,
+            products_done=0,
+            products_partial=0,
+            products_blocked=0,
+            products_error=0,
+            contracts_total=0,
+            contracts_complete=0,
+            contracts_incomplete=0,
+            contracts_unmapped=0,
+            contracts_blocked_cost=0,
+            contracts_error=0,
+        )
+        return SystemCoverageReport(summary=summary, products=())
 
-    by_product: dict[str, list[OHLCV1DAttemptRow]] = {}
-    for r in rows:
-        by_product.setdefault(r.product_id, []).append(r)
+    rows: list[SystemProductRow] = []
 
-    product_rows: list[SystemProductRow] = []
+    # system aggregates (contracts)
+    c_total = 0
+    c_complete = 0
+    c_incomplete = 0
+    c_unmapped = 0
+    c_blocked_cost = 0
+    c_error = 0
 
-    for product_id, attempt_rows in by_product.items():
-        covs: list[ContractCoverage] = [
-            contract_coverage_from_attempt_row(r) for r in attempt_rows
-        ]
+    # system aggregates (products)
+    p_never = 0
+    p_done = 0
+    p_partial = 0
+    p_blocked = 0
+    p_error = 0
 
-        total = len(covs)
-        complete = 0
-        unmapped = 0
-        blocked_cost = 0
-        errors = 0
+    for pid in sorted(product_ids):
+        pr = get_product_coverage_report(attempts=attempts, product_id=pid)
+        s = pr.summary
 
-        last_run_ts: pd.Timestamp | None = None
-        last_run_ts_utc: str | None = None
-        last_mode: str | None = None
-
-        # We preserve row ordering; this loop is deterministic given the store result.
-        for c in covs:
-            la = c.last_attempt
-
-            # Latest run timestamp (max)
-            run_ts = la.run_ts
-            if last_run_ts is None or run_ts > last_run_ts:
-                last_run_ts = run_ts
-                last_run_ts_utc = la.run_ts_utc
-                last_mode = la.mode
-
-            st = la.status
-
-            # Blockers / hard errors come from the attempts ledger (facts), not coverage semantics.
-            if st == "unmapped":
-                unmapped += 1
-                continue
-
-            if st == "skipped_cost_cap":
-                blocked_cost += 1
-                continue
-
-            if st == "error":
-                errors += 1
-                continue
-
-            # Canonical completeness is window containment at the contract level.
-            if c.windows.complete:
-                complete += 1
-            else:
-                # If orchestrator claims complete but windows disagree, treat as an error signal.
-                if st == "complete":
-                    errors += 1
-
-        # Derived counts + invariant check (guards against future drift)
-        incomplete = total - complete
-        # We do not keep explicit key lists in the system rollup, so we only verify arithmetic sanity.
-        if incomplete < 0 or complete < 0 or complete > total:
-            raise RuntimeError(
-                f"inconsistent counts for product_id={product_id!r}: "
-                f"total={total} complete={complete} incomplete={incomplete}"
-            )
-
-        # Roll-up status semantics
-        if (
-            total > 0
-            and complete == total
-            and errors == 0
-            and unmapped == 0
-            and blocked_cost == 0
-        ):
-            status: SystemProductStatus = "done"
-            reason = "all contracts complete"
-        else:
-            if errors > 0:
-                status = "error"
-                reason = "one or more contracts in error or inconsistent completeness"
-            elif unmapped > 0:
-                status = "blocked"
-                reason = "one or more contracts unmapped"
-            elif blocked_cost > 0:
-                status = "blocked"
-                reason = "one or more contracts blocked by cost cap"
-            else:
-                status = "partial"
-                reason = "some contracts incomplete"
-
-        product_rows.append(
+        rows.append(
             SystemProductRow(
-                product_id=product_id,
-                status=status,
-                status_reason=reason,
-                contracts_total=total,
-                contracts_complete=complete,
-                contracts_incomplete=incomplete,
-                contracts_unmapped=unmapped,
-                contracts_blocked_cost=blocked_cost,
-                contracts_error=errors,
-                last_run_ts_utc=last_run_ts_utc,
-                last_mode=last_mode,
+                product_id=pid,
+                status=s.status,
+                status_reason=s.status_reason,
+                contracts_total=s.contracts_total,
+                contracts_complete=s.contracts_complete,
+                contracts_incomplete=s.contracts_incomplete,
+                contracts_empty_expected=s.contracts_empty_expected,
+                contracts_vendor_final=s.contracts_vendor_final,
+                contracts_unmapped=s.contracts_unmapped,
+                contracts_blocked_cost=s.contracts_blocked_cost,
+                contracts_error=s.contracts_error,
+                last_run_ts_utc=s.last_run_ts_utc,
+                last_mode=s.last_mode,
             )
         )
 
-    product_rows_sorted = tuple(sorted(product_rows, key=lambda r: r.product_id))
-    return SystemCoverageReport(products=product_rows_sorted, contracts_total=len(rows))
+        # contract totals
+        c_total += int(s.contracts_total)
+        c_complete += int(s.contracts_complete)
+        c_incomplete += int(s.contracts_incomplete)
+        c_unmapped += int(s.contracts_unmapped)
+        c_blocked_cost += int(s.contracts_blocked_cost)
+        c_error += int(s.contracts_error)
+
+        # product distribution
+        if s.status == ProductStatus.never_run:
+            p_never += 1
+        elif s.status == ProductStatus.done:
+            p_done += 1
+        elif s.status == ProductStatus.partial:
+            p_partial += 1
+        elif s.status == ProductStatus.blocked:
+            p_blocked += 1
+        elif s.status == ProductStatus.error:
+            p_error += 1
+        else:
+            # Defensive: if enum expands, force explicit handling.
+            raise RuntimeError(
+                f"unhandled ProductStatus={s.status!r} for product_id={pid!r}"
+            )
+
+    summary = SystemSummary(
+        products_total=len(rows),
+        products_never_run=p_never,
+        products_done=p_done,
+        products_partial=p_partial,
+        products_blocked=p_blocked,
+        products_error=p_error,
+        contracts_total=c_total,
+        contracts_complete=c_complete,
+        contracts_incomplete=c_incomplete,
+        contracts_unmapped=c_unmapped,
+        contracts_blocked_cost=c_blocked_cost,
+        contracts_error=c_error,
+    )
+
+    return SystemCoverageReport(summary=summary, products=tuple(rows))
