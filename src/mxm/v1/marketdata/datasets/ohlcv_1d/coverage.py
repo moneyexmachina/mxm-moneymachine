@@ -83,11 +83,16 @@ of “complete”.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import pandas as pd
 
-from mxm.v1.marketdata.time_utils import ensure_midnight_utc, to_utc_day, to_utc_ts
+from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptRow
+from mxm.v1.marketdata.time_utils import (
+    ensure_midnight_utc,
+    parse_ts,
+    to_utc_day,
+    to_utc_ts,
+)
 
 # -------------------------
 # Core range primitives
@@ -123,7 +128,7 @@ class DayRange:
     def intersects(self, other: DayRange) -> bool:
         return self.start < other.end and other.start < self.end
 
-    def intersection(self, other: DayRange) -> Optional[DayRange]:
+    def intersection(self, other: DayRange) -> DayRange | None:
         if not self.intersects(other):
             return None
         s = max(self.start, other.start)
@@ -192,7 +197,7 @@ class CoverageSurfaces:
 
     interest: DayRange  # MXM refdata "first_day_of_interest" .. "last_trading_day"
     dataset: DayRange  # vendor dataset range (metadata.get_dataset_range), clamped per attempt
-    lifecycle: Optional[DayRange]  # activation/expiration constraints, if known
+    lifecycle: DayRange | None  # activation/expiration constraints, if known
 
 
 @dataclass(frozen=True)
@@ -206,11 +211,11 @@ class CoverageWindows:
     - stored_window: normalized day-aligned window derived from stored_observed
     """
 
-    available: Optional[DayRange]
+    available: DayRange | None
     expected: DayRange
 
-    stored_observed: Optional[ObservedRange]
-    stored_window: Optional[DayRange]
+    stored_observed: ObservedRange | None
+    stored_window: DayRange | None
 
     row_count: int
 
@@ -239,7 +244,7 @@ class CoverageWindows:
         return self.stored_window.contains(self.expected)
 
     @property
-    def expected_equals_available(self) -> Optional[bool]:
+    def expected_equals_available(self) -> bool | None:
         """
         Diagnostic only (non-authoritative): whether expected equals available.
 
@@ -259,6 +264,30 @@ class CoverageWindows:
         )
 
 
+def _windows_from_facts(
+    *,
+    available: DayRange | None,
+    expected: DayRange,
+    row_count: int,
+    stored_min: pd.Timestamp | None,
+    stored_max: pd.Timestamp | None,
+) -> CoverageWindows:
+    stored_observed: ObservedRange | None = None
+    stored_window: DayRange | None = None
+
+    if row_count > 0 and stored_min is not None and stored_max is not None:
+        stored_observed = ObservedRange(min_ts=stored_min, max_ts=stored_max)
+        stored_window = stored_observed.to_day_window()
+
+    return CoverageWindows(
+        available=available,
+        expected=expected,
+        stored_observed=stored_observed,
+        stored_window=stored_window,
+        row_count=int(row_count),
+    )
+
+
 def complete_from_expected_and_observed(
     *,
     expected_start: pd.Timestamp,
@@ -267,30 +296,82 @@ def complete_from_expected_and_observed(
     min_ts: pd.Timestamp | None,
     max_ts: pd.Timestamp | None,
 ) -> bool:
-    """
-    Canonical MVP completeness check for OHLCV-1D.
-
-    - expected is a day-aligned half-open window [start,end)
-    - observed is min/max ts_event (instants) + row_count
-    - empty expected is vacuously complete
-    """
     expected = DayRange(start=expected_start, end=expected_end)
 
-    stored_observed = None
-    stored_window = None
-
-    if row_count > 0 and min_ts is not None and max_ts is not None:
-        stored_observed = ObservedRange(
-            min_ts=to_utc_ts(min_ts),
-            max_ts=to_utc_ts(max_ts),
-        )
-        stored_window = stored_observed.to_day_window()
-
-    windows = CoverageWindows(
+    windows = _windows_from_facts(
         available=None,
         expected=expected,
-        stored_observed=stored_observed,
-        stored_window=stored_window,
-        row_count=int(row_count),
+        row_count=row_count,
+        stored_min=to_utc_ts(min_ts) if min_ts is not None else None,
+        stored_max=to_utc_ts(max_ts) if max_ts is not None else None,
     )
     return windows.complete
+
+
+def surfaces_from_attempt_row(row: OHLCV1DAttemptRow) -> CoverageSurfaces:
+    interest = DayRange(
+        start=parse_ts(row.interest_start), end=parse_ts(row.interest_end)
+    )
+    dataset = DayRange(start=parse_ts(row.dataset_start), end=parse_ts(row.dataset_end))
+
+    lifecycle: DayRange | None = None
+    if row.activation_floor is not None and row.expiration_ceiling is not None:
+        a = parse_ts(row.activation_floor)
+        e = parse_ts(row.expiration_ceiling)
+        if a < e:
+            lifecycle = DayRange(start=a, end=e)
+
+    return CoverageSurfaces(interest=interest, dataset=dataset, lifecycle=lifecycle)
+
+
+def windows_from_attempt_row(
+    row: OHLCV1DAttemptRow, *, surfaces: CoverageSurfaces | None = None
+) -> CoverageWindows:
+    if surfaces is None:
+        surfaces = surfaces_from_attempt_row(row)
+
+    available = (
+        surfaces.dataset
+        if surfaces.lifecycle is None
+        else surfaces.dataset.intersection(surfaces.lifecycle)
+    )
+
+    expected = DayRange(
+        start=parse_ts(row.expected_start), end=parse_ts(row.expected_end)
+    )
+
+    stored_rows = (
+        row.stored_rows_after
+        if row.stored_rows_after is not None
+        else row.stored_rows_before
+    )
+    stored_min_s = (
+        row.stored_min_after
+        if row.stored_min_after is not None
+        else row.stored_min_before
+    )
+    stored_max_s = (
+        row.stored_max_after
+        if row.stored_max_after is not None
+        else row.stored_max_before
+    )
+
+    row_count = int(stored_rows or 0)
+
+    mn = parse_ts(stored_min_s) if stored_min_s else None
+    mx = parse_ts(stored_max_s) if stored_max_s else None
+    return _windows_from_facts(
+        available=available,
+        expected=expected,
+        row_count=row_count,
+        stored_min=mn,
+        stored_max=mx,
+    )
+
+
+def coverage_from_attempt_row(
+    row: OHLCV1DAttemptRow,
+) -> tuple[CoverageSurfaces, CoverageWindows]:
+    surfaces = surfaces_from_attempt_row(row)
+    windows = windows_from_attempt_row(row, surfaces=surfaces)
+    return surfaces, windows

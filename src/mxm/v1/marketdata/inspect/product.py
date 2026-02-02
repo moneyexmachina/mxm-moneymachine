@@ -6,8 +6,9 @@ from typing import Literal
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import ContractCoverage
 from mxm.v1.marketdata.inspect.contracts import list_contract_coverages_for_product
+from mxm.v1.marketdata.inspect.models import ContractCoverage
+from mxm.v1.marketdata.time_utils import parse_ts
 
 ProductStatus = Literal["never_run", "done", "partial", "blocked", "error"]
 
@@ -31,13 +32,26 @@ class ProductCoverageSummary:
     contracts_blocked_cost: int
 
     # Freshness-ish (from attempts; not live vendor staleness)
-    last_run_ts_utc: pd.Timestamp | None
+    last_run_ts_utc: str | None
     last_mode: str | None
 
     # Convenience lists for drilldown
     incomplete_contract_keys: tuple[str, ...]
     error_contract_keys: tuple[str, ...]
     unmapped_contract_keys: tuple[str, ...]
+
+    @property
+    def last_run_ts(self) -> pd.Timestamp | None:
+        """
+        Parsed timestamp view of last_run_ts_utc.
+
+        Naming discipline:
+          - *_ts_utc is a canonical string
+          - *_ts is a pd.Timestamp
+        """
+        return (
+            parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc is not None else None
+        )
 
 
 @dataclass(frozen=True)
@@ -92,24 +106,27 @@ def get_product_coverage_report(
     errors = 0
     blocked_cost = 0
 
+    complete_keys: list[str] = []
     incomplete_keys: list[str] = []
     error_keys: list[str] = []
     unmapped_keys: list[str] = []
 
     last_run_ts: pd.Timestamp | None = None
+    last_run_ts_utc: str | None = None
     last_mode: str | None = None
 
     for c in coverages:
         la = c.last_attempt
-
+        run_ts = la.run_ts
         # latest run timestamp (max)
-        if last_run_ts is None or la.run_ts_utc > last_run_ts:
-            last_run_ts = la.run_ts_utc
+        if last_run_ts is None or run_ts > last_run_ts:
+            last_run_ts = run_ts
+            last_run_ts_utc = la.run_ts_utc
             last_mode = la.mode
 
         # vendor_final and is_empty: prefer AttemptSummary if present
-        is_empty = getattr(la, "is_empty", False)
-        vf = getattr(la, "vendor_final", False)
+        is_empty = la.is_empty
+        vf = la.vendor_final
 
         if is_empty:
             empty_expected += 1
@@ -122,28 +139,25 @@ def get_product_coverage_report(
         if st == "unmapped":
             unmapped += 1
             unmapped_keys.append(c.contract_key)
-            incomplete += 1
             incomplete_keys.append(c.contract_key)
             continue
 
         if st == "skipped_cost_cap":
             blocked_cost += 1
-            incomplete += 1
             incomplete_keys.append(c.contract_key)
             continue
 
         if st in ("error",):
             errors += 1
             error_keys.append(c.contract_key)
-            incomplete += 1
             incomplete_keys.append(c.contract_key)
             continue
 
         # For everything else, use window completeness as the canonical criterion
         if c.windows.complete:
             complete += 1
+            complete_keys.append(c.contract_key)
         else:
-            incomplete += 1
             incomplete_keys.append(c.contract_key)
 
             # If the attempt says complete but windows are not, flag as error-like
@@ -151,6 +165,13 @@ def get_product_coverage_report(
                 # treat as an error signal for summary purposes
                 errors += 1
                 error_keys.append(c.contract_key)
+    incomplete = total - complete
+
+    if len(incomplete_keys) != total - len(complete_keys):
+        raise RuntimeError(
+            f"inconsistent classification for product_id={product_id!r}: "
+            f"total={total} complete={len(complete_keys)} incomplete_keys={len(incomplete_keys)}"
+        )
 
     # Roll-up status semantics
     if total == 0:
@@ -188,7 +209,7 @@ def get_product_coverage_report(
         contracts_unmapped=unmapped,
         contracts_error=errors,
         contracts_blocked_cost=blocked_cost,
-        last_run_ts_utc=last_run_ts,
+        last_run_ts_utc=last_run_ts_utc,
         last_mode=last_mode,
         incomplete_contract_keys=tuple(incomplete_keys),
         error_contract_keys=tuple(error_keys),

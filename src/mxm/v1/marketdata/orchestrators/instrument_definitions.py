@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from typing import Literal
+
+import pandas as pd
 
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
     get_start_from_watermark,
@@ -16,10 +17,11 @@ from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
 from mxm.v1.marketdata.time_utils import (
-    format_iso_z,
+    fmt_run_ts,
     parse_duration,
-    parse_iso_z,
-    utc_now_iso_z,
+    parse_ts,
+    to_utc_ts,
+    utc_now_run_ts,
 )
 from mxm.v1.marketdata.types import InstrumentDefinitionsClient
 from mxm.v1.marketdata.vendors.databento.cost import (
@@ -120,8 +122,8 @@ def _is_vendor_final(
     if watermark is None or dataset_end is None:
         return False
 
-    wm: datetime = parse_iso_z(watermark)
-    end: datetime = parse_iso_z(dataset_end)
+    wm = to_utc_ts(parse_ts(watermark))
+    end = to_utc_ts(parse_ts(dataset_end))
 
     # Accept common tolerance notations like "1D" by normalising to lowercase.
     td = parse_duration(tolerance.strip().lower())
@@ -189,7 +191,7 @@ def ingest_instrument_definitions(
         schema="definition",
     )
     default_start = avail.start
-    now = utc_now_iso_z()
+    now = utc_now_run_ts()
     requested_end_raw = end or now
     requested_end = clamp_end(end=requested_end_raw, available=avail)
     remaining_cap = float(cost_cap_usd)
@@ -225,7 +227,7 @@ def ingest_instrument_definitions(
     start = clamp_start(start=start, available=avail)
 
     last_watermark = watermark_before
-    end_target_dt = parse_iso_z(requested_end)
+    end_target_ts = parse_ts(requested_end)
     print(
         f"[defs][start] watermark_before={watermark_before} "
         f"default_start={default_start} "
@@ -234,17 +236,17 @@ def ingest_instrument_definitions(
     )
 
     for _ in range(max_windows):
-        start_dt = parse_iso_z(start)
+        start_ts = parse_ts(start)
 
-        if start_dt >= end_target_dt:
+        if start_ts >= end_target_ts:
             report.stopped_reason = "reached_end"
             break
 
         # Compute this window's end (bounded by requested_end)
-        end_dt = start_dt + timedelta(days=window_days)
-        if end_dt > end_target_dt:
-            end_dt = end_target_dt
-        end_i = format_iso_z(end_dt)
+        end_ts = start_ts + pd.Timedelta(days=window_days)
+        if end_ts > end_target_ts:
+            end_ts = end_target_ts
+        end_i = fmt_run_ts(end_ts)
         print(
             f"[defs][window {report.windows_attempted + 1}] start={start} end={end_i}"
         )

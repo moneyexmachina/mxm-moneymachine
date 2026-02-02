@@ -46,19 +46,6 @@ class ExpectedWindow:
 # -----------------------------
 # UTC / day-boundary helpers
 # -----------------------------
-
-
-def _dt_from_ns_utc(ns: int) -> datetime:
-    """
-    Convert an integer nanoseconds-since-epoch to UTC datetime.
-    (Python datetime has microsecond resolution; we truncate nanos to micros.)
-    """
-    if ns < 0:
-        raise ValueError(f"nanoseconds timestamp must be >= 0, got {ns}")
-    us = ns // 1_000  # truncate nanos -> micros
-    return datetime.fromtimestamp(us / 1_000_000, tz=timezone.utc)
-
-
 def _extract_ns(value: Any) -> int | None:
     if value is None:
         return None

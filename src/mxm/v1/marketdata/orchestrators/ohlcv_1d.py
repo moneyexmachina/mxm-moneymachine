@@ -498,7 +498,7 @@ def ingest_ohlcv_1d_for_product(
                         status_detail = "already_complete"
                     else:
                         # Vendor-final partial “done” (explicitly tagged)
-                        status = "complete"
+                        status = "incomplete"
                         status_detail = "vendor_final_partial_done"
                 elif derived_state.value == "blocked_unmapped":
                     status = "unmapped"
