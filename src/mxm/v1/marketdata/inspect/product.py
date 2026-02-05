@@ -11,7 +11,7 @@ from mxm.v1.marketdata.inspect.models import (
     ContractCoverage,
     ProductStatus,
 )
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)

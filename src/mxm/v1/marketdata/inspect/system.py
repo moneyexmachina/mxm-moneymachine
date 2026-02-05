@@ -30,7 +30,7 @@ import pandas as pd
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
 from mxm.v1.marketdata.inspect.models import ProductStatus
 from mxm.v1.marketdata.inspect.product import get_product_coverage_report
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)

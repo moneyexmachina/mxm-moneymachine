@@ -38,7 +38,7 @@ from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
     ProductMarketdataAttemptsStore,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.utils.time_utils import utc_now_run_ts
 
 Mode = Literal["bootstrap", "update"]
 

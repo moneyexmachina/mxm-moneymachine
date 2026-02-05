@@ -2,77 +2,111 @@
 from __future__ import annotations
 
 """
-MXM marketdata time utilities (UTC + canonical ISO8601Z + pandas-first).
+MXM V1 time utilities (UTC-normalised, tz-aware, pandas-first).
 
 Authority
 ---------
-This module is the single source of truth for timestamp parsing, formatting, and
-normalisation within `mxm.v1.marketdata`. All other marketdata code must use
-these helpers rather than re-implementing local timestamp logic.
+This module defines the **authoritative, MXM V1–wide semantics** for timestamp
+parsing, coercion, normalisation, and formatting.
+
+All MXM V1 code that handles timestamps or dates **must** use these helpers
+rather than re-implementing local time logic. This includes (but is not limited
+to) marketdata ingestion, trading calendars, contract selection, synthetic
+assets, backtests, and reporting.
+
+The purpose of this module is to make time handling:
+- explicit,
+- deterministic,
+- testable,
+- and free of implicit local-timezone or naïve-datetime assumptions.
 
 Canonical internal representation
 ---------------------------------
-1) The canonical in-memory time type is `pandas.Timestamp` with tz-aware UTC.
+1) The canonical in-memory time type is `pandas.Timestamp`, **tz-aware and in UTC**.
 2) All arithmetic and comparisons must occur on UTC-normalised `pd.Timestamp`.
-3) `datetime.datetime` is permitted only at boundaries (e.g. CLI I/O) and must be
-   normalised into `pd.Timestamp` immediately.
+3) `datetime.datetime` is permitted only at system boundaries (CLI I/O, config,
+   external APIs) and must be normalised immediately.
+
+Timezone semantics
+------------------
+- All timestamps handled by MXM V1 are **timezone-aware**.
+- All internal timestamps are **normalised to UTC**.
+- Timezone-less ISO8601 strings are rejected by default.
+- Any conversion or coercion is explicit and visible in code.
 
 Canonical persisted string formats
 ----------------------------------
-This codebase uses ISO8601 with a trailing 'Z' to denote UTC. We deliberately
-separate two persistence formats:
+MXM V1 uses ISO8601 with a trailing 'Z' to denote UTC. Two persistence formats
+are supported:
 
-A) Control-plane timestamps (run ordering / audit)
+A) Control-plane timestamps (ordering / audit)
    - Format: ISO8601Z with microseconds:
        'YYYY-MM-DDTHH:MM:SS.ffffffZ'
-   - Examples:
-       '2026-01-27T10:54:09.082336Z'
-   - Used for:
-       - orchestrator `run_ts_utc`
-       - watermarks / ordering fields where sub-second stability is beneficial
+   - Intended for:
+       - run ordering
+       - audit trails
+       - watermarks where sub-second stability is useful
 
-B) Day-aligned surfaces (domain windows)
+B) Day-aligned domain surfaces
    - Format: ISO8601Z at UTC midnight, second resolution:
        'YYYY-MM-DDT00:00:00Z'
-   - Used for:
-       - interest_start / interest_end
-       - dataset_start / dataset_end
-       - activation_floor / expiration_ceiling
-       - expected_start / expected_end
+   - Intended for:
+       - lifecycle boundaries
+       - interest / expected windows
+       - activation / expiration surfaces
    - Invariant:
-       - these values must be UTC-midnight aligned
+       - these timestamps must be UTC-midnight aligned
 
-Vendor representations
-----------------------
-Databento may return ISO8601Z strings with nanosecond precision, e.g.
-'2022-01-03T00:00:00.000000000Z'. This module shall accept such inputs and
-normalise them to `pd.Timestamp` (UTC). Domain surfaces remain day-aligned and
-are persisted at second precision; bar data timestamps remain high-fidelity in
-parquet and are not degraded to strings.
+Parsing & accepted inputs
+-------------------------
+The coercion helpers in this module accept:
 
-Helper functions (transformers)
--------------------------------
-The helpers in this module implement the following transformations:
+- `pandas.Timestamp`
+- `datetime.datetime`
+- ISO8601 strings with an explicit timezone designator
+  (e.g. trailing 'Z' or '+00:00')
+- integer nanoseconds since UNIX epoch
+
+All accepted inputs are normalised to tz-aware UTC `pd.Timestamp`.
+
+Helper functions (time primitives)
+----------------------------------
+This module provides **time primitives**, not domain semantics.
+
+Included helpers cover:
 
 - Coercion / normalisation:
-    * `to_utc_ts(x)`        -> pd.Timestamp (tz-aware UTC)
-    * `to_utc_day(ts)`      -> pd.Timestamp (UTC midnight)
-    * `ensure_midnight(ts)` -> asserts UTC-midnight alignment
+    * `to_utc_ts(x)`          → pd.Timestamp (tz-aware UTC)
+    * `to_utc_day(ts)`        → pd.Timestamp (UTC midnight)
+    * `ensure_midnight_utc`   → assert UTC-midnight alignment
 
 - Parsing / formatting:
-    * `fmt_run_ts(ts)`      -> ISO8601Z microseconds string
-    * `fmt_day_ts(ts)`      -> ISO8601Z midnight string ('...T00:00:00Z')
-    * `parse_ts(s)`         -> pd.Timestamp (UTC) from ISO8601 string (any precision)
+    * `parse_ts(s)`           → pd.Timestamp (UTC)
+    * `fmt_run_ts(ts)`        → ISO8601Z microseconds string
+    * `fmt_day_ts(ts)`        → ISO8601Z midnight string
 
-- Window stepping:
-    * `add_days(ts, n)`     -> pd.Timestamp shifted by n days (preserves tz)
-    * `parse_duration(s)`   -> datetime.timedelta for strict, small durations
+- Time arithmetic:
+    * `add_days(ts, n)`       → pd.Timestamp shifted by n days
+    * `ceil_to_utc_day(ts)`   → next UTC-midnight if not already aligned
+
+- Pandas helpers:
+    * `ensure_utc_datetimeindex(idx)`
+    * `ensure_utc_datetime_series(s)`
+
+- Small, explicit durations:
+    * `parse_duration(s)`     → datetime.timedelta
 
 Non-goals
 ---------
-- This module does not define dataset-specific semantics such as trading
-  calendars, daily-bar completeness rules, or contract lifecycle inference.
-  Those remain in dataset modules (e.g. `datasets/ohlcv_1d/*`).
+This module deliberately does **not** define:
+
+- trading calendars or session logic
+- exchange-specific cutoffs or intraday semantics
+- dataset completeness rules
+- contract lifecycle inference
+
+Those concepts belong in their respective domain modules and are built on top
+of the primitives defined here.
 """
 import re
 from datetime import datetime, timedelta, timezone

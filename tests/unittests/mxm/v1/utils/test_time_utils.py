@@ -1,4 +1,4 @@
-# tests/unittests/mxm/v1/marketdata/test_time_utils.py
+# tests/unittests/mxm/v1/utils/test_time_utils.py
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.time_utils import (
     ISO_Z_MICROS,
     ISO_Z_SECONDS,
     add_days,

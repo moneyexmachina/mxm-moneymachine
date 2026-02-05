@@ -11,7 +11,7 @@ from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     DatabentoInstrumentIdentity,
 )
-from mxm.v1.marketdata.time_utils import utc_now_ts
+from mxm.v1.utils.time_utils import utc_now_ts
 
 # ---------------------------------------------------------------------------
 # Read models (API-level)

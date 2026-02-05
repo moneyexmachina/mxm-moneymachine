@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from mxm.v1.marketdata.time_utils import ensure_midnight_utc, parse_ts, to_utc_ts
+from mxm.v1.utils.time_utils import ensure_midnight_utc, parse_ts, to_utc_ts
 
 
 def coerce_date(value: Any) -> date:

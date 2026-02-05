@@ -87,7 +87,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptRow
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.time_utils import (
     ensure_midnight_utc,
     parse_ts,
     to_utc_day,

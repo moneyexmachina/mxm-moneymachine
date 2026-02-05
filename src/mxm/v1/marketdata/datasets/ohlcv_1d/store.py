@@ -11,7 +11,7 @@ from mxm.v1.marketdata.stores.parquet.daily_bars import (
     read_daily_bars,
     write_daily_bars,
 )
-from mxm.v1.marketdata.time_utils import to_utc_ts
+from mxm.v1.utils.time_utils import to_utc_ts
 
 
 @dataclass(frozen=True)

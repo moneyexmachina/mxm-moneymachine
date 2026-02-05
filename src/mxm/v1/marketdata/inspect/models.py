@@ -10,7 +10,7 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
     CoverageSurfaces,
     CoverageWindows,
 )
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 # -------------------------
 # Attempt / status representation
