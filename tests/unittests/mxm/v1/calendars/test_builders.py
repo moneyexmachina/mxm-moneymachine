@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from mxm.v1.calendars.builders import build_exchange_calendars_v1
 from mxm.v1.calendars.loader import load_calendar
@@ -50,7 +51,30 @@ def test_build_exchange_calendars_v1_builds_and_loads(tmp_path: Path) -> None:
 
     # loader can load effective calendar
     cal = load_calendar("cmes", root=root)
+    # schedule loaded and usable (observed region)
+    assert cal.schedule is not None
+    assert cal.has_schedule is True
 
+    # timestamp mapping smoke test: during first session -> current_session returns first label
+    first_label = cal.schedule.index[0]
+    open_utc = cal.schedule.loc[first_label, "open_utc"]
+    close_utc = cal.schedule.loc[first_label, "close_utc"]
+
+    def _as_utc_ts(x) -> pd.Timestamp:
+        t = pd.Timestamp(x)
+        return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+
+    open_ts = _as_utc_ts(open_utc)
+    close_ts = _as_utc_ts(close_utc)
+
+    mid_ts = open_ts + (close_ts - open_ts) / 2
+
+    assert cal.current_session(mid_ts) == np.datetime64(str(first_label), "D")
+
+    # schedule coverage matches observed region endpoints
+    sched_labels = cal.schedule.index.to_numpy(dtype="datetime64[D]")
+    assert sched_labels[0] == cal.trading_days[0]
+    assert sched_labels[-1] == cal.observed_end
     assert cal.calendar_id == "cmes"
     assert cal.trading_days.dtype == np.dtype("datetime64[D]")
     assert cal.trading_days.size > 10  # should be non-trivial

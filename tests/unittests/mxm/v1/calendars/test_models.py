@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from mxm.v1.calendars.models import TradingCalendar
-from mxm.v1.utils.date_coercion import coerce_np_day
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 def _synthetic_trading_days() -> np.ndarray:

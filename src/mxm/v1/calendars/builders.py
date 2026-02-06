@@ -169,6 +169,7 @@ def _project_trading_days_minimal_us(
     """
     Project trading days beyond observed_end using weekday rule and minimal US holiday set.
     """
+
     start_day = pd.Timestamp(start_exclusive.astype("datetime64[D]")) + pd.Timedelta(
         days=1
     )
@@ -212,24 +213,31 @@ def _write_schedule_parquet(path: Path, schedule: pd.DataFrame) -> None:
     Persist observed schedule with UTC open/close timestamps.
 
     Stored columns:
-      - session (datetime64[D])
-      - open_utc (datetime64[ns])
-      - close_utc (datetime64[ns])
+      - session   (datetime64[ns])  : label at UTC midnight (naive)
+      - open_utc  (datetime64[ns])  : UTC instant (naive)
+      - close_utc (datetime64[ns])  : UTC instant (naive)
+
+    Notes:
+      - session is a *label*, not an interval endpoint.
+      - open_utc/close_utc are stored UTC-naive for stable parquet round-trip.
     """
-    # exchange_calendars schedules are generally tz-aware; normalize to UTC naive.
     s = schedule.copy()
 
-    idx = pd.to_datetime(s.index).date
-    session = pd.to_datetime(pd.Series(idx)).dt.normalize()
+    # session labels: take schedule index, convert to Timestamp, normalize to midnight
+    idx = pd.to_datetime(s.index, errors="raise")
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    session = idx.normalize()
 
     def _to_utc_naive(x: pd.Series) -> pd.Series:
-        # If tz-aware -> convert; if tz-naive -> treat as UTC naive (diagnostic only)
-        if hasattr(x.dt, "tz") and x.dt.tz is not None:
-            return x.dt.tz_convert("UTC").dt.tz_localize(None)
-        return x
+        xx = pd.to_datetime(x, errors="raise")
+        if getattr(xx.dt, "tz", None) is not None:
+            return xx.dt.tz_convert("UTC").dt.tz_localize(None)
+        # if tz-naive, treat as already UTC-naive (builder invariant for exchange_calendars schedules)
+        return xx
 
-    open_utc = _to_utc_naive(pd.to_datetime(s["open"]))
-    close_utc = _to_utc_naive(pd.to_datetime(s["close"]))
+    open_utc = _to_utc_naive(s["open"])
+    close_utc = _to_utc_naive(s["close"])
 
     out = pd.DataFrame(
         {
@@ -299,6 +307,10 @@ def build_exchange_calendars_v1(
     observed_end = obs_days[-1]
 
     # Projected trading days
+    if projection_years < 1:
+        raise CalendarRegistryError(
+            f"{calendar_id}: projection_years must be >= 1, got {projection_years!r}"
+        )
     proj_days = _project_trading_days_minimal_us(
         start_exclusive=observed_end,
         projection_years=projection_years,

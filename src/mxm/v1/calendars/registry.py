@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Mapping, cast
 import numpy as np
 import yaml
 
-from mxm.v1.utils.date_coercion import coerce_np_day
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 def _require_mapping(x: Any, *, where: str) -> dict[str, Any]:

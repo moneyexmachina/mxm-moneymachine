@@ -1,96 +1,119 @@
 """
-MXM V1 — TradingCalendar model and trading-day arithmetic.
+MXM V1 — TradingCalendar model: session labels, optional UTC schedule, and trading-day arithmetic.
 
 This module defines the runtime calendar object used throughout MXM V1.
-It operates exclusively on pre-materialised trading-day arrays loaded from
-refdata artifacts. No upstream calendar packages are used here.
 
-All dates are represented as numpy datetime64[D] (day precision).
+Calendar surfaces
+-----------------
+MXM V1 calendar logic distinguishes two related but separate surfaces:
+
+1) Session labels (required)
+   - `trading_days`: numpy datetime64[D]
+   - These are *session identifiers*, not UTC day-intervals.
+   - They exist over an observed region (authoritative) and optionally a projected region.
+
+2) Session schedule (optional, boundary-aware)
+   - `schedule`: pandas.DataFrame indexed by session label, with tz-aware UTC columns:
+       - open_utc, close_utc
+       - optional: break_start_utc, break_end_utc
+   - This surface enables mapping an arbitrary UTC timestamp to:
+       - current session label (if in-session)
+       - most recent completed session label
+       - next session label
+
+Authority & scope
+-----------------
+- This module does not call upstream calendar packages at runtime.
+- Calendars are loaded from pre-materialised artifacts (labels and optionally schedule).
+- Time coercion/normalisation is delegated to `mxm.v1.utils.time_utils`.
+
+Non-goals
+---------
+- Exchange-specific intraday semantics beyond open/close (e.g. auctions, settlement cutovers)
+- Contract selection logic (Session 17 proper)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Sequence, Union
+from typing import Literal, NamedTuple, Sequence, Union, cast
 
 import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
+
+from mxm.v1.utils.date_utils import (
+    coerce_np_day,
+    ensure_1d_day_array,
+    searchsorted_exact,
+)
+from mxm.v1.utils.time_utils import UtcTimestampInput, to_utc_ts
 
 NormalizeHow = Literal["raise", "next", "prev"]
 
 
-def _as_day(x: Union[str, np.datetime64]) -> np.datetime64:
+class CalendarOutOfRange(ValueError):
     """
-    Convert input to numpy datetime64[D].
-
-    Accepts:
-      - ISO date string (YYYY-MM-DD)
-      - numpy datetime64 with any unit
-
-    Raises:
-      - ValueError on invalid date string
+    Raised when a timestamp or label cannot be mapped within the calendar coverage.
     """
-    if isinstance(x, np.datetime64):
-        return x.astype("datetime64[D]")
-    # string-like
-    return np.datetime64(x, "D")
 
 
-def _ensure_1d_days(arr: np.ndarray, name: str) -> np.ndarray:
+class ScheduleUnavailable(ValueError):
     """
-    Ensure `arr` is a 1D numpy array of dtype datetime64[D] and monotonically increasing.
+    Raised when schedule-dependent methods are called but no schedule is present.
     """
-    if arr.ndim != 1:
-        raise ValueError(f"{name} must be 1D, got shape {arr.shape}")
-    if arr.dtype.kind != "M":
-        raise TypeError(f"{name} must be datetime64 dtype, got {arr.dtype!r}")
-
-    out = arr.astype("datetime64[D]")
-    if out.size == 0:
-        raise ValueError(f"{name} must be non-empty")
-
-    # Monotonic strictly increasing
-    if np.any(out[1:] <= out[:-1]):
-        raise ValueError(f"{name} must be strictly increasing (sorted, unique)")
-    return out
 
 
-def _searchsorted_exact(days: np.ndarray, d: np.datetime64) -> Optional[int]:
-    """
-    Return index of date `d` in sorted unique `days`, else None.
-    """
-    i = int(np.searchsorted(days, d, side="left"))
-    if i < days.size and days[i] == d:
-        return i
-    return None
+class _ScheduleCache(NamedTuple):
+    labels: NDArray[np.datetime64]
+    opens: NDArray[np.datetime64]
+    closes: NDArray[np.datetime64]
 
 
 @dataclass(frozen=True, slots=True)
 class TradingCalendar:
     """
-    Immutable trading-day calendar for MXM V1.
+    Immutable trading calendar for MXM V1.
 
     Parameters
     ----------
     calendar_id:
         Registry identifier (e.g. "cmes").
     trading_days:
-        Strictly increasing ndarray of trading days, dtype datetime64[D].
-        This is the *effective* trading-day surface consumed at runtime
-        (observed region plus projected region beyond observed_end).
+        Strictly increasing ndarray of session labels, dtype datetime64[D].
+        This is the effective session-label surface consumed at runtime
+        (observed region plus any projected region beyond observed_end).
     observed_end:
-        Last trading day that is covered by the observed (authoritative) calendar.
-        All trading days strictly after this boundary are treated as projected.
+        Last session label that is covered by the observed (authoritative) calendar.
+        All labels strictly after this boundary are treated as projected.
+    schedule:
+        Optional session schedule as a pandas DataFrame indexed by session label
+        (date-like index), containing tz-aware UTC boundary columns:
+          - open_utc (required if schedule is provided)
+          - close_utc (required if schedule is provided)
+          - break_start_utc (optional)
+          - break_end_utc (optional)
+
+        If provided, schedule enables mapping UTC timestamps to session labels via
+        boundary-aware logic. If omitted, timestamp→session mapping is unavailable
+        (label-only mode).
     """
 
     calendar_id: str
     trading_days: np.ndarray
     observed_end: np.datetime64
+    schedule: pd.DataFrame | None = None
+
+    # Cached derived arrays for fast searchsorted operations (schedule mode).
+    _schedule_labels: NDArray[np.datetime64] | None = None
+    _schedule_open_utc: NDArray[np.datetime64] | None = None
+    _schedule_close_utc: NDArray[np.datetime64] | None = None
 
     def __post_init__(self) -> None:
-        td = _ensure_1d_days(self.trading_days, "trading_days")
+        td = ensure_1d_day_array(self.trading_days, "trading_days")
         object.__setattr__(self, "trading_days", td)
 
-        oe = _as_day(self.observed_end)
+        oe = coerce_np_day(self.observed_end)
         object.__setattr__(self, "observed_end", oe)
 
         # observed_end must be within the effective calendar range
@@ -99,17 +122,129 @@ class TradingCalendar:
                 f"observed_end {oe} is outside trading_days range [{td[0]}, {td[-1]}]"
             )
 
-    # ---------- basic predicates ----------
+        if self.schedule is not None:
+            self._init_schedule_cache(self.schedule)
+
+    def _init_schedule_cache(self, schedule: pd.DataFrame) -> None:
+        """
+        Validate and cache schedule arrays for fast timestamp->session mapping.
+
+        Invariants (V1)
+        --------------
+        - Schedule is authoritative only over the observed region.
+        - Schedule session labels must match the observed region exactly:
+            [trading_days[0], observed_end] inclusive.
+        - Schedule labels must be a subset of `trading_days`.
+        - open_utc/close_utc are treated as UTC instants; tz-awareness is normalised away
+          when converted to numpy datetime64[ns], but the instants remain UTC.
+        """
+
+        required = {"open_utc", "close_utc"}
+        missing = required.difference(schedule.columns)
+        if missing:
+            raise ValueError(f"schedule missing required columns: {sorted(missing)}")
+
+        # Coerce index to session labels (datetime64[D]).
+        idx_days = np.array(
+            [coerce_np_day(x) for x in schedule.index], dtype="datetime64[D]"
+        )
+        idx_days = ensure_1d_day_array(idx_days, "schedule.index", allow_empty=False)
+
+        # Schedule must cover exactly the observed label range.
+        expected_start = self.trading_days[0]
+        expected_end = self.observed_end
+        if idx_days[0] != expected_start or idx_days[-1] != expected_end:
+            raise ValueError(
+                f"schedule coverage [{idx_days[0]}, {idx_days[-1]}] must match observed range "
+                f"[{expected_start}, {expected_end}] for calendar {self.calendar_id}"
+            )
+
+        # Schedule labels must be present in trading_days (defensive; loader should ensure).
+        # This is O(n) and fine for V1 sizes.
+        for d in idx_days:
+            if searchsorted_exact(self.trading_days, d) is None:
+                raise ValueError(
+                    f"schedule label {d} is not present in trading_days for calendar {self.calendar_id}"
+                )
+
+        # Align schedule to the coerced index order (defensive).
+        schedule2 = schedule.copy()
+        schedule2.index = idx_days
+
+        # Coerce open/close to tz-aware UTC pandas Timestamps, then to numpy datetime64[ns].
+        open_idx = pd.DatetimeIndex(
+            pd.to_datetime(schedule2["open_utc"], utc=True, errors="raise")
+        )
+        close_idx = pd.DatetimeIndex(
+            pd.to_datetime(schedule2["close_utc"], utc=True, errors="raise")
+        )
+
+        open_utc = (
+            open_idx.tz_convert("UTC")
+            .tz_localize(None)
+            .to_numpy(dtype="datetime64[ns]")
+        )
+        close_utc = (
+            close_idx.tz_convert("UTC")
+            .tz_localize(None)
+            .to_numpy(dtype="datetime64[ns]")
+        )
+
+        if open_utc.shape != close_utc.shape:
+            raise ValueError("schedule open_utc/close_utc shape mismatch")
+
+        if np.any(open_utc >= close_utc):
+            bad = np.where(open_utc >= close_utc)[0][:5]
+            raise ValueError(
+                f"schedule has non-positive intervals at rows {bad.tolist()}"
+            )
+        open_utc_arr = cast(NDArray[np.datetime64], open_utc)
+        close_utc_arr = cast(NDArray[np.datetime64], close_utc)
+        idx_days_arr = cast(NDArray[np.datetime64], idx_days)
+
+        object.__setattr__(self, "_schedule_labels", idx_days_arr)
+        object.__setattr__(self, "_schedule_open_utc", open_utc_arr)
+        object.__setattr__(self, "_schedule_close_utc", close_utc_arr)
+        object.__setattr__(self, "schedule", schedule2)
+
+    # ---------- schedule predicates ----------
+
+    @property
+    def has_schedule(self) -> bool:
+        return self.schedule is not None
+
+    def _schedule_cache(self) -> _ScheduleCache:
+        """
+        Return non-optional cached schedule arrays (type-narrowing helper).
+
+        Raises ScheduleUnavailable if schedule/caches are missing.
+        """
+        if (
+            self._schedule_labels is None
+            or self._schedule_open_utc is None
+            or self._schedule_close_utc is None
+        ):
+            raise ScheduleUnavailable(
+                f"Calendar {self.calendar_id} has no schedule; timestamp→session mapping is unavailable."
+            )
+
+        # Cast for pyright: after the None checks, these are concrete ndarrays.
+        labels = self._schedule_labels
+        opens = self._schedule_open_utc
+        closes = self._schedule_close_utc
+        return _ScheduleCache(labels=labels, opens=opens, closes=closes)
+
+    # ---------- basic predicates (labels) ----------
 
     def is_trading_day(self, d: Union[str, np.datetime64]) -> bool:
-        dd = _as_day(d)
-        return _searchsorted_exact(self.trading_days, dd) is not None
+        dd = coerce_np_day(d)
+        return searchsorted_exact(self.trading_days, dd) is not None
 
     def is_projected_day(self, d: Union[str, np.datetime64]) -> bool:
         """
         Return True iff `d` is a trading day and lies in the projected region.
         """
-        dd = _as_day(d)
+        dd = coerce_np_day(d)
         if dd <= self.observed_end:
             return False
         return self.is_trading_day(dd)
@@ -123,14 +258,9 @@ class TradingCalendar:
         - how="raise": raise if not a trading day.
         - how="next": return the next trading day on/after d.
         - how="prev": return the previous trading day on/before d.
-
-        Notes
-        -----
-        This is the *only* operation that may intentionally coerce a non-trading
-        day into a trading day. Consumers must choose the coercion policy.
         """
-        dd = _as_day(d)
-        idx = _searchsorted_exact(self.trading_days, dd)
+        dd = coerce_np_day(d)
+        idx = searchsorted_exact(self.trading_days, dd)
         if idx is not None:
             return dd
 
@@ -157,21 +287,133 @@ class TradingCalendar:
 
         raise ValueError(f"Unknown normalize policy: {how!r}")
 
-    # ---------- neighborhood operations ----------
+    # ---------- timestamp -> session mapping (schedule mode) ----------
+
+    def current_session(self, as_of_ts: UtcTimestampInput) -> np.datetime64 | None:
+        """
+        Return the session label that contains `as_of_ts` (UTC), else None.
+
+        Semantics
+        ---------
+        A session is active iff:
+          open_utc[label] <= as_of_ts_utc < close_utc[label]
+
+        Coverage (V1)
+        -------------
+        This method is defined only over the observed schedule coverage. If `as_of_ts`
+        is outside schedule coverage, CalendarOutOfRange is raised.
+        """
+        cache = self._schedule_cache()
+        t = to_utc_ts(as_of_ts).to_datetime64()
+        labels, opens, closes = cache.labels, cache.opens, cache.closes
+
+        # Out of schedule coverage
+        if t < opens[0]:
+            raise CalendarOutOfRange(
+                f"{t} is before first scheduled open for calendar {self.calendar_id}"
+            )
+        if t >= closes[-1]:
+            raise CalendarOutOfRange(
+                f"{t} is on/after last scheduled close for calendar {self.calendar_id}"
+            )
+
+        i = int(np.searchsorted(opens, t, side="right")) - 1
+        if i < 0:
+            return None
+        if t < closes[i]:
+            return labels[i]
+        return None
+
+    def most_recent_session(self, as_of_ts: UtcTimestampInput) -> np.datetime64:
+        """
+        Return the most recent *completed* session label as of `as_of_ts` (UTC).
+
+        Semantics
+        ---------
+        Returns the last label with:
+          close_utc[label] <= as_of_ts_utc
+
+        Coverage (V1)
+        -------------
+        Defined only over observed schedule coverage. If `as_of_ts` is outside
+        schedule coverage, CalendarOutOfRange is raised.
+        """
+        cache = self._schedule_cache()
+        t = to_utc_ts(as_of_ts).to_datetime64()
+        labels, opens, closes = cache.labels, cache.opens, cache.closes
+
+        # Out of schedule coverage
+        if t < opens[0]:
+            raise CalendarOutOfRange(
+                f"{t} is before first scheduled open for calendar {self.calendar_id}"
+            )
+        if t >= closes[-1]:
+            raise CalendarOutOfRange(
+                f"{t} is on/after last scheduled close for calendar {self.calendar_id}"
+            )
+
+        i = int(np.searchsorted(closes, t, side="right")) - 1
+        if i < 0:
+            # We are before the first close (i.e. during first session); no completed session yet.
+            raise CalendarOutOfRange(
+                f"{t} is before first scheduled close for calendar {self.calendar_id}"
+            )
+        return labels[i]
+
+    def next_session(self, as_of_ts: UtcTimestampInput) -> np.datetime64:
+        """
+        Return the next session label strictly after `as_of_ts` (UTC).
+
+        Semantics
+        ---------
+        Returns the first label with:
+          open_utc[label] > as_of_ts_utc
+
+        Coverage (V1)
+        -------------
+        Defined only over observed schedule coverage. If `as_of_ts` is outside
+        schedule coverage, CalendarOutOfRange is raised.
+        """
+        cache = self._schedule_cache()
+
+        t = to_utc_ts(as_of_ts).to_datetime64()
+
+        labels, opens, closes = cache.labels, cache.opens, cache.closes
+
+        # Out of schedule coverage
+        if t < opens[0]:
+            raise CalendarOutOfRange(
+                f"{t} is before first scheduled open for calendar {self.calendar_id}"
+            )
+        if t >= closes[-1]:
+            raise CalendarOutOfRange(
+                f"{t} is on/after last scheduled close for calendar {self.calendar_id}"
+            )
+
+        i = int(np.searchsorted(opens, t, side="right"))
+        if i >= opens.size:
+            raise CalendarOutOfRange(
+                f"{t} is after last scheduled open for calendar {self.calendar_id}"
+            )
+        return labels[i]
+
+    def as_of_session(self, as_of_ts: UtcTimestampInput) -> np.datetime64:
+        """
+        Alias for `most_recent_session`.
+
+        This is the MXM V1 "processing anchor" session label: the latest session
+        that is complete as of the given UTC timestamp.
+        """
+        return self.most_recent_session(as_of_ts)
+
+    # ---------- neighborhood operations (labels) ----------
 
     def next_trading_day(
         self, d: Union[str, np.datetime64], *, strict: bool = True
     ) -> np.datetime64:
-        """
-        Return the next trading day after `d`.
-
-        If strict=True, `d` must be a trading day.
-        If strict=False, `d` is treated as a calendar day and the next trading day
-        strictly after it is returned.
-        """
-        dd = _as_day(d)
+        dd = coerce_np_day(d)
         if strict:
-            i = _searchsorted_exact(self.trading_days, dd)
+            i = searchsorted_exact(self.trading_days, dd)
             if i is None:
                 raise ValueError(f"{dd} is not a trading day (strict=True)")
             j = i + 1
@@ -187,16 +429,9 @@ class TradingCalendar:
     def prev_trading_day(
         self, d: Union[str, np.datetime64], *, strict: bool = True
     ) -> np.datetime64:
-        """
-        Return the previous trading day before `d`.
-
-        If strict=True, `d` must be a trading day.
-        If strict=False, `d` is treated as a calendar day and the previous trading day
-        strictly before it is returned.
-        """
-        dd = _as_day(d)
+        dd = coerce_np_day(d)
         if strict:
-            i = _searchsorted_exact(self.trading_days, dd)
+            i = searchsorted_exact(self.trading_days, dd)
             if i is None:
                 raise ValueError(f"{dd} is not a trading day (strict=True)")
             j = i - 1
@@ -209,7 +444,7 @@ class TradingCalendar:
             )
         return self.trading_days[j]
 
-    # ---------- arithmetic ----------
+    # ---------- arithmetic (labels) ----------
 
     def add_trading_days(
         self,
@@ -219,26 +454,14 @@ class TradingCalendar:
         strict: bool = True,
         normalize_how: NormalizeHow = "raise",
     ) -> np.datetime64:
-        """
-        Add `n` trading days to `d`.
-
-        If strict=True, `d` must be a trading day.
-        If strict=False, `d` is first normalized using `normalize_how`.
-
-        Examples
-        --------
-        - add_trading_days("2026-02-04", 0) returns the same day (if trading day)
-        - add_trading_days("2026-02-07", 0, strict=False, normalize_how="next") returns next trading day
-        """
-
-        dd = _as_day(d)
+        dd = coerce_np_day(d)
         if strict:
-            i = _searchsorted_exact(self.trading_days, dd)
+            i = searchsorted_exact(self.trading_days, dd)
             if i is None:
                 raise ValueError(f"{dd} is not a trading day (strict=True)")
         else:
             dd = self.normalize(dd, how=normalize_how)
-            i = _searchsorted_exact(self.trading_days, dd)
+            i = searchsorted_exact(self.trading_days, dd)
             assert i is not None  # by construction
 
         j = i + n
@@ -259,27 +482,15 @@ class TradingCalendar:
         normalize_start: NormalizeHow = "raise",
         normalize_end: NormalizeHow = "raise",
     ) -> np.ndarray:
-        """
-        Return the trading days between start and end.
-
-        If strict=True, start and end must be trading days (unless excluded by inclusive).
-        If strict=False, boundaries may be normalized according to normalize_start/end.
-
-        inclusive:
-          - "both": include start and end
-          - "left": include start, exclude end
-          - "right": exclude start, include end
-          - "neither": exclude both
-        """
-        s = _as_day(start)
-        e = _as_day(end)
+        s = coerce_np_day(start)
+        e = coerce_np_day(end)
 
         if not strict:
             s = self.normalize(s, how=normalize_start)
             e = self.normalize(e, how=normalize_end)
 
-        si = _searchsorted_exact(self.trading_days, s)
-        ei = _searchsorted_exact(self.trading_days, e)
+        si = searchsorted_exact(self.trading_days, s)
+        ei = searchsorted_exact(self.trading_days, e)
         if strict:
             if si is None:
                 raise ValueError(f"start {s} is not a trading day (strict=True)")
@@ -304,7 +515,7 @@ class TradingCalendar:
 
         return self.trading_days[lo : hi + 1].copy()
 
-    # ---------- bdays_to_ltd ----------
+    # ---------- bdays_to_ltd (labels) ----------
 
     def bdays_to_ltd(
         self,
@@ -318,34 +529,18 @@ class TradingCalendar:
         normalize_ltd: NormalizeHow = "raise",
         return_projected_flag: bool = False,
     ):
-        """
-        Compute business-days (trading-days) from asof to last-trading-day.
-
-        Semantics
-        ---------
-        Returns an integer count:
-          bdays = idx(ltd) - idx(asof)
-
-        If strict=True, asof and ltd must be trading days.
-        If strict=False, they are normalized first.
-
-        If return_projected_flag=True, also returns a boolean flag indicating
-        whether either endpoint lies in the projected region.
-        """
-        # Normalize input to arrays for unified implementation.
+        # Original implementation preserved (label arithmetic).
         asof_arr = np.asarray(asof)
         ltd_arr = np.asarray(ltd)
 
-        # Detect scalar vs vector
         scalar = asof_arr.shape == () and ltd_arr.shape == ()
 
         def _to_days_array(x: np.ndarray) -> np.ndarray:
             if x.shape == ():
-                return np.array([_as_day(x.item())], dtype="datetime64[D]")
-            # elementwise conversion; support strings
+                return np.array([coerce_np_day(x.item())], dtype="datetime64[D]")
             out = np.empty(x.size, dtype="datetime64[D]")
             for k, v in enumerate(x.ravel()):
-                out[k] = _as_day(v)
+                out[k] = coerce_np_day(v)
             return out.reshape(x.shape)
 
         a = _to_days_array(asof_arr)
@@ -357,7 +552,6 @@ class TradingCalendar:
             )
 
         if not strict:
-            # normalize elementwise (explicit, not vectorised for clarity in V1)
             a2 = np.empty_like(a)
             l2 = np.empty_like(l)
             it = np.nditer(a, flags=["multi_index", "refs_ok"])
@@ -367,15 +561,14 @@ class TradingCalendar:
                 l2[idx] = self.normalize(l[idx], how=normalize_ltd)
             a, l = a2, l2
 
-        # Map to indices (elementwise). V1 simplicity > micro-optimisation.
         out = np.empty_like(a, dtype=np.int64)
         projected_flag = np.zeros_like(a, dtype=bool)
 
         it2 = np.nditer(a, flags=["multi_index", "refs_ok"])
         for _ in it2:
             idx = it2.multi_index
-            ai = _searchsorted_exact(self.trading_days, a[idx])
-            li = _searchsorted_exact(self.trading_days, l[idx])
+            ai = searchsorted_exact(self.trading_days, a[idx])
+            li = searchsorted_exact(self.trading_days, l[idx])
             if strict:
                 if ai is None:
                     raise ValueError(

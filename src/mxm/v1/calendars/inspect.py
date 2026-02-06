@@ -43,7 +43,7 @@ from mxm.v1.calendars.registry import (
     load_calendar_registry,
     validate_registry_entry,
 )
-from mxm.v1.utils.date_coercion import coerce_np_day
+from mxm.v1.utils.date_utils import coerce_np_day, day_in_set, fmt_iso_day
 
 # ----------------------------
 # Models
@@ -169,14 +169,6 @@ def describe_calendar(calendar_id: str, *, root: Path | None = None) -> str:
 # ----------------------------
 
 
-def _iso_day(d: np.datetime64) -> str:
-    return str(d.astype("datetime64[D]"))
-
-
-def _day_in_set(d: np.datetime64, s: set[np.datetime64]) -> bool:
-    return d.astype("datetime64[D]") in s
-
-
 def render_month(
     calendar: TradingCalendar,
     *,
@@ -223,7 +215,7 @@ def render_month(
         wd = dt.date(year, month, day).weekday()  # Mon=0..Sun=6
         d64 = np.datetime64(dt.date(year, month, day), "D")
 
-        if _day_in_set(d64, tdays_set):
+        if day_in_set(d64, tdays_set):
             # Trading day
             s = f"{day:02d}"
             if mark_projected and d64 > obs_end:
@@ -268,7 +260,7 @@ def render_range(
     s2 = calendar.normalize(s, how="next")
     e2 = calendar.normalize(e, how="prev")
     if e2 < s2:
-        raise ValueError(f"end < start: start={_iso_day(s)} end={_iso_day(e)}")
+        raise ValueError(f"end < start: start={fmt_iso_day(s)} end={fmt_iso_day(e)}")
 
     tdays = calendar.trading_days_between(s2, e2, strict=True)
     obs_end = calendar.observed_end.astype("datetime64[D]")
@@ -276,7 +268,7 @@ def render_range(
     tokens: list[str] = []
     for d in tdays.tolist():
         dd = np.datetime64(d, "D")
-        tok = _iso_day(dd)
+        tok = fmt_iso_day(dd)
         if mark_projected and dd > obs_end:
             tok += "*"
         tokens.append(tok)

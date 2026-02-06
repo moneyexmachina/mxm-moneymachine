@@ -197,8 +197,93 @@ def load_calendar(calendar_id: str, *, root: Path | None = None) -> TradingCalen
             f"{calendar_id}: effective trading-days array is not strictly increasing"
         )
 
+    # --- load observed schedule (optional runtime surface; authoritative region only)
+    schedule_df = None
+    if entry.observed.schedule_artifact:
+        schedule_path = cal_path / entry.observed.schedule_artifact
+
+        _validate_checksum(
+            schedule_path,
+            entry.observed.sha256_schedule,
+            where=f"{calendar_id}.observed.schedule",
+        )
+
+        schedule_df = _load_schedule_observed_parquet(schedule_path)
+
+        # schedule coverage must match observed trading days exactly
+        sched_days = schedule_df.index.to_numpy(dtype="datetime64[D]")
+
+        if sched_days.size != obs_days.size or np.any(sched_days != obs_days):
+            raise CalendarRegistryError(
+                f"{calendar_id}: schedule session labels do not match observed trading days exactly"
+            )
     return TradingCalendar(
         calendar_id=entry.calendar_id,
         trading_days=effective,
         observed_end=observed_end,
+        schedule=schedule_df,
     )
+
+
+def _load_schedule_observed_parquet(path: Path) -> pd.DataFrame:
+    """
+    Load an observed schedule artifact from parquet.
+
+    Expected columns:
+      - session (datetime-like; label at UTC-midnight)
+      - open_utc (datetime-like; UTC)
+      - close_utc (datetime-like; UTC)
+      - optional: break_start_utc, break_end_utc
+
+    Returns:
+      DataFrame indexed by session label as numpy datetime64[D], with tz-aware UTC
+      columns (open_utc/close_utc and optional break columns).
+    """
+    if not path.exists():
+        raise CalendarRegistryError(f"Calendar schedule artifact not found: {path}")
+
+    df = pd.read_parquet(path)
+
+    for col in ("session", "open_utc", "close_utc"):
+        if col not in df.columns:
+            raise CalendarRegistryError(
+                f"Schedule parquet missing required column {col!r}: {path}"
+            )
+
+    # Coerce session labels to day labels (datetime64[D])
+    sess = pd.to_datetime(df["session"], errors="raise")
+    # If tz-aware, convert to UTC then drop tz; if tz-naive treat as label
+    if getattr(sess.dt, "tz", None) is not None:
+        sess = sess.dt.tz_convert("UTC").dt.tz_localize(None)
+
+    sess_days = sess.dt.normalize().to_numpy(dtype="datetime64[D]")
+
+    if sess_days.size == 0:
+        raise CalendarRegistryError(f"Schedule parquet has zero rows: {path}")
+
+    if np.any(sess_days[1:] <= sess_days[:-1]):
+        raise CalendarRegistryError(
+            f"Schedule sessions must be strictly increasing (sorted, unique): {path}"
+        )
+
+    out = df.copy()
+    out.index = sess_days
+    out = out.drop(columns=["session"])
+
+    # Coerce boundary columns to tz-aware UTC pandas timestamps
+    def _as_utc(col: str) -> pd.Series:
+        return pd.to_datetime(out[col], utc=True, errors="raise")
+
+    out["open_utc"] = _as_utc("open_utc")
+    out["close_utc"] = _as_utc("close_utc")
+
+    if "break_start_utc" in out.columns:
+        out["break_start_utc"] = _as_utc("break_start_utc")
+    if "break_end_utc" in out.columns:
+        out["break_end_utc"] = _as_utc("break_end_utc")
+
+    # Interval sanity
+    if (out["open_utc"] >= out["close_utc"]).any():
+        raise CalendarRegistryError(f"Schedule has open_utc >= close_utc rows: {path}")
+
+    return out
