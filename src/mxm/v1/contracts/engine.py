@@ -1,225 +1,378 @@
 """
-MXM V1 — Contract selection engine.
+MXM V1 — Contract selection engine (Session 18).
 
-This module defines the contract-layer engine responsible for resolving
-**selector rules** into concrete futures contracts as-of a trading date.
+This module implements deterministic, inspectable futures contract selection as a
+pure function of:
 
-The engine provides deterministic, calendar-aware selection semantics for
-questions of the form:
+    (product_id, as_of_timestamp, selector_rule) -> contract_id
 
-    (product_id, as_of, rule) -> instrument_id
+Scope and intent
+----------------
+Session 18 resolves contract *identity* only. It does not assign human labels
+(e.g. M1, Dec1), does not emit canonical relative identifiers, and does not
+implement roll logic or synthetic assets. Those concerns are explicitly deferred
+to Session 19+.
 
-Scope
------
-- Selection semantics only: eligibility filtering and deterministic ranking.
-- No pricing, no roll rules, no interpolation, no holdings, no P&L.
-- No I/O, no persistence, no internal caching.
+Locked semantics (Session 18)
+-----------------------------
+Two-layer selection model:
 
-Authority
----------
-Contract selection is a pure function of:
-- reference data (contract metadata, including last trading day)
-- trading calendars (observed or projected)
-- explicit input arguments
+1) PeriodFilter
+   Defines the admissible delivery periods.
 
-This module is therefore a semantic authority layer that sits:
-- above refdata and calendars
-- below synthetic assets / rolls / holdings
+   PeriodFilter(
+       period_type: PeriodType,
+       cycle_elements: frozenset[int] | None
+   )
 
-Design note: rule vocabulary
-----------------------------
-The engine operates on explicit rule objects defined in ``selectors.py``.
-Rules are serialisable and hashable so that selections can be named, tested,
-and audited.
+   Semantics:
+   - cycle_elements is None  -> no subset filtering
+   - otherwise               -> only keep periods whose cycle index is in the set
+                                (e.g. {12} for December in a MONTH cycle)
 
-In MXM V1 we will explicitly distinguish selection substrates, to avoid
-overloading ambiguous names such as "M1":
+2) SelectorRule
+   Defines selection depth within the admissible set.
 
-- listing/chain rank within a period_type (e.g. "front monthly")
-- period selectors (delivery-period shifts; provided by mxm-refdata)
-- selection cycles (intent-driven slot lattices; later)
+   SelectorRule(
+       period_filter: PeriodFilter,
+       n: int
+   )
 
-The engine itself remains agnostic: it evaluates only the rule it is given.
+Engine semantics:
+
+1) Resolve as_of_timestamp -> as_of_session via TradingCalendar.as_of_session()
+2) Retrieve the authoritative listed chain from refdata for (product_id, period_type)
+3) Apply PeriodFilter subset (optional)
+4) Apply eligibility: last_trading_day(contract) > as_of_session
+5) Rank eligible contracts by last_trading_day ascending (deterministic tie-break)
+6) Select the n-th eligible contract (1-indexed)
+
+Determinism
+-----------
+Ordering is deterministic. If two eligible contracts share the same last trading
+day, the engine breaks ties by contract_id (ascending string order).
+
+Non-goals (explicit)
+--------------------
+This module does NOT:
+- assign labels such as M1 / Dec1 / Q+1
+- define or resolve relative_contract_id or short_id
+- infer semantics from exchange naming conventions
+- implement roll windows, synthetic assets, holdings, persistence, or caching
+
+Failure semantics
+-----------------
+Selection failures are typed and never silent:
+- NoEligibleContracts
+- RelativeContractUnavailable
+
+The engine also returns structured explanations via `explain(...)` suitable for
+audit logs and CLI inspection.
+
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Dict, Iterable, Mapping, Sequence
 
-from .exceptions import (
-    NoEligibleContracts,
-    NonTradingDayInput,
-    RelativeContractUnavailable,
-    UnknownSelectorRule,
+import numpy as np
+from mxm_refdata.api.ref_data_api import RefDataAPI
+from mxm_refdata.models.periods import (
+    PeriodType,  # adjust import path to your refdata package
 )
-from .selectors import SelectionExplanation, SelectorRule
+from mxm_refdata.models.periods import (
+    Period,
+)
 
-# NOTE: These imports are placeholders. Replace with actual types from MXM.
-# - InstrumentId: canonical contract identifier type
-# - PeriodType: e.g. "monthly", "quarterly", "annual", "summer", "winter", ...
-# - TradingCalendar: calendar API used to validate trading days / comparisons
-#
-# from mxm.types import InstrumentId
-# from mxm.refdata.types import PeriodType
-# from mxm.v1.calendars import TradingCalendar
+from mxm.v1.calendars.service import TradingCalendarService
+from mxm.v1.utils.date_utils import coerce_np_day, fmt_iso_day
+from mxm.v1.utils.time_utils import UtcTimestampInput, fmt_run_ts
+
+from .exceptions import NoEligibleContracts, RelativeContractUnavailable
+from .selectors import PeriodFilter, SelectionExplanation, SelectorRule
+
+
+@dataclass(frozen=True, slots=True)
+class PeriodIndex:
+    by_id: Dict[str, Period]
+
+    @staticmethod
+    def from_periods(periods: Iterable[Period]) -> "PeriodIndex":
+        by_id = {p.period_id: p for p in periods}
+        return PeriodIndex(by_id=by_id)
+
+    def get(self, period_id: str) -> Period:
+        try:
+            return self.by_id[period_id]
+        except KeyError as e:
+            raise KeyError(
+                f"Unknown period_id {period_id!r} (missing from RefDataAPI.get_periods())"
+            ) from e
 
 
 @dataclass(frozen=True, slots=True)
 class ContractSelectorEngine:
     """
-    Deterministic contract-selection engine for MXM V1.
+    Deterministic contract-selection engine for MXM V1 (Session 18).
 
-    Parameters
-    ----------
-    refdata:
-        Reference-data service (or façade) providing access to contracts and
-        their metadata (e.g. last trading day, delivery period, period_type).
+    Required services
+    -----------------
+    refdata must provide:
+        get_contracts_for_product(product_id: str, period_type: PeriodType) -> Sequence[Contract]
 
-        The engine treats refdata as read-only.
+    calendars must provide:
+        calendar_for_product(product_id: str) -> TradingCalendar
 
-    calendars:
-        Calendar service providing TradingCalendar instances per product_id.
+    TradingCalendar must provide:
+        as_of_session(as_of_ts: UtcTimestampInput) -> day-like (coercible to np.datetime64[D])
 
-        The engine relies on calendars for:
-        - validating as_of is a trading day (strict by default)
-        - trading-day arithmetic / comparisons, if required by rules
+    Contract must expose:
+        contract_id
+        last_trading_day (date-like / timestamp-like; coercible by coerce_np_day)
 
-    strict_trading_day:
-        If True, ``as_of`` must be a trading day and selection raises on
-        non-trading-day input. If False, the engine may normalise input
-        (normalisation policy should still be explicit and test-covered).
+    For monthly cycle subset filtering (cycle_elements != None), Contract must also expose:
+        delivery_month (int 1..12)
+
+    Notes
+    -----
+    - Selection operates in session-label (day) space.
+    - No pricing, no roll logic, no persistence.
     """
 
-    refdata: Any
-    calendars: Any
-    strict_trading_day: bool = True
+    refdata: RefDataAPI
+    calendars: TradingCalendarService
+    period_index: PeriodIndex
 
-    # --------------------------------------------------------------------- #
+    @staticmethod
+    def build(
+        refdata: RefDataAPI, calendars: TradingCalendarService
+    ) -> "ContractSelectorEngine":
+        periods = refdata.get_periods()
+        return ContractSelectorEngine(
+            refdata=refdata,
+            calendars=calendars,
+            period_index=PeriodIndex.from_periods(periods),
+        )
+
+    # ------------------------------------------------------------------ #
     # Public API
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
 
     def select(
         self,
         product_id: str,
-        as_of: date,
+        as_of_ts: UtcTimestampInput,
         rule: SelectorRule,
-    ):
+    ) -> str:
         """
-        Resolve a selector rule to a concrete contract identifier.
+        Resolve and return the selected contract.
 
-        This is the primary entry point used by downstream layers.
-
-        Raises
-        ------
-        NonTradingDayInput
-            If strict_trading_day is True and as_of is not a trading day.
-        NoEligibleContracts
-            If no eligible contracts exist for the rule on as_of.
-        RelativeContractUnavailable
-            If the rule requests a contract that does not exist (e.g. depth too
-            large).
-        UnknownSelectorRule
-            If rule.kind is not supported by this engine.
+        Raises:
+            NoEligibleContracts
+            RelativeContractUnavailable
         """
-        self._validate_as_of(product_id, as_of)
-
-        kind = getattr(rule, "kind", None)
-        if kind is None:
-            raise UnknownSelectorRule(f"Rule has no 'kind': {rule!r}")
-
-        # Dispatch by rule.kind. Implementations live in private methods.
-        if kind == "listing_rank":
-            return self._select_listing_rank(product_id, as_of, rule)
-
-        # Future rule kinds (placeholders):
-        # if kind == "period":
-        #     return self._select_period(product_id, as_of, rule)
-        # if kind == "cycle_rank":
-        #     return self._select_cycle_rank(product_id, as_of, rule)
-        # if kind == "month":
-        #     return self._select_fixed_month(product_id, as_of, rule)
-
-        raise UnknownSelectorRule(f"Unsupported selector kind: {kind!r}")
+        exp = self.explain(product_id=product_id, as_of_ts=as_of_ts, rule=rule)
+        if exp.outcome != "selected" or exp.selected_contract_id is None:
+            # Typed failure surface: always one of the defined exceptions.
+            if exp.failure_type == "NoEligibleContracts":
+                raise NoEligibleContracts(
+                    product_id=product_id,
+                    as_of_session=exp.as_of_session,
+                )
+            if exp.failure_type == "RelativeContractUnavailable":
+                raise RelativeContractUnavailable(
+                    product_id=product_id,
+                    as_of_session=exp.as_of_session,
+                    n=rule.n,
+                    available=int(exp.details.get("eligible_count", 0)),
+                )
+            # Defensive: should not occur.
+            raise RuntimeError(exp.message or "Contract selection failed unexpectedly.")
+        return exp.selected_contract_id
 
     def explain(
         self,
         product_id: str,
-        as_of: date,
+        as_of_ts: UtcTimestampInput,
         rule: SelectorRule,
     ) -> SelectionExplanation:
         """
-        Return a structured explanation of how a selection was obtained.
+        Perform selection, returning a structured explanation artifact.
 
-        This should be cheap enough for interactive inspection but is not
-        intended for tight loops in holdings materialisation.
-
-        The explanation is designed to be:
-        - printable in CLI reports
-        - serialisable for audit logs
-        - stable under tests
-
-        It must include at minimum:
-        - the resolved contract_id
-        - eligibility universe size and the eligible ordered list (or summary)
-        - the rule as provided
-        - key dates (as_of, selected last_trading_day)
-        - whether projected calendars were used (exposed via calendars service)
+        Never raises on selection failure; instead returns outcome="failed" with
+        typed failure_type and a message. The companion `select(...)` method
+        converts those into raised exceptions.
         """
-        self._validate_as_of(product_id, as_of)
+        pf = rule.period_filter
 
-        contract_id = self.select(product_id, as_of, rule)
-        # Minimal explanation for now; expand once selection methods exist.
-        return SelectionExplanation(
-            product_id=product_id,
-            as_of=as_of,
-            rule=rule,
-            contract_id=contract_id,
-            details={},
+        as_of_session_np = self.calendars.calendar_for_product(
+            product_id
+        ).as_of_session(as_of_ts)
+        as_of_session = fmt_iso_day(as_of_session_np)
+
+        chain = self.refdata.get_contracts_for_product(product_id, pf.period_type)
+        admissible = self._apply_period_filter(chain, pf)
+        eligible = self._eligible(admissible, as_of_session_np)
+
+        # Deterministic ordering:
+        #   1) last_trading_day ascending
+        #   2) contract_id ascending (tie-break)
+        ordered = sorted(
+            eligible,
+            key=lambda c: (
+                coerce_np_day(c.last_trading_day),
+                self.period_index.get(c.period_id),
+                c.contract_id,
+            ),
         )
 
-    def list_supported_kinds(self) -> tuple[str, ...]:
+        ordered = sorted(
+            eligible,
+            key=lambda c: (coerce_np_day(c.last_trading_day), str(c.instrument_id)),
+        )
+
+        if not ordered:
+            return self._fail(
+                product_id=product_id,
+                as_of_ts=as_of_ts,
+                as_of_session=as_of_session,
+                rule=rule,
+                failure_type="NoEligibleContracts",
+                message="No eligible contracts after applying PeriodFilter and eligibility predicate.",
+                details={
+                    "period_type": _period_type_to_str(pf.period_type),
+                    "cycle_elements": (
+                        None if pf.cycle_elements is None else sorted(pf.cycle_elements)
+                    ),
+                    "chain_count": len(chain),
+                    "admissible_count": len(admissible),
+                    "eligible_count": 0,
+                },
+            )
+
+        if rule.n > len(ordered):
+            return self._fail(
+                product_id=product_id,
+                as_of_ts=as_of_ts,
+                as_of_session=as_of_session,
+                rule=rule,
+                failure_type="RelativeContractUnavailable",
+                message=(
+                    f"Requested n={rule.n} but only {len(ordered)} eligible contracts are available."
+                ),
+                details={
+                    "period_type": _period_type_to_str(pf.period_type),
+                    "cycle_elements": (
+                        None if pf.cycle_elements is None else sorted(pf.cycle_elements)
+                    ),
+                    "chain_count": len(chain),
+                    "admissible_count": len(admissible),
+                    "eligible_count": len(ordered),
+                    "eligible_instrument_ids_head": [
+                        str(_contract_field(c, "instrument_id"))
+                        for c in ordered[: min(10, len(ordered))]
+                    ],
+                },
+            )
+
+        selected = ordered[rule.n - 1]
+        selected_id = str(_contract_field(selected, "instrument_id"))
+        selected_ltd = fmt_iso_day(
+            coerce_np_day(_contract_field(selected, "last_trading_day"))
+        )
+
+        return SelectionExplanation(
+            product_id=product_id,
+            as_of_utc=self._fmt_as_of_utc(as_of_ts),
+            as_of_session=as_of_session,
+            rule=rule,
+            selected_instrument_id=selected_id,
+            outcome="selected",
+            failure_type=None,
+            message=None,
+            details={
+                "period_type": _period_type_to_str(pf.period_type),
+                "cycle_elements": (
+                    None if pf.cycle_elements is None else sorted(pf.cycle_elements)
+                ),
+                "n": rule.n,
+                "chain_count": len(chain),
+                "admissible_count": len(admissible),
+                "eligible_count": len(ordered),
+                "selected_last_trading_day": selected_ltd,
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # Internal plumbing
+    # ------------------------------------------------------------------ #
+
+    def _apply_period_filter(
+        self, chain: Sequence[Any], pf: PeriodFilter
+    ) -> Sequence[Any]:
         """
-        Return the selector kinds supported by this engine instance.
+        Apply PeriodFilter in "period space".
 
-        This is intended for CLI help / validation and test assertions.
+        In practice, refdata hands us contracts. For MONTH-type filters we implement
+        the cycle_elements subset by filtering on contract.delivery_month.
+
+        For other PeriodTypes with subset semantics (e.g. quarters), this method is
+        the single controlled expansion point, but Session 18 only *requires* the
+        generic semantics and does not mandate multi-period element subsets.
         """
-        return ("listing_rank",)
+        if pf.cycle_elements is None:
+            return list(chain)
 
-    # --------------------------------------------------------------------- #
-    # Validation / plumbing
-    # --------------------------------------------------------------------- #
+        # Session 18: cycle subset is defined in "cycle space" but we may need to
+        # implement it using contract fields.
+        if _is_monthly(pf.period_type):
+            allowed = set(pf.cycle_elements)
+            out: list[Any] = []
+            for c in chain:
+                dm = int(_contract_field(c, "delivery_month"))
+                if dm in allowed:
+                    out.append(c)
+            return out
 
-    def _validate_as_of(self, product_id: str, as_of: date) -> None:
-        if not self.strict_trading_day:
-            return
-        cal = self._calendar_for(product_id)
-        if not cal.is_trading_day(as_of):
-            raise NonTradingDayInput(product_id=product_id, as_of=as_of)
+        # If we reach here, the product is using a non-monthly period_type with
+        # cycle_elements specified. This is a configuration/model error.
+        raise ValueError(
+            "cycle_elements subset filtering is only implemented for monthly PeriodType in Session 18"
+        )
 
-    def _calendar_for(self, product_id: str):
+    def _eligible(
+        self, contracts: Sequence[Any], as_of_session: np.datetime64
+    ) -> Sequence[Any]:
         """
-        Return the TradingCalendar for a product_id.
-
-        The calendars service is responsible for observed vs projected sourcing.
+        Normative Session 18 eligibility: last_trading_day(contract) > as_of_session.
         """
-        return self.calendars.calendar_for_product(product_id)
+        out: list[Any] = []
+        for c in contracts:
+            ltd = coerce_np_day(_contract_field(c, "last_trading_day"))
+            if ltd > as_of_session:
+                out.append(c)
+        return out
 
-    # --------------------------------------------------------------------- #
-    # Rule implementations (private)
-    # --------------------------------------------------------------------- #
-
-    def _select_listing_rank(self, product_id: str, as_of: date, rule: Any):
-        """
-        Select the nth eligible listed contract for a given period_type.
-
-        Normative semantics (MXM V1):
-        - eligible iff last_trading_day(contract) > as_of
-        - ordering: ascending last_trading_day
-        - n is 1-indexed
-        - ranking is defined within a single period_type chain
-        """
-        # Placeholder. Implement after selectors.py is in place and refdata API
-        # surfaces are confirmed.
-        raise NotImplementedError("listing_rank selection not implemented yet")
+    def _fail(
+        self,
+        *,
+        product_id: str,
+        as_of_ts: UtcTimestampInput,
+        as_of_session: str,
+        rule: SelectorRule,
+        failure_type: str,
+        message: str,
+        details: Mapping[str, Any],
+    ) -> SelectionExplanation:
+        return SelectionExplanation(
+            product_id=product_id,
+            as_of_utc=fmt_run_ts(as_of_ts),
+            as_of_session=as_of_session,
+            rule=rule,
+            selected_instrument_id=None,
+            outcome="failed",
+            failure_type=failure_type,
+            message=message,
+            details=dict(details),
+        )
