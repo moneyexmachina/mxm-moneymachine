@@ -1,4 +1,4 @@
-# mxm/v1/marketdata/datasets/ohlcv_1d/attempts_store.py
+# mxm/v1/marketdata/datasets/statistics_1d/attempts_store.py
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Any
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
+from mxm.v1.marketdata.datasets.statistics_1d.expected import ExpectedWindow
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.marketdata.time_utils import (
     fmt_day_ts,
     fmt_second_ts,
 )
 
-TABLE = "ohlcv_1d_attempts"
+TABLE = "statistics_1d_attempts"
 
 
 # -------------------------
@@ -28,11 +28,11 @@ class AttemptsCoverageSnapshot:
     min_ts: pd.Timestamp | None
     max_ts: pd.Timestamp | None
     row_count: int
-    bars_path: str | None = None
+    stats_path: str | None = None
 
 
 @dataclass(frozen=True)
-class OHLCV1DAttemptRow:
+class Statistics1DAttemptRow:
     attempt_uid: str
     created_at: str
 
@@ -84,12 +84,12 @@ class OHLCV1DAttemptRow:
     stored_rows_before: int | None
     stored_min_before: str | None
     stored_max_before: str | None
-    bars_path_before: str | None
+    stats_path_before: str | None
 
     stored_rows_after: int | None
     stored_min_after: str | None
     stored_max_after: str | None
-    bars_path_after: str | None
+    stats_path_after: str | None
 
     # Cost accounting — snapshot at time of attempt (persisted)
     cost_cap_usd: float | None = None
@@ -111,9 +111,9 @@ def _int_or_none(v: Any) -> int | None:
 # -------------------------
 
 
-class OHLCV1DAttemptsStore:
+class Statistics1DAttemptsStore:
     """
-    Append-only operational ledger for OHLCV-1D ingestion attempts.
+    Append-only operational ledger for Statistics-1D ingestion attempts.
 
     Expected usage:
     - The orchestrator calls record_attempt(...) exactly once per contract considered,
@@ -225,7 +225,9 @@ class OHLCV1DAttemptsStore:
             "stored_rows_before": (
                 int(coverage_before.row_count) if coverage_before else None
             ),
-            "bars_path_before": coverage_before.bars_path if coverage_before else None,
+            "stats_path_before": (
+                coverage_before.stats_path if coverage_before else None
+            ),
             # coverage after
             "stored_min_after": (
                 None
@@ -240,7 +242,7 @@ class OHLCV1DAttemptsStore:
             "stored_rows_after": (
                 int(coverage_after.row_count) if coverage_after else None
             ),
-            "bars_path_after": coverage_after.bars_path if coverage_after else None,
+            "stats_path_after": coverage_after.stats_path if coverage_after else None,
             # error capture
             "error_type": error_type,
             "error_message": error_message,
@@ -255,8 +257,8 @@ class OHLCV1DAttemptsStore:
 
         return attempt_uid
 
-    def _row_to_attempt(self, row: Any) -> OHLCV1DAttemptRow:
-        return OHLCV1DAttemptRow(
+    def _row_to_attempt(self, row: Any) -> Statistics1DAttemptRow:
+        return Statistics1DAttemptRow(
             attempt_uid=str(row["attempt_uid"]),
             created_at=str(row["created_at"]),
             run_ts_utc=str(row["run_ts_utc"]),
@@ -318,10 +320,10 @@ class OHLCV1DAttemptsStore:
                 if row["stored_max_before"] is None
                 else str(row["stored_max_before"])
             ),
-            bars_path_before=(
+            stats_path_before=(
                 None
-                if row["bars_path_before"] is None
-                else str(row["bars_path_before"])
+                if row["stats_path_before"] is None
+                else str(row["stats_path_before"])
             ),
             # Coverage snapshots (after)
             stored_rows_after=_int_or_none(row["stored_rows_after"]),
@@ -335,8 +337,10 @@ class OHLCV1DAttemptsStore:
                 if row["stored_max_after"] is None
                 else str(row["stored_max_after"])
             ),
-            bars_path_after=(
-                None if row["bars_path_after"] is None else str(row["bars_path_after"])
+            stats_path_after=(
+                None
+                if row["stats_path_after"] is None
+                else str(row["stats_path_after"])
             ),
             # Optional cost accounting (include these in SELECTs if you want them populated)
             cost_cap_usd=(
@@ -355,7 +359,7 @@ class OHLCV1DAttemptsStore:
 
     def get_latest_attempt_for_contract(
         self, *, product_id: str, contract_id: str
-    ) -> OHLCV1DAttemptRow | None:
+    ) -> Statistics1DAttemptRow | None:
         """
         Return the most recent attempt row for a given (product_id, contract_id),
         ordered by (run_ts_utc, created_at, attempt_uid) descending.
@@ -388,11 +392,11 @@ class OHLCV1DAttemptsStore:
     
                     -- coverage before
                     stored_rows_before, stored_min_before, stored_max_before,
-                    bars_path_before,
+                    stats_path_before,
     
                     -- coverage after
                     stored_rows_after, stored_min_after, stored_max_after,
-                    bars_path_after,
+                    stats_path_after,
     
                     -- optional cost accounting (safe to include; may be NULL)
                     cost_cap_usd, cost_estimated_usd, cost_used_usd, cost_charged_usd
@@ -412,7 +416,7 @@ class OHLCV1DAttemptsStore:
 
     def get_latest_attempt_for_contract_key(
         self, *, contract_key: str
-    ) -> OHLCV1DAttemptRow | None:
+    ) -> Statistics1DAttemptRow | None:
         """
         Convenience lookup if you already compute/emit contract_key.
         """
@@ -444,11 +448,11 @@ class OHLCV1DAttemptsStore:
     
                     -- coverage before
                     stored_rows_before, stored_min_before, stored_max_before,
-                    bars_path_before,
+                    stats_path_before,
     
                     -- coverage after
                     stored_rows_after, stored_min_after, stored_max_after,
-                    bars_path_after,
+                    stats_path_after,
     
                     -- optional cost accounting (supported fields only)
                     cost_cap_usd, cost_estimated_usd, cost_used_usd, cost_charged_usd
@@ -468,7 +472,7 @@ class OHLCV1DAttemptsStore:
 
     def list_latest_attempts_for_product(
         self, *, product_id: str
-    ) -> list[OHLCV1DAttemptRow]:
+    ) -> list[Statistics1DAttemptRow]:
         """
         Return the latest attempt row per contract_key for a given product_id.
         """
@@ -514,11 +518,11 @@ class OHLCV1DAttemptsStore:
     
                     -- coverage before
                     a.stored_rows_before, a.stored_min_before, a.stored_max_before,
-                    a.bars_path_before,
+                    a.stats_path_before,
     
                     -- coverage after
                     a.stored_rows_after, a.stored_min_after, a.stored_max_after,
-                    a.bars_path_after,
+                    a.stats_path_after,
     
                     -- optional cost accounting (supported fields only)
                     a.cost_cap_usd, a.cost_estimated_usd, a.cost_used_usd, a.cost_charged_usd
@@ -536,7 +540,7 @@ class OHLCV1DAttemptsStore:
 
         return [self._row_to_attempt(r) for r in rows]
 
-    def list_latest_attempts_all_contracts(self) -> list[OHLCV1DAttemptRow]:
+    def list_latest_attempts_all_contracts(self) -> list[Statistics1DAttemptRow]:
         """
         Return the latest attempt row per contract_key across the entire table.
         Useful for system-wide coverage summaries.
@@ -581,11 +585,11 @@ class OHLCV1DAttemptsStore:
     
                     -- coverage before
                     a.stored_rows_before, a.stored_min_before, a.stored_max_before,
-                    a.bars_path_before,
+                    a.stats_path_before,
     
                     -- coverage after
                     a.stored_rows_after, a.stored_min_after, a.stored_max_after,
-                    a.bars_path_after,
+                    a.stats_path_after,
     
                     -- optional cost accounting (supported fields only)
                     a.cost_cap_usd, a.cost_estimated_usd, a.cost_used_usd, a.cost_charged_usd

@@ -1,8 +1,8 @@
 """
-Coverage semantics for the OHLCV-1D dataset.
+Coverage semantics for the Statistics-1D dataset.
 
 This module defines the *canonical* meaning of coverage and completeness for
-daily bar data at the contract level. It implements the normative semantics
+statistics event stream at the contract level. It implements the normative semantics
 agreed for MXM V1 and is the single source of truth used by both orchestration
 and inspection.
 
@@ -27,7 +27,7 @@ Coverage is evaluated by relating four distinct notions of time:
    - Empty expected windows (start == end) are first-class and valid.
 
 4. Stored coverage
-   - ObservedRange: descriptive min/max timestamps of locally stored bars
+   - ObservedRange: descriptive min/max timestamps of locally stored event stream
      (based on ts_event), not day-aligned.
    - Stored day window: a normalized, day-aligned, half-open window derived
      deterministically from the observed range.
@@ -37,6 +37,10 @@ Completeness is defined *only* in terms of window containment:
     stored_window contains expected_window
 
 with the convention that an empty expected window is vacuously complete.
+
+Coverage is evaluated on ts_event because it is present for all events; ts_ref is sparse and not a coverage axis.
+
+Completeness means stored ts_event coverage contains expected window; it does not imply final daily values.
 
 ─────────────────────────────────────────────────────────────────────────────
 Responsibilities
@@ -86,17 +90,28 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptRow
+from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
+    Statistics1DAttemptRow,
+)
 from mxm.v1.marketdata.time_utils import (
-    ensure_midnight_utc,
     parse_ts,
     to_utc_day,
     to_utc_ts,
 )
 
+
 # -------------------------
 # Core range primitives
 # -------------------------
+def _to_day_start(ts: pd.Timestamp) -> pd.Timestamp:
+    return to_utc_day(to_utc_ts(ts))
+
+
+def _to_day_end_exclusive(ts: pd.Timestamp) -> pd.Timestamp:
+    t = to_utc_ts(ts)
+    if t == to_utc_day(t):  # already midnight
+        return t
+    return to_utc_day(t) + pd.Timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -113,8 +128,8 @@ class DayRange:
     end: pd.Timestamp
 
     def __post_init__(self) -> None:
-        s = ensure_midnight_utc(self.start)
-        e = ensure_midnight_utc(self.end)
+        s = _to_day_start(self.start)
+        e = _to_day_end_exclusive(self.end)
         object.__setattr__(self, "start", s)
         object.__setattr__(self, "end", e)
 
@@ -149,7 +164,7 @@ class DayRange:
 @dataclass(frozen=True)
 class ObservedRange:
     """
-    Observed timestamp range from stored bars, based on min/max ts_event.
+    Observed timestamp range from stored events, based on min/max ts_event.
 
     Notes:
       - min_ts / max_ts are tz-aware UTC timestamps, not day-aligned.
@@ -171,7 +186,7 @@ class ObservedRange:
 
     def to_day_window(self) -> DayRange:
         """
-        Normalize observed bars to a day-aligned half-open window.
+        Normalize observed events to a day-aligned half-open window.
 
         For daily bars, if the last observed bar timestamp is during day D,
         we treat coverage as extending through the end of D:
@@ -308,7 +323,7 @@ def complete_from_expected_and_observed(
     return windows.complete
 
 
-def surfaces_from_attempt_row(row: OHLCV1DAttemptRow) -> CoverageSurfaces:
+def surfaces_from_attempt_row(row: Statistics1DAttemptRow) -> CoverageSurfaces:
     interest = DayRange(
         start=parse_ts(row.interest_start), end=parse_ts(row.interest_end)
     )
@@ -325,7 +340,7 @@ def surfaces_from_attempt_row(row: OHLCV1DAttemptRow) -> CoverageSurfaces:
 
 
 def windows_from_attempt_row(
-    row: OHLCV1DAttemptRow, *, surfaces: CoverageSurfaces | None = None
+    row: Statistics1DAttemptRow, *, surfaces: CoverageSurfaces | None = None
 ) -> CoverageWindows:
     if surfaces is None:
         surfaces = surfaces_from_attempt_row(row)
@@ -370,7 +385,7 @@ def windows_from_attempt_row(
 
 
 def coverage_from_attempt_row(
-    row: OHLCV1DAttemptRow,
+    row: Statistics1DAttemptRow,
 ) -> tuple[CoverageSurfaces, CoverageWindows]:
     surfaces = surfaces_from_attempt_row(row)
     windows = windows_from_attempt_row(row, surfaces=surfaces)

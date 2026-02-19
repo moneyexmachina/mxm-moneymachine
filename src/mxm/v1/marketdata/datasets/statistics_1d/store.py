@@ -1,3 +1,4 @@
+# src/mxm/v1/marketdata/datasets/statistics_1d/store.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,9 +8,9 @@ from typing import Optional
 import pandas as pd
 
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.parquet.daily_bars import (
-    read_daily_bars,
-    write_daily_bars,
+from mxm.v1.marketdata.stores.parquet.statistics_1d import (
+    read_statistics_1d,
+    write_statistics_1d,
 )
 from mxm.v1.marketdata.time_utils import to_utc_ts
 
@@ -20,29 +21,29 @@ class StoreCoverageSnapshot:
     Observed coverage snapshot in the local parquet store for a single instrument identity.
 
     - min_ts / max_ts are observed UTC timestamps (min/max of ts_event), not day-aligned.
-    - Use coverage.ObservedRange(...).to_day_window() to normalize into a day window.
-    - exists indicates whether the bars parquet file exists.
+    - exists indicates whether the statistics parquet file exists.
     """
 
-    bars_path: Path
+    stats_path: Path
     exists: bool
     row_count: int
     min_ts: Optional[pd.Timestamp]
     max_ts: Optional[pd.Timestamp]
 
 
-class OHLCV1DStore:
+class Statistics1DStore:
     """
-    Dataset-domain store for ohlcv-1d.
+    Dataset-domain store for Databento `statistics` (rtype=24) events.
 
     Responsibilities:
-    - Provide stable local persistence operations (delegating to daily_bars.py)
+    - Provide stable local persistence operations (delegating to stores/parquet/statistics_1d.py)
     - Provide local coverage introspection (min/max/rowcount) for orchestration gates
 
     Non-responsibilities:
     - No vendor logic
     - No mapping logic
     - No contract lifecycle semantics
+    - No daily canonicalization (final-vs-prelim selection is a derived view concern)
     """
 
     def __init__(self, *, layout: MarketdataLayout) -> None:
@@ -52,8 +53,10 @@ class OHLCV1DStore:
     # Local persistence API
     # -------------------------
 
-    def bars_path(self, *, dataset: str, publisher_id: int, instrument_id: int) -> Path:
-        return self._layout.bars_path(
+    def stats_path(
+        self, *, dataset: str, publisher_id: int, instrument_id: int
+    ) -> Path:
+        return self._layout.statistics_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
 
@@ -65,7 +68,7 @@ class OHLCV1DStore:
         instrument_id: int,
         df_new: pd.DataFrame,
     ) -> None:
-        write_daily_bars(
+        write_statistics_1d(
             layout=self._layout,
             dataset=dataset,
             publisher_id=publisher_id,
@@ -82,7 +85,7 @@ class OHLCV1DStore:
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
     ) -> pd.DataFrame:
-        return read_daily_bars(
+        return read_statistics_1d(
             layout=self._layout,
             dataset=dataset,
             publisher_id=publisher_id,
@@ -98,13 +101,13 @@ class OHLCV1DStore:
     def scan_coverage(
         self, *, dataset: str, publisher_id: int, instrument_id: int
     ) -> StoreCoverageSnapshot:
-        path = self.bars_path(
+        path = self.stats_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
 
         if not path.exists():
             return StoreCoverageSnapshot(
-                bars_path=path,
+                stats_path=path,
                 exists=False,
                 row_count=0,
                 min_ts=None,
@@ -117,18 +120,19 @@ class OHLCV1DStore:
 
         if df.empty:
             return StoreCoverageSnapshot(
-                bars_path=path,
+                stats_path=path,
                 exists=True,
                 row_count=0,
                 min_ts=None,
                 max_ts=None,
             )
+
         # ts_event is expected to be present and already schema-coerced.
         ts_min = to_utc_ts(df["ts_event"].min())
         ts_max = to_utc_ts(df["ts_event"].max())
 
         return StoreCoverageSnapshot(
-            bars_path=path,
+            stats_path=path,
             exists=True,
             row_count=int(len(df)),
             min_ts=ts_min,
@@ -140,7 +144,7 @@ class OHLCV1DStore:
         Identity-scoped destructive reset for local parquet only.
         Returns True if a file existed and was deleted.
         """
-        path = self.bars_path(
+        path = self.stats_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
         if not path.exists():

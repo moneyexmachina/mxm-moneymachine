@@ -124,7 +124,7 @@ def derive_expected_window(
     expiration: Any = None,
 ) -> ExpectedWindow:
     """
-    Derive the expected OHLCV-1D window for a contract.
+    Derive the expected Statistics-1D window for a contract.
 
     Inputs:
       - interest window from refdata (dates)

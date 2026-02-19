@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
