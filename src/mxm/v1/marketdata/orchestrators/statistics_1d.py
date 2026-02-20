@@ -240,7 +240,7 @@ def ingest_statistics_1d_for_product(
     product_id: str,
     mode: Mode,
     cost_cap_usd: float,
-    client,  # databento.Historical; untyped to avoid hard dependency
+    client: Any,  # databento.Historical; untyped to avoid hard dependency
     max_contracts: int | None = None,
     dry_run: bool = False,
     reset_local: bool = False,
