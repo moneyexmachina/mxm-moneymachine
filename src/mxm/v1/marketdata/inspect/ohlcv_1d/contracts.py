@@ -1,4 +1,4 @@
-# mxm/v1/marketdata/inspect/contracts.py
+# mxm/v1/marketdata/inspect/ohlcv_1d/contracts.py
 """
 Inspection adapter for contract-level OHLCV-1D coverage.
 
@@ -35,8 +35,8 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import coverage_from_attempt_r
 from mxm.v1.marketdata.inspect.models import (
     AttemptStatus,
     AttemptSummary,
-    ContractCoverage,
 )
+from mxm.v1.marketdata.inspect.ohlcv_1d.models import OHLCV1DContractCoverage
 
 # -------------------------
 # Public API
@@ -45,7 +45,7 @@ from mxm.v1.marketdata.inspect.models import (
 
 def get_contract_coverage_from_latest_attempt(
     *, attempts: OHLCV1DAttemptsStore, contract_key: str
-) -> ContractCoverage | None:
+) -> OHLCV1DContractCoverage | None:
     row = attempts.get_latest_attempt_for_contract_key(contract_key=contract_key)
     if row is None:
         return None
@@ -54,7 +54,7 @@ def get_contract_coverage_from_latest_attempt(
 
 def list_contract_coverages_for_product(
     *, attempts: OHLCV1DAttemptsStore, product_id: str
-) -> list[ContractCoverage]:
+) -> list[OHLCV1DContractCoverage]:
     rows = attempts.list_latest_attempts_for_product(product_id=product_id)
     return [contract_coverage_from_attempt_row(r) for r in rows]
 
@@ -64,7 +64,9 @@ def list_contract_coverages_for_product(
 # -------------------------
 
 
-def contract_coverage_from_attempt_row(row: OHLCV1DAttemptRow) -> ContractCoverage:
+def contract_coverage_from_attempt_row(
+    row: OHLCV1DAttemptRow,
+) -> OHLCV1DContractCoverage:
     """
     Project a persisted attempt row into the inspection ContractCoverage model.
 
@@ -102,7 +104,7 @@ def contract_coverage_from_attempt_row(row: OHLCV1DAttemptRow) -> ContractCovera
         vendor_final=row.vendor_final,
     )
 
-    return ContractCoverage(
+    return OHLCV1DContractCoverage(
         product_id=product_id,
         contract_id=contract_id,
         contract_key=contract_key,

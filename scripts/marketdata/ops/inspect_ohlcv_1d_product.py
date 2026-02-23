@@ -5,14 +5,14 @@ from collections import Counter
 from pathlib import Path
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.product import get_product_coverage_report
+from mxm.v1.marketdata.inspect.ohlcv_1d.product import get_product_coverage_report
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="MXM V1: inspect product coverage (read-only)"
+        description="MXM V1: inspect OHLC-1D product coverage (read-only)"
     )
     p.add_argument("--root", default=None, help="MXM root directory (default: ~/.mxm)")
     p.add_argument("--product-id", required=True, help="e.g. cme_emini_snp500_futures")

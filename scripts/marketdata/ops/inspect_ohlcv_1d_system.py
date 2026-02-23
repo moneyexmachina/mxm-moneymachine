@@ -4,14 +4,14 @@ import argparse
 from pathlib import Path
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.system import get_system_coverage_report
+from mxm.v1.marketdata.inspect.ohlcv_1d.system import get_system_coverage_report
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="MXM V1: inspect system coverage (read-only)"
+        description="MXM V1: inspect OHLCV-1D system coverage (read-only)"
     )
     p.add_argument("--root", default=None, help="MXM root directory (default: ~/.mxm)")
     p.add_argument("--limit", type=int, default=200, help="max products to print")
