@@ -27,6 +27,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
+from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
 from mxm.v1.marketdata.orchestrators.instrument_definition_mappings import (
     rebuild_instrument_definition_mappings,
 )
@@ -36,6 +37,9 @@ from mxm.v1.marketdata.orchestrators.instrument_definitions import (
 from mxm.v1.marketdata.orchestrators.ohlcv_1d import ingest_ohlcv_1d_for_product
 from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
     ProductMarketdataAttemptsStore,
+)
+from mxm.v1.marketdata.orchestrators.statistics_1d import (
+    ingest_statistics_1d_for_product,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.marketdata.time_utils import utc_now_run_ts
@@ -337,16 +341,10 @@ def ingest_product_marketdata(
             max_contracts=max_contracts,
         )
         stages.append(st3)
-        remaining = max(0.0, remaining - st3.cost_used_usd)
 
-        # If ohlcv stage says "no work", meta-orchestrator may consider overall NO_WORK on update.
-        if st3.status is StageStatus.OK:
-            stop_reason = (
-                ProductStopReason.DRY_RUN_ONLY if dry_run else ProductStopReason.UNKNOWN
-            )
-            status = ProductStatus.SUCCESS
-            message = "completed all stages"
-        else:
+        remaining = max(0.0, remaining - st3.cost_used_usd)
+        # If Stage 3 failed/halted, we stop here (do not run downstream stages).
+        if st3.status is not StageStatus.OK:
             stop_reason = _coerce_stop_reason(st3, default=ProductStopReason.ERROR)
             status = (
                 ProductStatus.HALTED
@@ -354,7 +352,75 @@ def ingest_product_marketdata(
                 else ProductStatus.ERROR
             )
             message = f"stopped after ohlcv_1d: {st3.status} ({st3.stop_reason})"
+            return _finalize_attempt_and_report(
+                attempts=attempts,
+                attempt_uid=attempt_uid,
+                product_id=product_id,
+                mode=mode,
+                dry_run=dry_run,
+                reset=reset,
+                reset_local=reset_local,
+                cost_cap_usd=float(cost_cap_usd),
+                stages=stages,
+                remaining_usd=remaining,
+                status=status,
+                stop_reason=stop_reason,
+                message=message,
+            )
 
+        if remaining <= 0.0:
+            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
+            status = ProductStatus.HALTED
+            message = "budget exhausted after ohlcv_1d"
+            return _finalize_attempt_and_report(
+                attempts=attempts,
+                attempt_uid=attempt_uid,
+                product_id=product_id,
+                mode=mode,
+                dry_run=dry_run,
+                reset=reset,
+                reset_local=reset_local,
+                cost_cap_usd=float(cost_cap_usd),
+                stages=stages,
+                remaining_usd=remaining,
+                status=status,
+                stop_reason=stop_reason,
+                message=message,
+            )
+
+        # -------------------------
+        # Stage 4: statistics_1d
+        # -------------------------
+        st4 = _run_stage_statistics_1d(
+            product_id=product_id,
+            mode=mode,
+            remaining_usd=remaining,
+            stores=stores,
+            client=client,
+            dry_run=dry_run,
+            reset=reset,
+            reset_local=reset_local,
+            max_windows=max_windows,
+            max_contracts=max_contracts,
+        )
+
+        stages.append(st4)
+        remaining = max(0.0, remaining - st4.cost_used_usd)
+
+        if st4.status is StageStatus.OK:
+            stop_reason = (
+                ProductStopReason.DRY_RUN_ONLY if dry_run else ProductStopReason.UNKNOWN
+            )
+            status = ProductStatus.SUCCESS
+            message = "completed all stages"
+        else:
+            stop_reason = _coerce_stop_reason(st4, default=ProductStopReason.ERROR)
+            status = (
+                ProductStatus.HALTED
+                if st4.status is StageStatus.HALTED
+                else ProductStatus.ERROR
+            )
+            message = f"stopped after statistics_1d: {st4.status} ({st4.stop_reason})"
         return _finalize_attempt_and_report(
             attempts=attempts,
             attempt_uid=attempt_uid,
@@ -424,6 +490,7 @@ class ProductMarketDataStores:
 
     instrument_definition_mappings_store: InstrumentDefinitionMappingsStore
     ohlcv_1d_store: OHLCV1DStore
+    statistics_1d_store: Statistics1DStore
 
 
 # -------------------------
@@ -528,6 +595,40 @@ def _run_stage_ohlcv_1d(
     )
     return _normalize_stage_report(
         name="ohlcv_1d", report=report, mapping_ready_for_ohlcv=None
+    )
+
+
+def _run_stage_statistics_1d(
+    *,
+    product_id: str,
+    mode: Mode,
+    remaining_usd: float,
+    stores: ProductMarketDataStores,
+    client: Any,
+    dry_run: bool,
+    reset: bool,
+    reset_local: bool,
+    max_windows: int | None,
+    max_contracts: int | None,
+) -> StageEnvelope:
+    _ = reset  # if destructive reset not supported at product-level for this dataset yet
+    _ = max_windows  # if not used
+
+    report = ingest_statistics_1d_for_product(
+        backend=stores.backend,
+        store=stores.statistics_1d_store,
+        product_id=product_id,
+        mode=mode,
+        cost_cap_usd=float(remaining_usd),
+        client=client,
+        max_contracts=max_contracts,
+        dry_run=dry_run,
+        reset_local=reset_local,
+    )
+    return _normalize_stage_report(
+        name="statistics_1d",
+        report=report,
+        mapping_ready_for_ohlcv=None,
     )
 
 
