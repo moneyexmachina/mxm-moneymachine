@@ -324,6 +324,96 @@ class TradingCalendar:
             return labels[i]
         return None
 
+    def current_sessions(
+        self,
+        ts: pd.Series,
+        *,
+        out_of_range: Literal["raise", "null"] = "raise",
+    ) -> pd.Series:
+        """
+        Vectorised version of `current_session` over a Series of UTC timestamps.
+
+        Parameters
+        ----------
+        ts:
+            Series of timestamps (tz-aware UTC preferred). Values are coerced via
+            `pd.to_datetime(..., utc=True, errors="coerce")`. NaT maps to None.
+        out_of_range:
+            - "raise": raise CalendarOutOfRange if ANY non-null timestamp lies outside
+              observed schedule coverage (same semantics as scalar).
+            - "null": map out-of-range timestamps to None.
+
+        Returns
+        -------
+        pd.Series[object]
+            Each element is:
+              - np.datetime64 session label if open <= t < close for some session
+              - None if not in session (or NaT input, or out-of-range when out_of_range="null")
+
+        Notes
+        -----
+        - Coverage is the observed schedule only.
+        - This method is schedule-dependent; raises ScheduleUnavailable if absent.
+        - Deterministic: selection is based on cached schedule arrays and searchsorted.
+        """
+        cache = self._schedule_cache()
+        labels, opens, closes = cache.labels, cache.opens, cache.closes
+
+        # Coerce to UTC timestamps; preserve missing as NaT
+        s = pd.to_datetime(ts, utc=True, errors="coerce")
+        if s.empty:
+            return pd.Series([], index=ts.index, dtype="object")
+
+        # Convert to numpy datetime64[ns] UTC-naive instants for fast comparison
+        t = s.dt.tz_convert("UTC").dt.tz_localize(None).to_numpy(dtype="datetime64[ns]")
+
+        # Identify NaT positions (numpy uses NaT sentinel)
+        is_nat = np.isnat(t)
+
+        # Out-of-range checks on non-NaT entries
+        if not np.all(is_nat):
+            t_valid = t[~is_nat]
+
+            below = t_valid < opens[0]
+            above = t_valid >= closes[-1]
+            if (below | above).any():
+                if out_of_range == "raise":
+                    # Match scalar messaging style (first offending is enough)
+                    first = t_valid[np.where(below | above)[0][0]]
+                    if first < opens[0]:
+                        raise CalendarOutOfRange(
+                            f"{first} is before first scheduled open for calendar {self.calendar_id}"
+                        )
+                    raise CalendarOutOfRange(
+                        f"{first} is on/after last scheduled close for calendar {self.calendar_id}"
+                    )
+                # else: "null" => treat as unmappable
+        else:
+            # all NaT -> all None
+            return pd.Series([None] * len(ts), index=ts.index, dtype="object")
+
+        # Compute candidate session index for each timestamp:
+        # i = rightmost open <= t, i.e. searchsorted(opens, t, side="right") - 1
+        idx = np.searchsorted(opens, t, side="right").astype(np.int64) - 1
+
+        # Valid index range and in-session predicate
+        in_range_idx = (idx >= 0) & (idx < closes.shape[0])
+        in_session = np.zeros_like(in_range_idx, dtype=bool)
+        in_session[in_range_idx] = t[in_range_idx] < closes[idx[in_range_idx]]
+
+        # Start with all None
+        out: list[object] = [None] * t.shape[0]
+
+        # Assign labels for those in session
+        # (labels are dtype datetime64[D] in your cache)
+        for pos in np.where(in_session & ~is_nat)[0]:
+            out[int(pos)] = labels[int(idx[int(pos)])]
+
+        # If out_of_range="null", ensure out-of-range values are None (already)
+        # If out_of_range="raise", we already raised above.
+
+        return pd.Series(out, index=ts.index, dtype="object")
+
     def most_recent_session(self, as_of_ts: UtcTimestampInput) -> np.datetime64:
         """
         Return the most recent *completed* session label as of `as_of_ts` (UTC).
