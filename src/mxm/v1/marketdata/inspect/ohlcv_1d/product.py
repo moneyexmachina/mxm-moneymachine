@@ -13,7 +13,7 @@ from mxm.v1.marketdata.inspect.ohlcv_1d.contracts import (
     list_contract_coverages_for_product,
 )
 from mxm.v1.marketdata.inspect.ohlcv_1d.models import OHLCV1DContractCoverage
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)

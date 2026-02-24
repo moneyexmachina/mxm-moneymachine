@@ -13,7 +13,7 @@ from mxm.v1.marketdata.schema.instrument_definitions import (
     event_uid_from_payload_json,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.time_utils import (
     ensure_utc_datetime_series,
     ensure_utc_datetimeindex,
     fmt_run_ts,

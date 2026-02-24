@@ -42,7 +42,7 @@ from mxm.v1.marketdata.orchestrators.statistics_1d import (
     ingest_statistics_1d_for_product,
 )
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.utils.time_utils import utc_now_run_ts
 
 Mode = Literal["bootstrap", "update"]
 

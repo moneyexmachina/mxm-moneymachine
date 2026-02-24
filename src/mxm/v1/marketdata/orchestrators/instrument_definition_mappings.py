@@ -23,7 +23,7 @@ from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.utils.time_utils import utc_now_run_ts
 
 Mode = Literal["bootstrap", "update"]
 
