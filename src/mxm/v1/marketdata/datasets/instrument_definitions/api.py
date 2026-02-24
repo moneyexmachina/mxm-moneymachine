@@ -11,7 +11,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
-from mxm.v1.marketdata.time_utils import fmt_run_ts, parse_duration, parse_ts
+from mxm.v1.utils.time_utils import fmt_run_ts, parse_duration, parse_ts
 
 # ---------------------------------------------------------------------------
 # Feed identity (vendor-scoped)

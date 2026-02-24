@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mxm.v1.marketdata.time_utils import ensure_utc_datetime_series
+from mxm.v1.utils.time_utils import ensure_utc_datetime_series
 
 
 def normalize_instrument_definitions(df: pd.DataFrame) -> pd.DataFrame:

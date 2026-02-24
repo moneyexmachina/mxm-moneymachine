@@ -18,7 +18,7 @@ from mxm.v1.marketdata.orchestrators.instrument_definitions import (
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.utils.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
 
 

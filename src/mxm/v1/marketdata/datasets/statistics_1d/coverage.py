@@ -93,7 +93,7 @@ import pandas as pd
 from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
     Statistics1DAttemptRow,
 )
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.time_utils import (
     parse_ts,
     to_utc_day,
     to_utc_ts,

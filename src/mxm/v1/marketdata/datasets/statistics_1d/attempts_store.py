@@ -10,7 +10,7 @@ import pandas as pd
 
 from mxm.v1.marketdata.datasets.statistics_1d.expected import ExpectedWindow
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.time_utils import (
     fmt_day_ts,
     fmt_second_ts,
 )

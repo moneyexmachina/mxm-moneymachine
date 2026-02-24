@@ -14,7 +14,7 @@ from mxm.v1.marketdata.inspect.statistics_1d.contracts import (
     Statistics1DContractAttempt,
     list_contract_attempts_for_product,
 )
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)

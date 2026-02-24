@@ -5,7 +5,7 @@ from datetime import date
 
 import pandas as pd
 
-from mxm.v1.marketdata.date_utils import (
+from mxm.v1.utils.date_utils import (
     coerce_date,
     utc_day_end_exclusive,
     utc_day_start,

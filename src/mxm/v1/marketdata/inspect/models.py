@@ -6,7 +6,7 @@ from enum import Enum
 
 import pandas as pd
 
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 # -------------------------
 # Attempt / status representation

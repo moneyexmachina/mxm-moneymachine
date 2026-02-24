@@ -6,8 +6,8 @@ from typing import Any
 
 import pandas as pd
 
-from mxm.v1.marketdata.date_utils import utc_day_end_exclusive, utc_day_start
-from mxm.v1.marketdata.time_utils import (
+from mxm.v1.utils.date_utils import utc_day_end_exclusive, utc_day_start
+from mxm.v1.utils.time_utils import (
     ceil_to_utc_day,
     parse_ts,
     to_utc_day,

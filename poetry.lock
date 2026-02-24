@@ -527,14 +527,14 @@ files = [
 
 [[package]]
 name = "exchange-calendars"
-version = "4.12"
+version = "4.13"
 description = "Calendars for securities exchanges"
 optional = false
 python-versions = "<4,>=3.10"
 groups = ["main"]
 files = [
-    {file = "exchange_calendars-4.12-py3-none-any.whl", hash = "sha256:133946b468d00401f7e622fc4e198ec3a26cba7524ec357bb8597be4ddaf584e"},
-    {file = "exchange_calendars-4.12.tar.gz", hash = "sha256:7d2049b624013eb67cb06feb4fd29825a8d53c0c03bf8e7f9d856c210f24eb8a"},
+    {file = "exchange_calendars-4.13-py3-none-any.whl", hash = "sha256:652a2ae9c81d09b5bc4ee09e4a7e5b9b8540ffe481e19c2ea56dcc223e0e2d30"},
+    {file = "exchange_calendars-4.13.tar.gz", hash = "sha256:d846ab0e4e584721137efe3b3795123407a0c4f8ff3305c63b4843c2e3451068"},
 ]
 
 [package.dependencies]
@@ -2757,4 +2757,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13, <3.15"
-content-hash = "40eae7fc6ee2a7c43ab509560e4b64ee52b8554d199c056db696d34e889a9678"
+content-hash = "2e303f0cb3e63a5db2972657e21476ae17685d4acd83f7359a392100f72c29b8"

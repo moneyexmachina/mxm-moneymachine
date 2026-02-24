@@ -14,7 +14,7 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.orchestrators.ohlcv_1d import ingest_ohlcv_1d_for_product
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.time_utils import utc_now_run_ts
+from mxm.v1.utils.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
 
 

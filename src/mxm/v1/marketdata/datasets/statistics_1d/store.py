@@ -12,7 +12,7 @@ from mxm.v1.marketdata.stores.parquet.statistics_1d import (
     read_statistics_1d,
     write_statistics_1d,
 )
-from mxm.v1.marketdata.time_utils import to_utc_ts
+from mxm.v1.utils.time_utils import to_utc_ts
 
 
 @dataclass(frozen=True)

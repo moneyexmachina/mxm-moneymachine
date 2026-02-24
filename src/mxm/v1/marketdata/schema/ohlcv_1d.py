@@ -19,7 +19,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from mxm.v1.marketdata.time_utils import ensure_utc_datetime_series
+from mxm.v1.utils.time_utils import ensure_utc_datetime_series
 
 
 @dataclass(frozen=True)

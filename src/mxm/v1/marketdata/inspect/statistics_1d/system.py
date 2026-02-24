@@ -28,7 +28,7 @@ from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
 )
 from mxm.v1.marketdata.inspect.models import ProductStatus
 from mxm.v1.marketdata.inspect.statistics_1d.product import get_product_attempts_report
-from mxm.v1.marketdata.time_utils import parse_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)
