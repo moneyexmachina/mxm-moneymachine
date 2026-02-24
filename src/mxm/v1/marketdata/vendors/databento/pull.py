@@ -1,4 +1,63 @@
 # src/mxm/v1/marketdata/databento/pull.py
+"""
+Databento Timeseries Pull Layer (DataIO-backed)
+
+This module provides thin, canonical wrappers around Databento
+`timeseries.get_range(...)` calls, routed through MXM's DataIO layer.
+
+Design goals
+------------
+- All vendor requests flow through DataIO for:
+    - deterministic request hashing
+    - caching and replay
+    - cost visibility
+    - auditability
+- Canonical request parameters are constructed in a stable form so that
+  equivalent logical requests produce identical DataIO hashes.
+- The module returns raw pandas DataFrames decoded from cached Parquet
+  payload bytes. No schema-level normalization is performed here unless
+  explicitly documented (e.g. instrument definitions).
+
+Separation of concerns
+----------------------
+- This module:
+    - builds canonical Databento request parameters
+    - performs DataIO-backed fetches
+    - decodes cached Parquet bytes to pandas DataFrame
+- Dataset-specific normalization logic lives under:
+    mxm.v1.marketdata.vendors.databento.normalize.*
+- Dataset-level orchestration (expected windows, attempts, coverage)
+  lives under:
+    mxm.v1.marketdata.datasets.*
+
+Supported schemas (current)
+---------------------------
+- "ohlcv_1d"
+- "instrument_definition"
+- "statistics_1d"
+
+Extending to new schemas
+------------------------
+To add support for another Databento schema (e.g. statistics):
+
+1. Add a thin wrapper similar to `pull_ohlcv_1d`.
+2. Optionally add a `*_by_instrument_id` convenience wrapper.
+3. Implement normalization under `vendors.databento.normalize`.
+4. Keep request parameter construction consistent with
+   `_canonical_timeseries_params(...)`.
+
+Important invariants
+--------------------
+- All returned DataFrames are direct decodes of the Parquet payload
+  provided by the DataIO adapter.
+- The DataIO adapter for `source="databento"` must already be registered
+  in the mxm.dataio registry before calling these functions.
+- Request hashing depends only on canonical parameters; therefore
+  parameter normalization must remain stable.
+
+This module intentionally contains no dataset-specific business logic.
+"""
+
 from __future__ import annotations
 
 from io import BytesIO
@@ -160,6 +219,59 @@ def pull_ohlcv_1d_by_instrument_id(
     extra: Optional[Mapping[str, Any]] = None,
 ) -> pd.DataFrame:
     return pull_ohlcv_1d(
+        dataset=dataset,
+        symbol=str(instrument_id),
+        stype_in="instrument_id",
+        start=start,
+        end=end,
+        source=source,
+        extra=extra,
+    )
+
+
+def pull_statistics_1d(
+    *,
+    dataset: str,
+    symbol: str,
+    stype_in: str,
+    start: str,
+    end: str,
+    source: str = "databento",
+    extra: Optional[Mapping[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    DataIO-backed pull for Databento statistics (rtype=24) over a time range.
+
+    Notes:
+    - The returned DataFrame is a raw decode of the cached Parquet payload.
+    - Dataset-specific normalization (e.g. trading_date derivation, sentinel
+      handling, price scaling) is handled elsewhere.
+    """
+    return pull_timeseries(
+        dataset=dataset,
+        schema="statistics",
+        symbols=symbol,
+        stype_in=stype_in,
+        start=start,
+        end=end,
+        source=source,
+        extra=extra,
+    )
+
+
+def pull_statistics_1d_by_instrument_id(
+    *,
+    dataset: str,
+    instrument_id: int,
+    start: str,
+    end: str,
+    source: str = "databento",
+    extra: Optional[Mapping[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    Convenience wrapper to pull statistics by Databento `instrument_id`.
+    """
+    return pull_statistics_1d(
         dataset=dataset,
         symbol=str(instrument_id),
         stype_in="instrument_id",

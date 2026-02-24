@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from mxm.v1.marketdata.inspect.models import AttemptStatus, ProductStatus
-from mxm.v1.marketdata.inspect.product import compute_product_status
+from mxm.v1.marketdata.inspect.ohlcv_1d.product import compute_product_status
 
 
 @dataclass(frozen=True)

@@ -6,10 +6,6 @@ from enum import Enum
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
-    CoverageSurfaces,
-    CoverageWindows,
-)
 from mxm.v1.marketdata.time_utils import parse_ts
 
 # -------------------------
@@ -60,75 +56,9 @@ class AttemptSummary:
         return parse_ts(self.run_ts_utc)
 
 
-# -------------------------
-# Contract / product coverage models
-# -------------------------
-
-
-@dataclass(frozen=True)
-class ContractCoverage:
-    product_id: str
-    contract_id: str
-    contract_key: str
-
-    dataset: str | None
-    publisher_id: int | None
-    instrument_id: int | None
-    raw_symbol: str | None
-
-    surfaces: CoverageSurfaces
-    windows: CoverageWindows
-
-    last_attempt: AttemptSummary
-
-
 class ProductStatus(str, Enum):
     never_run = "never_run"
     done = "done"
     partial = "partial"
     blocked = "blocked"
     error = "error"
-
-
-@dataclass(frozen=True)
-class ProductCoverage:
-    product_id: str
-    contracts_total: int
-    contracts_complete: int
-    contracts_incomplete: int
-    contracts_unmapped: int
-    contracts_error: int
-    contracts_empty_expected: int
-    status: ProductStatus
-    # Optional rollups
-    stored_earliest: pd.Timestamp | None
-    stored_latest: pd.Timestamp | None
-    expected_earliest: pd.Timestamp | None
-    expected_latest: pd.Timestamp | None
-
-    last_run_ts_utc: str | None
-
-    @property
-    def last_run_ts(self) -> pd.Timestamp | None:
-        """
-        Parsed timestamp view of last_run_ts_utc.
-
-        Naming discipline:
-          - *_ts_utc is a canonical string
-          - *_ts is a pd.Timestamp
-        """
-        return parse_ts(self.last_run_ts_utc) if self.last_run_ts_utc else None
-
-    @property
-    def done(self) -> bool:
-        return self.status == ProductStatus.done
-
-
-@dataclass(frozen=True)
-class SystemSummary:
-    products_total: int
-    products_never_run: int
-    products_done: int
-    products_partial: int
-    products_blocked: int
-    products_error: int

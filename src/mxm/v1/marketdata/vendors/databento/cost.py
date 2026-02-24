@@ -94,6 +94,29 @@ def estimate_cost_ohlcv_1d(
     )
 
 
+def estimate_cost_statistics_1d(
+    *,
+    client: db.Historical,
+    dataset: str,
+    symbols: str | Sequence[str],
+    stype_in: str = "raw_symbol",
+    start: str,
+    end: str,
+) -> CostEstimate:
+    """
+    Estimate Databento cost for a statistics-1d event stream query.
+    """
+    return estimate_cost_timeseries(
+        client=client,
+        dataset=dataset,
+        schema="statistics",
+        symbols=symbols,
+        stype_in=stype_in,
+        start=start,
+        end=end,
+    )
+
+
 def estimate_cost_instrument_definition(
     *,
     client: db.Historical,

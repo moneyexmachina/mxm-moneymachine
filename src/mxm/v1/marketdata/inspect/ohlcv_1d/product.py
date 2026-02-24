@@ -5,12 +5,14 @@ from dataclasses import dataclass
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.contracts import list_contract_coverages_for_product
 from mxm.v1.marketdata.inspect.models import (
     AttemptStatus,
-    ContractCoverage,
     ProductStatus,
 )
+from mxm.v1.marketdata.inspect.ohlcv_1d.contracts import (
+    list_contract_coverages_for_product,
+)
+from mxm.v1.marketdata.inspect.ohlcv_1d.models import OHLCV1DContractCoverage
 from mxm.v1.marketdata.time_utils import parse_ts
 
 
@@ -56,10 +58,10 @@ class ProductCoverageSummary:
 @dataclass(frozen=True)
 class ProductCoverageReport:
     summary: ProductCoverageSummary
-    contracts: tuple[ContractCoverage, ...]
+    contracts: tuple[OHLCV1DContractCoverage, ...]
 
 
-def compute_product_status(contracts: list[ContractCoverage]) -> ProductStatus:
+def compute_product_status(contracts: list[OHLCV1DContractCoverage]) -> ProductStatus:
     """
     Authoritative product status precedence (normative semantics):
 

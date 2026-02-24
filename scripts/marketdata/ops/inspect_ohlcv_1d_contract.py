@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.contracts import (
+from mxm.v1.marketdata.inspect.ohlcv_1d.contracts import (
     get_contract_coverage_from_latest_attempt,
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
@@ -13,7 +13,7 @@ from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="MXM: inspect contract coverage (read-only)"
+        description="MXM: inspect OHLC-1D contract coverage (read-only)"
     )
     p.add_argument("--root", default=None, help="MXM root directory (default: ~/.mxm)")
     p.add_argument(
