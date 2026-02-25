@@ -42,7 +42,7 @@ class MarketdataLayout:
         )
 
     # -------------------------
-    # OHLCV-1D paths (existing)
+    # OHLCV-1D paths
     # -------------------------
 
     def bars_path(self, *, dataset: str, publisher_id: int, instrument_id: int) -> Path:
@@ -70,7 +70,7 @@ class MarketdataLayout:
         )
 
     # -------------------------
-    # Statistics paths (new)
+    # Statistics paths
     # -------------------------
 
     def statistics_path(
@@ -97,6 +97,36 @@ class MarketdataLayout:
                 schema_dir="statistics",
             )
             / "statistics.tmp.parquet"
+        )
+
+    # -------------------------
+    # Daily-stats paths (derived)
+    # -------------------------
+
+    def daily_stats_path(
+        self, *, dataset: str, publisher_id: int, instrument_id: int
+    ) -> Path:
+        return (
+            self.instrument_dir(
+                dataset=dataset,
+                publisher_id=publisher_id,
+                instrument_id=instrument_id,
+                schema_dir="daily-stats",
+            )
+            / "daily_stats.parquet"
+        )
+
+    def tmp_daily_stats_path(
+        self, *, dataset: str, publisher_id: int, instrument_id: int
+    ) -> Path:
+        return (
+            self.instrument_dir(
+                dataset=dataset,
+                publisher_id=publisher_id,
+                instrument_id=instrument_id,
+                schema_dir="daily-stats",
+            )
+            / "daily_stats.tmp.parquet"
         )
 
     # -------------------------

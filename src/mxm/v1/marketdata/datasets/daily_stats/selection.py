@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from mxm.v1.utils.date_utils import fmt_iso_day
+from mxm.v1.utils.time_utils import ensure_utc_datetime_series
 
 # ----------------------------
 # Diagnostics
@@ -44,27 +45,23 @@ def _require_cols(df: pd.DataFrame, cols: list[str]) -> None:
 
 def _coerce_session_date_series(s: pd.Series) -> pd.Series:
     """
-    Coerce session_date-like values to np.datetime64[D] day labels.
+    Coerce session_date-like values to tz-aware UTC timestamps aligned to midnight.
 
-    Returns Series[object] with elements:
-      - np.datetime64('YYYY-MM-DD','D') for valid inputs
-      - None for missing/unparseable
+    Returns Series[datetime64[ns, UTC]] with NaT for missing/unparseable.
     """
     if s.empty:
-        return pd.Series([], dtype="object")
+        return pd.Series([], dtype="datetime64[ns, UTC]")
 
-    # Parse anything date-like; keep tz-naive (session labels are dates)
-    dt = pd.to_datetime(s, errors="coerce", utc=False)
+    # Be permissive for internal date-like values (YYYY-MM-DD, date objects, numpy day labels).
+    dt = pd.to_datetime(s, errors="coerce", utc=True)
 
-    # Normalise to midnight then cast to day precision
-    norm = dt.dt.normalize()  # Series[datetime64[ns]]
-    arr = norm.to_numpy(dtype="datetime64[D]")  # <-- correct: call on Series, not .dt
+    # Normalise to UTC midnight (day label semantics)
+    out = dt.dt.normalize()
 
-    # Convert NaT day labels to None
-    out = arr.astype("object")
-    out[np.isnat(arr)] = None
+    # Ensure exact dtype datetime64[ns, UTC] (defensive)
+    out = ensure_utc_datetime_series(out)
 
-    return pd.Series(out, index=s.index, dtype="object")
+    return out
 
 
 def _select_one_per_session_date(
