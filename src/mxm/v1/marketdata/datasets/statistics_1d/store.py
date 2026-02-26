@@ -3,16 +3,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.parquet.statistics_1d import (
+    Statistics1DMetaDict,
     read_statistics_1d,
+    read_statistics_1d_meta,
     write_statistics_1d,
 )
-from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.time_utils import parse_ts
 
 
 @dataclass(frozen=True)
@@ -21,29 +22,27 @@ class StoreCoverageSnapshot:
     Observed coverage snapshot in the local parquet store for a single instrument identity.
 
     - min_ts / max_ts are observed UTC timestamps (min/max of ts_event), not day-aligned.
+    - content_sha256 is the semantic, order-invariant hash of canonicalised content.
+    - artifact_sha256 is the sha256 of parquet bytes (integrity/debug).
     - exists indicates whether the statistics parquet file exists.
     """
 
     stats_path: Path
     exists: bool
     row_count: int
-    min_ts: Optional[pd.Timestamp]
-    max_ts: Optional[pd.Timestamp]
+    min_ts: pd.Timestamp | None
+    max_ts: pd.Timestamp | None
+
+    meta_path: Path
+    meta_exists: bool
+    content_sha256: str | None = None
+    artifact_sha256: str | None = None
+    meta_origin: str | None = None
 
 
 class Statistics1DStore:
     """
     Dataset-domain store for Databento `statistics` (rtype=24) events.
-
-    Responsibilities:
-    - Provide stable local persistence operations (delegating to stores/parquet/statistics_1d.py)
-    - Provide local coverage introspection (min/max/rowcount) for orchestration gates
-
-    Non-responsibilities:
-    - No vendor logic
-    - No mapping logic
-    - No contract lifecycle semantics
-    - No daily canonicalization (final-vs-prelim selection is a derived view concern)
     """
 
     def __init__(self, *, layout: MarketdataLayout) -> None:
@@ -59,6 +58,12 @@ class Statistics1DStore:
         return self._layout.statistics_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
+
+    def meta_path(self, *, dataset: str, publisher_id: int, instrument_id: int) -> Path:
+        # Must match stores/parquet/statistics_1d.py naming.
+        return self.stats_path(
+            dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
+        ).with_name("statistics.meta.json")
 
     def write(
         self,
@@ -97,57 +102,97 @@ class Statistics1DStore:
     # -------------------------
     # Coverage / introspection
     # -------------------------
-
     def scan_coverage(
         self, *, dataset: str, publisher_id: int, instrument_id: int
     ) -> StoreCoverageSnapshot:
-        path = self.stats_path(
+        stats_path = self.stats_path(
+            dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
+        )
+        meta_path = self.meta_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
 
-        if not path.exists():
+        if not stats_path.exists():
             return StoreCoverageSnapshot(
-                stats_path=path,
+                stats_path=stats_path,
                 exists=False,
                 row_count=0,
                 min_ts=None,
                 max_ts=None,
+                meta_path=meta_path,
+                meta_exists=meta_path.exists(),
             )
 
-        # This reads the parquet; acceptable at MVP scale. If it becomes a bottleneck,
-        # we can later add a lightweight metadata sidecar (out of scope now).
-        df = pd.read_parquet(path)
+        # Meta-first path (typed)
+        try:
+            meta: Statistics1DMetaDict | None = read_statistics_1d_meta(
+                layout=self._layout,
+                dataset=dataset,
+                publisher_id=publisher_id,
+                instrument_id=instrument_id,
+            )
+        except Exception:
+            meta = None  # corrupt meta -> treat as missing for provenance purposes
 
+        if meta is not None:
+            row_count = int(meta["row_count"])
+            min_ts_s = meta.get("min_ts_event")
+            max_ts_s = meta.get("max_ts_event")
+
+            return StoreCoverageSnapshot(
+                stats_path=stats_path,
+                exists=True,
+                row_count=row_count,
+                min_ts=parse_ts(min_ts_s) if min_ts_s else None,
+                max_ts=parse_ts(max_ts_s) if max_ts_s else None,
+                meta_path=meta_path,
+                meta_exists=True,
+                content_sha256=meta.get("content_sha256"),
+                artifact_sha256=meta.get("artifact_sha256"),
+                meta_origin=meta.get("meta_origin"),
+            )
+
+        # Fallback: parquet scan (coverage only)
+        df = pd.read_parquet(stats_path)
         if df.empty:
             return StoreCoverageSnapshot(
-                stats_path=path,
+                stats_path=stats_path,
                 exists=True,
                 row_count=0,
                 min_ts=None,
                 max_ts=None,
+                meta_path=meta_path,
+                meta_exists=False,
             )
 
-        # ts_event is expected to be present and already schema-coerced.
-        ts_min = to_utc_ts(df["ts_event"].min())
-        ts_max = to_utc_ts(df["ts_event"].max())
-
         return StoreCoverageSnapshot(
-            stats_path=path,
+            stats_path=stats_path,
             exists=True,
             row_count=int(len(df)),
-            min_ts=ts_min,
-            max_ts=ts_max,
+            min_ts=parse_ts(df["ts_event"].min()),
+            max_ts=parse_ts(df["ts_event"].max()),
+            meta_path=meta_path,
+            meta_exists=False,
         )
 
     def delete(self, *, dataset: str, publisher_id: int, instrument_id: int) -> bool:
         """
-        Identity-scoped destructive reset for local parquet only.
-        Returns True if a file existed and was deleted.
+        Identity-scoped destructive reset for local parquet + meta sidecar.
+        Returns True if the parquet file existed and was deleted.
         """
-        path = self.stats_path(
+        stats_path = self.stats_path(
             dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
         )
-        if not path.exists():
-            return False
-        path.unlink()
-        return True
+        meta_path = self.meta_path(
+            dataset=dataset, publisher_id=publisher_id, instrument_id=instrument_id
+        )
+
+        existed = stats_path.exists()
+        if existed:
+            stats_path.unlink()
+
+        # Best-effort: remove meta as well
+        if meta_path.exists():
+            meta_path.unlink()
+
+        return existed

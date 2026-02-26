@@ -17,8 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-import numpy as np
 import pandas as pd
+
+from mxm.v1.utils.hashing import sha256_df_content
 
 
 @dataclass(frozen=True)
@@ -272,18 +273,4 @@ def coerce_daily_stats(
 
 
 def hash_daily_stats_content(df: pd.DataFrame) -> str:
-    """
-    Stable content hash for idempotency checks.
-
-    This hashes the canonicalised dataframe content (values + columns), not file bytes.
-    """
-    import hashlib
-
-    # Ensure deterministic hashing: canonical column order, canonical sort, canonical dtypes
-    canon = coerce_daily_stats(df, ensure_column_order=True)
-    # pandas produces uint64 hashes per row; hash them as bytes
-    hv = pd.util.hash_pandas_object(canon, index=False).to_numpy(dtype=np.uint64)
-
-    h = hashlib.sha256()
-    h.update(hv.tobytes())
-    return h.hexdigest()
+    return sha256_df_content(df, coerce=coerce_daily_stats)

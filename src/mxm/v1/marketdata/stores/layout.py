@@ -100,7 +100,7 @@ class MarketdataLayout:
         )
 
     # -------------------------
-    # Daily-stats paths (derived)
+    # Daily-stats paths
     # -------------------------
 
     def daily_stats_path(

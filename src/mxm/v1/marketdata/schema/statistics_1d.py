@@ -32,6 +32,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from mxm.v1.utils.hashing import sha256_df_content
 from mxm.v1.utils.time_utils import ensure_utc_datetime_series
 
 
@@ -258,3 +259,11 @@ def coerce_statistics_1d(
     validate_statistics_1d(out)
 
     return out
+
+
+def hash_statistics_1d_content(df: pd.DataFrame) -> str:
+    """
+    Stable content hash for idempotency checks (order-invariant).
+    Hashes canonicalised statistics_1d event content, not file bytes.
+    """
+    return sha256_df_content(df, coerce=coerce_statistics_1d)
