@@ -12,6 +12,7 @@ from mxm.v1.marketdata.datasets.statistics_1d.expected import ExpectedWindow
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import (
     fmt_day_ts,
+    fmt_run_ts,
     fmt_second_ts,
 )
 
@@ -186,8 +187,8 @@ class Statistics1DAttemptsStore:
             # expected window surfaces
             "interest_start": fmt_day_ts(ew.interest_start),
             "interest_end": fmt_day_ts(ew.interest_end),
-            "dataset_start": fmt_day_ts(ew.dataset_start),
-            "dataset_end": fmt_day_ts(ew.dataset_end),
+            "dataset_start": fmt_run_ts(ew.dataset_start),
+            "dataset_end": fmt_run_ts(ew.dataset_end),
             "activation_floor": (
                 None if ew.activation_floor is None else fmt_day_ts(ew.activation_floor)
             ),
@@ -197,8 +198,8 @@ class Statistics1DAttemptsStore:
                 else fmt_day_ts(ew.expiration_ceiling)
             ),
             # derived expected interval
-            "expected_start": fmt_day_ts(ew.expected_start),
-            "expected_end": fmt_day_ts(ew.expected_end),
+            "expected_start": fmt_run_ts(ew.expected_start),
+            "expected_end": fmt_run_ts(ew.expected_end),
             # derived flags
             "is_empty": 1 if ew.is_empty else 0,
             "is_vendor_limited": 1 if ew.is_vendor_limited else 0,

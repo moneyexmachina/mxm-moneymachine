@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 
 from mxm.v1.utils.date_utils import fmt_iso_day
@@ -168,13 +167,20 @@ def select_ts_ref_stat_daily(
     *,
     stat_type: int,
     prefer_final: bool,
+    session_date_of: Callable[[pd.Series], pd.Series],
 ) -> tuple[pd.DataFrame, StatSelectionDiagnostics]:
     """
-    Select exactly one row per session_date (trading_date) for stat_types that have ts_ref.
+    Select exactly one row per session_date for stat_types that are *intended*
+    to be ts_ref-anchored, but may have missing ts_ref/trading_date in practice.
 
-    Uses df["trading_date"] as authoritative session_date (derived from ts_ref).
+    Session-date derivation:
+      1) Use df["trading_date"] when present and non-null (vendor/intended anchor).
+      2) Fallback: derive from ts_event via session_date_of (calendar-backed).
     """
-    _require_cols(df, ["stat_type", "trading_date", "ts_event", "sequence"])
+    _require_cols(df, ["stat_type", "ts_event", "sequence"])
+    if "trading_date" not in df.columns:
+        raise ValueError("daily_stats.selection: missing required column: trading_date")
+
     if prefer_final:
         _require_cols(df, ["is_final"])
 
@@ -183,13 +189,27 @@ def select_ts_ref_stat_daily(
     cand.attrs["stat_type"] = stat_type
     cand.attrs["source_rows_total"] = source_rows_total
 
-    # candidates must have trading_date populated; drop nulls to avoid silent anchoring
-    cand = cand[cand["trading_date"].notna()].copy()
-    cand = cand.rename(columns={"trading_date": "session_date"})
+    # Always ensure session_date exists on the candidate frame before any early return
+    cand["session_date"] = _coerce_session_date_series(cand["trading_date"])
 
-    # ensure column exists even if empty
+    # Fallback: if vendor trading_date missing, derive from ts_event via calendar
+    missing = cand["session_date"].isna()
+    if missing.any():
+        target_dtype = cand["session_date"].dtype
+
+        values = session_date_of(cand.loc[missing, "ts_event"])
+        values = pd.Series(values, index=cand.loc[missing].index)
+        values = values.astype(target_dtype)
+
+        cand.loc[missing, "session_date"] = values
+
+    # Drop unmapped rows (still possible if calendar out-of-range or coercion failed)
+    cand = cand[cand["session_date"].notna()].copy()
+
+    # Ensure column exists even if empty
     if "session_date" not in cand.columns:
         cand["session_date"] = pd.Series([], dtype="object")
+
     selected, diag = _select_one_per_session_date(cand, prefer_final=prefer_final)
     return selected, diag
 
@@ -276,13 +296,19 @@ def build_daily_stats_surface(
     """
     _require_cols(df, ["stat_type", "ts_event", "sequence"])
     source_rows_total = len(df)
-
-    # --- ts_ref anchored
-    settle, d_settle = select_ts_ref_stat_daily(df, stat_type=3, prefer_final=True)
-    fix, d_fix = select_ts_ref_stat_daily(df, stat_type=10, prefer_final=True)
-    oi, d_oi = select_ts_ref_stat_daily(df, stat_type=9, prefer_final=False)
-    clr, d_clr = select_ts_ref_stat_daily(df, stat_type=6, prefer_final=False)
-
+    # --- ts_ref anchored (with fallback to calendar)
+    settle, d_settle = select_ts_ref_stat_daily(
+        df, stat_type=3, prefer_final=True, session_date_of=session_date_of
+    )
+    fix, d_fix = select_ts_ref_stat_daily(
+        df, stat_type=10, prefer_final=True, session_date_of=session_date_of
+    )
+    oi, d_oi = select_ts_ref_stat_daily(
+        df, stat_type=9, prefer_final=False, session_date_of=session_date_of
+    )
+    clr, d_clr = select_ts_ref_stat_daily(
+        df, stat_type=6, prefer_final=False, session_date_of=session_date_of
+    )
     # --- event-time anchored
     opn, d_opn = select_event_time_stat_daily(
         df, stat_type=1, session_date_of=session_date_of

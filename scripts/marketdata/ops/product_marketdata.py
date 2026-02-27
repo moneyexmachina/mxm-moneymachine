@@ -10,6 +10,7 @@ import databento as db
 from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
@@ -17,6 +18,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
+from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
 from mxm.v1.marketdata.orchestrators.product_marketdata import (
     ProductMarketDataStores,
     ingest_product_marketdata,
@@ -26,8 +28,8 @@ from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.utils.time_utils import utc_now_run_ts
 from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
+from mxm.v1.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:
@@ -94,13 +96,16 @@ def main() -> None:
     idmap_store = InstrumentDefinitionMappingsStore(backend=backend)
     ohlcv_store = OHLCV1DStore(layout=layout)
     product_attempts = ProductMarketdataAttemptsStore(backend=backend)
-
+    stats_store = Statistics1DStore(layout=layout)
+    daily_stats_store = DailyStatsStore(layout=layout)
     stores = ProductMarketDataStores(
         backend=backend,
         product_attempts=product_attempts,
         instrument_definitions_store=defs_store,
         instrument_definition_mappings_store=idmap_store,
         ohlcv_1d_store=ohlcv_store,
+        statistics_1d_store=stats_store,
+        daily_stats_store=daily_stats_store,
     )
 
     print("\nMXM V1 — ops: product_marketdata")

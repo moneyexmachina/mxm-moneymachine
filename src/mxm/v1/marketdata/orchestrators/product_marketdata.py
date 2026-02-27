@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
+from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
@@ -28,6 +29,7 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.v1.marketdata.orchestrators.daily_stats import derive_daily_stats_for_product
 from mxm.v1.marketdata.orchestrators.instrument_definition_mappings import (
     rebuild_instrument_definition_mappings,
 )
@@ -131,6 +133,7 @@ def ingest_product_marketdata(
     max_windows: int | None = None,
     max_contracts: int | None = None,
     run_ts_utc: str | None = None,
+    allow_fallback_provenance: bool = False,
 ) -> ProductMarketDataReport:
     """
     Orchestrate end-to-end product ingestion:
@@ -138,6 +141,8 @@ def ingest_product_marketdata(
       1) instrument_definitions
       2) instrument_definition_mappings
       3) ohlcv_1d
+      4) statistics_1d
+      5) daily_stats
 
     Control-plane only:
     - budget propagation
@@ -406,14 +411,8 @@ def ingest_product_marketdata(
 
         stages.append(st4)
         remaining = max(0.0, remaining - st4.cost_used_usd)
-
-        if st4.status is StageStatus.OK:
-            stop_reason = (
-                ProductStopReason.DRY_RUN_ONLY if dry_run else ProductStopReason.UNKNOWN
-            )
-            status = ProductStatus.SUCCESS
-            message = "completed all stages"
-        else:
+        # If Stage 4 failed/halted, stop here (do not run downstream stages).
+        if st4.status is not StageStatus.OK:
             stop_reason = _coerce_stop_reason(st4, default=ProductStopReason.ERROR)
             status = (
                 ProductStatus.HALTED
@@ -421,6 +420,74 @@ def ingest_product_marketdata(
                 else ProductStatus.ERROR
             )
             message = f"stopped after statistics_1d: {st4.status} ({st4.stop_reason})"
+            return _finalize_attempt_and_report(
+                attempts=attempts,
+                attempt_uid=attempt_uid,
+                product_id=product_id,
+                mode=mode,
+                dry_run=dry_run,
+                reset=reset,
+                reset_local=reset_local,
+                cost_cap_usd=float(cost_cap_usd),
+                stages=stages,
+                remaining_usd=remaining,
+                status=status,
+                stop_reason=stop_reason,
+                message=message,
+            )
+
+        if remaining <= 0.0:
+            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
+            status = ProductStatus.HALTED
+            message = "budget exhausted after statistics_1d"
+            return _finalize_attempt_and_report(
+                attempts=attempts,
+                attempt_uid=attempt_uid,
+                product_id=product_id,
+                mode=mode,
+                dry_run=dry_run,
+                reset=reset,
+                reset_local=reset_local,
+                cost_cap_usd=float(cost_cap_usd),
+                stages=stages,
+                remaining_usd=remaining,
+                status=status,
+                stop_reason=stop_reason,
+                message=message,
+            )
+
+        # -------------------------
+        # Stage 5: daily_stats (derived)
+        # -------------------------
+        st5 = _run_stage_daily_stats(
+            product_id=product_id,
+            mode=mode,
+            remaining_usd=remaining,  # stage has no vendor calls; keep for symmetry
+            stores=stores,
+            dry_run=dry_run,
+            reset=reset,
+            reset_local=reset_local,
+            max_contracts=max_contracts,
+            allow_fallback_provenance=allow_fallback_provenance,
+        )
+        stages.append(st5)
+        remaining = max(0.0, remaining - st5.cost_used_usd)
+
+        if st5.status is StageStatus.OK:
+            stop_reason = (
+                ProductStopReason.DRY_RUN_ONLY if dry_run else ProductStopReason.UNKNOWN
+            )
+            status = ProductStatus.SUCCESS
+            message = "completed all stages"
+        else:
+            stop_reason = _coerce_stop_reason(st5, default=ProductStopReason.ERROR)
+            status = (
+                ProductStatus.HALTED
+                if st5.status is StageStatus.HALTED
+                else ProductStatus.ERROR
+            )
+            message = f"stopped after daily_stats: {st5.status} ({st5.stop_reason})"
+
         return _finalize_attempt_and_report(
             attempts=attempts,
             attempt_uid=attempt_uid,
@@ -491,6 +558,7 @@ class ProductMarketDataStores:
     instrument_definition_mappings_store: InstrumentDefinitionMappingsStore
     ohlcv_1d_store: OHLCV1DStore
     statistics_1d_store: Statistics1DStore
+    daily_stats_store: DailyStatsStore
 
 
 # -------------------------
@@ -627,6 +695,43 @@ def _run_stage_statistics_1d(
     )
     return _normalize_stage_report(
         name="statistics_1d",
+        report=report,
+        mapping_ready_for_ohlcv=None,
+    )
+
+
+def _run_stage_daily_stats(
+    *,
+    product_id: str,
+    mode: Mode,
+    remaining_usd: float,
+    stores: ProductMarketDataStores,
+    dry_run: bool,
+    reset: bool,
+    reset_local: bool,
+    max_contracts: int | None,
+    allow_fallback_provenance: bool,
+) -> StageEnvelope:
+    _ = remaining_usd  # compute-only; no vendor calls today
+    _ = reset  # destructive reset not supported (or not used) at this meta-layer
+
+    require_source_meta = not bool(allow_fallback_provenance)
+
+    report = derive_daily_stats_for_product(
+        backend=stores.backend,
+        product_id=product_id,
+        mode=mode,
+        stats_store=stores.statistics_1d_store,
+        daily_store=stores.daily_stats_store,
+        dataset_range_start=None,  # product meta-orchestrator currently not passing range hints
+        dataset_range_end=None,
+        max_contracts=max_contracts,
+        dry_run=dry_run,
+        reset_local=reset_local,
+        require_source_meta=require_source_meta,
+    )
+    return _normalize_stage_report(
+        name="daily_stats",
         report=report,
         mapping_ready_for_ohlcv=None,
     )

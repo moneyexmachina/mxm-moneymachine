@@ -65,6 +65,7 @@ def _stores(*, attempts: _FakeAttemptsStore) -> pm.ProductMarketDataStores:
         instrument_definition_mappings_store=object(),  # type: ignore[arg-type]
         ohlcv_1d_store=object(),  # type: ignore[arg-type]
         statistics_1d_store=object(),  # type: ignore[arg-type]
+        daily_stats_store=object(),  # type: ignore[arg-type]
     )
 
 
@@ -125,10 +126,11 @@ def test_product_marketdata_success_path_stage_order_and_budget(
         "instrument_definition_mappings",
         "ohlcv_1d",
         "statistics_1d",
+        "daily_stats",
     ]
 
-    assert rep.cost_used_usd == pytest.approx(1.0 + 0.0 + 2.0 + 3.0)
-    assert rep.remaining_usd == pytest.approx(10.0 - (1.0 + 0.0 + 2.0 + 3.0))
+    assert rep.cost_used_usd == pytest.approx(1.0 + 0.0 + 2.0 + 3.0 + 0)
+    assert rep.remaining_usd == pytest.approx(10.0 - (1.0 + 0.0 + 2.0 + 3.0 + 0))
 
     # attempt ledger: start and finish written once
     assert len(attempts.started) == 1

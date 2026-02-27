@@ -51,7 +51,9 @@ def test_select_ts_ref_prefers_final_even_if_lower_sequence() -> None:
         ]
     )
 
-    sel, diag = select_ts_ref_stat_daily(df, stat_type=3, prefer_final=True)
+    sel, diag = select_ts_ref_stat_daily(
+        df, stat_type=3, prefer_final=True, session_date_of=_session_date_of
+    )
     assert len(sel) == 1
     assert float(sel.iloc[0]["price"]) == 101.0
     assert bool(sel.iloc[0]["is_final"]) is True
@@ -79,7 +81,9 @@ def test_select_ts_ref_final_tie_break_by_sequence_then_ts_event() -> None:
             },
         ]
     )
-    sel, _ = select_ts_ref_stat_daily(df, stat_type=3, prefer_final=True)
+    sel, _ = select_ts_ref_stat_daily(
+        df, stat_type=3, prefer_final=True, session_date_of=_session_date_of
+    )
     assert float(sel.iloc[0]["price"]) == 101.0
 
 
@@ -96,7 +100,9 @@ def test_select_ts_ref_drops_null_trading_date() -> None:
             }
         ]
     )
-    sel, diag = select_ts_ref_stat_daily(df, stat_type=10, prefer_final=True)
+    sel, diag = select_ts_ref_stat_daily(
+        df, stat_type=10, prefer_final=True, session_date_of=_session_date_of
+    )
     assert len(sel) == 0
     assert diag.candidate_rows_total == 0
 

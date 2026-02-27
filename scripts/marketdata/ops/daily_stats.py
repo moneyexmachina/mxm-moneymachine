@@ -73,13 +73,13 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Delete local daily_stats parquet+meta for identities touched before rebuilding.",
     )
-
-    # Keep this knob because your wrapper currently prints it and you likely want it;
-    # it is NOT consumed by derive_daily_stats_for_product per the signature you pasted.
     p.add_argument(
-        "--require-source-meta",
+        "--allow-fallback-provenance",
         action="store_true",
-        help="(Currently unused by derive_daily_stats_for_product) Fail if statistics_1d meta missing.",
+        help=(
+            "Allow daily_stats derivation even if statistics_1d meta is missing. "
+            "In this mode, downstream source_content_sha256 will be null and strict provenance is not guaranteed."
+        ),
     )
 
     p.add_argument("--root", type=str, default=None)
@@ -97,7 +97,7 @@ def main() -> None:
 
     stats_store = Statistics1DStore(layout=layout)
     daily_store = DailyStatsStore(layout=layout)
-
+    require_source_meta = not bool(args.allow_fallback_provenance)
     print("\nMXM V1 — ops: daily_stats")
     print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
@@ -107,10 +107,11 @@ def main() -> None:
     print(f"[args] dataset_range_end={args.dataset_range_end}")
     print(f"[args] dry_run={bool(args.dry_run)}")
     print(f"[args] reset_local={bool(args.reset_local)}")
-    print(f"[args] require_source_meta={bool(args.require_source_meta)}")
+    print(f"[args] require_source_meta={require_source_meta}")
     print(f"[args] root={root}")
     print(f"[db]   sqlite={layout.sqlite_db_path()}")
-
+    if args.allow_fallback_provenance:
+        print("[warn] allow_fallback_provenance=True — strict provenance disabled")
     report = derive_daily_stats_for_product(
         backend=backend,
         product_id=args.product_id,
@@ -123,7 +124,7 @@ def main() -> None:
         max_contracts=(None if args.max_contracts is None else int(args.max_contracts)),
         dry_run=bool(args.dry_run),
         reset_local=bool(args.reset_local),
-        require_source_meta=bool(args.require_source_meta),
+        require_source_meta=require_source_meta,
     )
 
     payload = {

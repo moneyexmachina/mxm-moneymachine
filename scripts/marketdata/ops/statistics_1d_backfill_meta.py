@@ -15,7 +15,7 @@ from mxm.v1.marketdata.stores.parquet.statistics_1d import (
 @dataclass
 class Counters:
     scanned: int = 0
-    created: int = 0
+    changed: int = 0
     ok: int = 0
     errors: int = 0
 
@@ -67,13 +67,18 @@ def main() -> int:
                     publisher_id=publisher_id,
                     instrument_id=instrument_id,
                 )
+
                 if meta is None:
-                    c.created += 1
+                    c.changed += 1
                     print(
                         f"[dry-run] would create meta: {dataset} {publisher_id} {instrument_id}"
                     )
                 else:
+                    origin = meta.get("meta_origin", "missing")
                     c.ok += 1
+                    print(
+                        f"[dry-run] meta ok: {dataset} {publisher_id} {instrument_id} origin={origin}"
+                    )
                 continue
 
             changed = ensure_statistics_1d_meta(
@@ -84,9 +89,17 @@ def main() -> int:
                 force=bool(args.force),
             )
             if changed:
-                c.created += 1
+                c.changed += 1
+                meta = read_statistics_1d_meta(
+                    layout=layout,
+                    dataset=dataset,
+                    publisher_id=publisher_id,
+                    instrument_id=instrument_id,
+                )
+
+                origin = meta["meta_origin"] if meta else "unknown"
                 print(
-                    f"[write] meta created/updated: {dataset} {publisher_id} {instrument_id}"
+                    f"[write] meta changed: {dataset} {publisher_id} {instrument_id} origin={origin}"
                 )
             else:
                 c.ok += 1
@@ -96,7 +109,7 @@ def main() -> int:
             print(f"[error] {p}: {type(e).__name__}: {e}")
 
     print(
-        f"scanned={c.scanned} created_or_updated={c.created} ok={c.ok} errors={c.errors}"
+        f"scanned={c.scanned} changed_or_updated={c.changed} ok={c.ok} errors={c.errors}"
     )
     return 1 if c.errors else 0
 

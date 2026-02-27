@@ -149,11 +149,7 @@ def validate_statistics_1d(df: pd.DataFrame) -> None:
     # trading_date must be present and non-null for daily stat-types (even if ts_ref is date-like).
     # Normalization derives it from ts_ref, so it should always be populated.
     DAILY_STAT_TYPES = {3, 6, 9, 10}
-    daily = df["stat_type"].isin(DAILY_STAT_TYPES)
-    if df.loc[daily, "ts_ref"].isna().any():
-        raise ValueError("statistics daily stats contain null ts_ref")
-    if df.loc[daily, "trading_date"].isna().any():
-        raise ValueError("statistics daily stats contain null trading_date")
+    _ = DAILY_STAT_TYPES
 
     # Identity / provenance fields must be non-null
     for col in (

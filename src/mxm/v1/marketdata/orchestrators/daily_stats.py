@@ -178,7 +178,7 @@ def derive_daily_stats_for_product(
     max_contracts: int | None = None,
     dry_run: bool = False,
     reset_local: bool = False,
-    require_source_meta: bool = False,
+    require_source_meta: bool = True,
 ) -> DailyStatsOrchestratorReport:
     """
     Build daily_stats for a product by contract.
@@ -289,11 +289,12 @@ def derive_daily_stats_for_product(
                 publisher_id=publisher_id,
                 instrument_id=instrument_id,
             )
+            # Strict provenance (default):
+            # Require upstream meta artifact; do not accept fallback-derived coverage as provenance.
             if require_source_meta:
-                if not up.exists or up.row_count == 0:
-                    # already handled below, but safe
-                    pass
-                elif up.content_sha256 is None:
+                # If upstream parquet missing or empty, normal "no upstream" logic applies later;
+                # here we only handle the provenance-specific failure mode.
+                if up.exists and up.row_count > 0 and not up.meta_exists:
                     report.skipped_no_upstream += 1
                     report.runs.append(
                         ContractRun(
@@ -312,17 +313,33 @@ def derive_daily_stats_for_product(
                                 fmt_run_ts(up.max_ts) if up.max_ts is not None else None
                             ),
                             upstream_content_sha256=None,
-                            downstream_exists=False,
-                            downstream_rows=0,
-                            downstream_min=None,
-                            downstream_max=None,
-                            downstream_content_sha256=None,
+                            downstream_exists=bool(down.exists),
+                            downstream_rows=int(down.row_count),
+                            downstream_min=(
+                                fmt_run_ts(down.min_ts)
+                                if down.min_ts is not None
+                                else None
+                            ),
+                            downstream_max=(
+                                fmt_run_ts(down.max_ts)
+                                if down.max_ts is not None
+                                else None
+                            ),
+                            downstream_content_sha256=down.content_sha256,
                             downstream_source_content_sha256=None,
                             status="skipped_no_upstream",
                             status_detail="statistics_meta_missing",
                         )
                     )
                     continue
+            if require_source_meta and up.exists and up.row_count > 0:
+                # Strict mode invariant: if we did not skip for missing meta,
+                # we must have upstream content hash available from meta.
+                if up.content_sha256 is None:
+                    raise RuntimeError(
+                        "strict provenance violated: up.meta_exists=True but content_sha256 is None"
+                    )
+
             # If no upstream, skip (nothing to build)
             if (not up.exists) or up.row_count == 0:
                 report.skipped_no_upstream += 1

@@ -55,11 +55,9 @@ from mxm.v1.marketdata.vendors.databento.normalize.statistics_1d import (
 )
 from mxm.v1.marketdata.vendors.databento.pull import pull_statistics_1d_by_instrument_id
 from mxm.v1.utils.time_utils import (
-    ceil_to_utc_day,
     fmt_day_ts,
     fmt_run_ts,
     parse_ts,
-    to_utc_day,
     to_utc_ts,
     utc_now_run_ts,
 )
@@ -290,15 +288,18 @@ def ingest_statistics_1d_for_product(
     report.dataset_range_start = avail.start
     report.dataset_range_end = avail.end
 
-    # Day-aligned dataset surface used by MXM coverage semantics.
-    # We treat the vendor range as end-exclusive. For a day-aligned half-open surface:
-    #   start := floor_to_day(start)
-    #   end   := ceil_to_day(end)   (only bumps if end is not already midnight)
+    # Event-stream dataset surface used by MXM coverage semantics (statistics_1d).
+    # Databento advertises an *intraday* availability watermark. We treat it as end-exclusive:
+    #   start := to_utc_ts(start)   (no day alignment)
+    #   end   := to_utc_ts(end)     (no ceil; must not exceed vendor watermark)
+    #
+    # IMPORTANT: do not `ceil_to_utc_day(end)` here (that can push end beyond available_end
+    # and trigger 422 data_end_after_available_end).
     avail_start_raw = parse_ts(avail.start)
     avail_end_raw = parse_ts(avail.end)
 
-    avail_start_ts = to_utc_day(avail_start_raw)
-    avail_end_ts = ceil_to_utc_day(avail_end_raw)
+    avail_start_ts = to_utc_ts(avail_start_raw)
+    avail_end_ts = to_utc_ts(avail_end_raw)
 
     report.gates.append(
         GateResult(
@@ -306,7 +307,7 @@ def ingest_statistics_1d_for_product(
             ok=True,
             detail=(
                 f"raw=[{avail.start}, {avail.end}) "
-                f"aligned=[{fmt_day_ts(avail_start_ts)}, {fmt_day_ts(avail_end_ts)})"
+                f"ts=[{fmt_run_ts(avail_start_ts)}, {fmt_run_ts(avail_end_ts)})"
             ),
         )
     )
@@ -402,8 +403,8 @@ def ingest_statistics_1d_for_product(
                     activation=None,
                     expiration=None,
                 )
-                exp_start_s = fmt_day_ts(ew.expected_start)
-                exp_end_s = fmt_day_ts(ew.expected_end)
+                exp_start_s = fmt_run_ts(ew.expected_start)
+                exp_end_s = fmt_run_ts(ew.expected_end)
                 interest_start_s = fmt_day_ts(ew.interest_start)
                 interest_end_s = fmt_day_ts(ew.interest_end)
 
@@ -433,8 +434,8 @@ def ingest_statistics_1d_for_product(
                 activation=activation_ns,
                 expiration=expiration_ns,
             )
-            exp_start_s = fmt_day_ts(ew.expected_start)
-            exp_end_s = fmt_day_ts(ew.expected_end)
+            exp_start_s = fmt_run_ts(ew.expected_start)
+            exp_end_s = fmt_run_ts(ew.expected_end)
             interest_start_s = fmt_day_ts(ew.interest_start)
             interest_end_s = fmt_day_ts(ew.interest_end)
 
@@ -663,8 +664,8 @@ def ingest_statistics_1d_for_product(
                     activation=None,
                     expiration=None,
                 )
-                exp_start_s = fmt_day_ts(ew.expected_start)
-                exp_end_s = fmt_day_ts(ew.expected_end)
+                exp_start_s = fmt_run_ts(ew.expected_start)
+                exp_end_s = fmt_run_ts(ew.expected_end)
                 interest_start_s = fmt_day_ts(ew.interest_start)
                 interest_end_s = fmt_day_ts(ew.interest_end)
 
