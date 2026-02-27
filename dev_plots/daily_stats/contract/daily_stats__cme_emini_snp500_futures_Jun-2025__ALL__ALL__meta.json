@@ -1,0 +1,15 @@
+{
+  "report_kind": "daily_stats_contract_report",
+  "created_at_utc": "2026-02-27T15:06:29.581673+00:00",
+  "root": "/Users/mxm/.mxm",
+  "contract_id": "cme_emini_snp500_futures.Jun-2025",
+  "start": null,
+  "end": null,
+  "rows": 613,
+  "trading_date_min": "2023-03-17",
+  "trading_date_max": "2025-06-20",
+  "output_files": [
+    "dev_plots/daily_stats/contract/daily_stats__cme_emini_snp500_futures_Jun-2025__ALL__ALL__settle_px.png",
+    "dev_plots/daily_stats/contract/daily_stats__cme_emini_snp500_futures_Jun-2025__ALL__ALL__cleared_volume_qty.png"
+  ]
+}
