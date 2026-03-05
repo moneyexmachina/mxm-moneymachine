@@ -122,6 +122,12 @@ class SelectorRule:
         n = int(d.get("n", 1))
         return SelectorRule(period_filter=pf, n=n)
 
+    @staticmethod
+    def from_canonical_relative_id(s: str) -> "SelectorRule":
+        from mxm.v1.contracts.relative_ids import parse_canonical_relative_id
+
+        return parse_canonical_relative_id(s)
+
 
 @dataclass(frozen=True, slots=True)
 class SelectionExplanation:
