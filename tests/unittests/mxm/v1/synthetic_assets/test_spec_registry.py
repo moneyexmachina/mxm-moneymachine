@@ -14,14 +14,27 @@ from mxm.v1.synthetic_assets.spec_registry import (
 from mxm.v1.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
+from mxm.v1.synthetic_assets.weights_rules import (
+    WeightsRuleSpec,
+    canonical_weights_rule_id,
+)
+from mxm.v1.utils.canonical_id_encoding import encode_canonical_id_component
 
-# A canonical id string that should satisfy structural validation for CONT.
+TEST_WR_ID = canonical_weights_rule_id(
+    WeightsRuleSpec(
+        kind="LINEAR_ROLL",
+        roll_start_offset=3,
+        roll_duration=1,
+    )
+)
+TEST_WR_ENC = encode_canonical_id_component(TEST_WR_ID)
+
 _CANON_CONT = (
     "SA::KIND=CONT"
     "::P0=cme_emini_snp500_futures"
     "::CUR=RC::PT=MONTH::CYCLE=NONE::RANK=LTD::N=1"
     "::NXT=RC::PT=MONTH::CYCLE=NONE::RANK=LTD::N=2"
-    "::WR=roll.linear.ltd_end.window_5"
+    f"::WR={TEST_WR_ENC}"
 )
 
 

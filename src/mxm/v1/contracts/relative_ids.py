@@ -133,8 +133,6 @@ def parse_canonical_relative_id(s: str) -> SelectorRule:
     Required roundtrip invariant:
         parse_canonical_relative_id(canonical_relative_id(rule)) == rule
     """
-    if not isinstance(s, str) or not s:
-        raise ValueError("canonical_relative_id must be a non-empty string")
 
     if not s.startswith(_RC_PREFIX):
         raise ValueError(f"Invalid relative id prefix; expected {_RC_PREFIX!r}")

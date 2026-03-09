@@ -67,6 +67,11 @@ The compiler is responsible for:
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
+from mxm.v1.synthetic_assets.weights_rules import (
+    WeightsRuleSpec,
+    canonical_weights_rule_id,
+)
+
 # -----------------------------------------------------------------------------
 # Core policy dataclasses (pure data; no refdata / no builder calls)
 # -----------------------------------------------------------------------------
@@ -86,7 +91,13 @@ class PolicyDefaults:
     - ps_max_n: build PS for n=1..ps_max_n for each product spread pair.
     """
 
-    weights_rule_id: str = "roll_v1"
+    weights_rule_id: str = canonical_weights_rule_id(
+        WeightsRuleSpec(
+            kind="LINEAR_ROLL",
+            roll_start_offset=3,
+            roll_duration=1,
+        )
+    )
     cont_max_n: int = 12
     ts_max_n: int = 11
     ps_max_n: int = 3
@@ -143,9 +154,16 @@ class SyntheticAssetsPolicy:
 # -----------------------------------------------------------------------------
 # V1 policy authoring
 # -----------------------------------------------------------------------------
+V1_LINEAR_ROLL_RULE = canonical_weights_rule_id(
+    WeightsRuleSpec(
+        kind="LINEAR_ROLL",
+        roll_start_offset=3,
+        roll_duration=1,
+    )
+)
 
 V1_DEFAULTS = PolicyDefaults(
-    weights_rule_id="roll_v1",
+    weights_rule_id=V1_LINEAR_ROLL_RULE,
     cont_max_n=12,
     ts_max_n=11,
     ps_max_n=3,

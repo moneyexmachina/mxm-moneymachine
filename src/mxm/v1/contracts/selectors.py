@@ -94,7 +94,7 @@ class SelectorRule:
     """
     SelectorRule defines selection depth within admissible periods.
 
-    Locked model (Session 18):
+    Locked model:
         SelectorRule(
             period_filter: PeriodFilter,
             n: int

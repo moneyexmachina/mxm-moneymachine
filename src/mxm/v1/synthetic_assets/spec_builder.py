@@ -10,6 +10,10 @@ from mxm.v1.synthetic_assets.canonical_ids import (
     canonical_time_spread_id,
 )
 from mxm.v1.synthetic_assets.models import LegBinding, SyntheticAssetSpec
+from mxm.v1.synthetic_assets.weights_rules import (
+    parse_weights_rule_id,
+    short_weights_rule_id,
+)
 
 _SLUG_SAFE_RE = re.compile(r"[^a-z0-9_]+")
 
@@ -34,7 +38,7 @@ def build_continuous_roll_spec(
     role_nxt: str = "nxt",
 ) -> SyntheticAssetSpec:
     cur_short = _slugify_component(short_rel_id(cur))
-    wr_short = _slugify_component(weights_rule_id)
+    wr_short = short_weights_rule_id(parse_weights_rule_id(weights_rule_id))
     asset_id = f"{product_id}_cont_{cur_short}_wr_{wr_short}"
 
     canonical_id = canonical_continuous_roll_id(
@@ -93,7 +97,8 @@ def build_time_spread_spec(
     """
     near_short = _slugify_component(short_rel_id(near_cur))
     far_short = _slugify_component(short_rel_id(far_cur))
-    wr_short = _slugify_component(weights_rule_id)
+
+    wr_short = short_weights_rule_id(parse_weights_rule_id(weights_rule_id))
     asset_id = f"{product_id}_ts_{near_short}_{far_short}_wr_{wr_short}"
 
     canonical_id = canonical_time_spread_id(
@@ -163,7 +168,8 @@ def build_product_spread_spec(
     if product_a_id == product_b_id:
         raise ValueError("Product spread requires two distinct products (A != B)")
     a_short = _slugify_component(short_rel_id(a_cur))
-    wr_short = _slugify_component(weights_rule_id)
+
+    wr_short = short_weights_rule_id(parse_weights_rule_id(weights_rule_id))
     asset_id = f"{product_a_id}_ps_{product_b_id}_{a_short}_wr_{wr_short}"
 
     canonical_id = canonical_product_spread_id(
