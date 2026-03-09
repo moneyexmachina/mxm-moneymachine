@@ -84,7 +84,7 @@ def test_short_calendar_month_subset_renders_m_list() -> None:
         cycle_elements=frozenset([12, 3, 9, 6]),
     )
     rule = SelectorRule(period_filter=pf, n=1)
-    assert short_rel_id(rule) == "M[3,6,9,12]1"
+    assert short_rel_id(rule) == "HMUZ1"
 
 
 def test_short_unknown_cycle_singleton_uses_abbrev_and_dash() -> None:
@@ -228,3 +228,63 @@ def test_parse_cycle_preserves_cycle_id_and_elements_as_set() -> None:
     assert rule.period_filter.cycle_id == "DELIVERY_MONTHS"
     assert rule.period_filter.cycle_elements == frozenset({2, 5, 7})
     assert rule.n == 2
+
+
+def test_short_calendar_month_all_months_renders_m() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset(range(1, 13)),
+    )
+    rule = SelectorRule(period_filter=pf, n=1)
+    assert short_rel_id(rule) == "M1"
+
+
+def test_short_calendar_month_all_months_renders_m_n2() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset(range(1, 13)),
+    )
+    rule = SelectorRule(period_filter=pf, n=2)
+    assert short_rel_id(rule) == "M2"
+
+
+def test_short_calendar_month_two_month_subset_renders_concatenated_names() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset([6, 12]),
+    )
+    rule = SelectorRule(period_filter=pf, n=1)
+    assert short_rel_id(rule) == "JunDec1"
+
+
+def test_short_calendar_month_seasonal_subset_renders_futures_codes() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset([3, 5, 7, 9, 12]),
+    )
+    rule = SelectorRule(period_filter=pf, n=1)
+    assert short_rel_id(rule) == "HKNUZ1"
+
+
+def test_short_calendar_month_two_month_subset_sorts_before_rendering() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset([12, 6]),
+    )
+    rule = SelectorRule(period_filter=pf, n=2)
+    assert short_rel_id(rule) == "JunDec2"
+
+
+def test_short_calendar_month_all_months_prefers_m_not_futures_letters() -> None:
+    pf = PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+    )
+    rule = SelectorRule(period_filter=pf, n=1)
+    assert short_rel_id(rule) == "M1"

@@ -4,8 +4,6 @@ import re
 
 from mxm_refdata.models.periods import PeriodType
 
-from mxm.v1.contracts.selectors import SelectorRule
-
 from .selectors import PeriodFilter, SelectorRule
 
 _RC_PREFIX = "RC::"
@@ -14,7 +12,6 @@ _RC_PREFIX = "RC::"
 #   NONE
 #   <cycle_id>[1,2,3]
 _CYCLE_RE = re.compile(r"^(?P<cycle_id>[A-Za-z0-9_]+)\[(?P<elems>[0-9,\s]+)\]$")
-
 
 _MONTH_ABBREV: dict[int, str] = {
     1: "Jan",
@@ -31,8 +28,31 @@ _MONTH_ABBREV: dict[int, str] = {
     12: "Dec",
 }
 
+_MONTH_TO_FUTURES_CODE: dict[int, str] = {
+    1: "F",  # Jan
+    2: "G",  # Feb
+    3: "H",  # Mar
+    4: "J",  # Apr
+    5: "K",  # May
+    6: "M",  # Jun
+    7: "N",  # Jul
+    8: "Q",  # Aug
+    9: "U",  # Sep
+    10: "V",  # Oct
+    11: "X",  # Nov
+    12: "Z",  # Dec
+}
+
+_ALL_CALENDAR_MONTHS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+
 
 def canonical_relative_id(rule: SelectorRule) -> str:
+    """
+    Fully explicit, parseable, canonical identifier for a SelectorRule.
+
+    This form is intended for stable machine use and roundtrips via
+    parse_canonical_relative_id().
+    """
     pf = rule.period_filter
 
     pt = pf.period_type.name
@@ -46,21 +66,37 @@ def canonical_relative_id(rule: SelectorRule) -> str:
 
 def short_rel_id(rule: SelectorRule) -> str:
     """
-    Deterministic, ergonomic label describing selection intent.
+    Deterministic ergonomic label describing selection intent.
 
-    V1 rules (intent-only, no refdata inference):
+    Rules
+    -----
+    1) Legacy fallback:
+       - cycle_elements is None:
+           L{n}
 
-    - cycle_elements is None:
-        L{n}
-      (listed-universe rank)
+    2) CALENDAR_MONTHS:
+       - all 12 months:
+           M{n}
+       - one month:
+           <MonAbbrev>{n}
+           e.g. Mar1
+       - two months:
+           <MonAbbrevA><MonAbbrevB>{n}
+           e.g. JunDec1
+       - three or more months (but not all 12):
+           <FuturesMonthCodes>{n}
+           e.g. HMUZ1, HKNUZ1
 
-    - cycle_elements is not None and len == 1:
-        if cycle_id == CALENDAR_MONTHS: <MonAbbrev><n>
-        else: <CycleAbbrev><elem>-<n>
+    3) Other/custom cycle ids:
+       - one element:
+           <CycleAbbrev><elem>-{n}
+       - multiple elements:
+           <CycleAbbrev>[e1,e2,...]{n}
 
-    - cycle_elements is not None and len > 1:
-        if cycle_id == CALENDAR_MONTHS: M[...]{n}
-        else: <CycleAbbrev>[...]{n}
+    Notes
+    -----
+    - This function is an ergonomic projection only.
+    - canonical_relative_id() remains the authoritative machine form.
     """
     pf = rule.period_filter
     n = rule.n
@@ -71,20 +107,11 @@ def short_rel_id(rule: SelectorRule) -> str:
     # By PeriodFilter invariants:
     assert pf.cycle_id is not None and pf.cycle_id != ""
 
-    elems = sorted(int(x) for x in pf.cycle_elements)
+    elems = tuple(sorted(int(x) for x in pf.cycle_elements))
     cycle_id = pf.cycle_id
 
     if cycle_id == "CALENDAR_MONTHS":
-        if len(elems) == 1:
-            m = elems[0]
-            try:
-                head = _MONTH_ABBREV[m]
-            except KeyError as e:
-                raise ValueError(f"Invalid calendar month element: {m}") from e
-            return f"{head}{n}"
-
-        inner = ",".join(str(x) for x in elems)
-        return f"M[{inner}]{n}"
+        return _short_calendar_months_id(elems=elems, n=n)
 
     abbr = _abbrev_cycle_id(cycle_id)
 
@@ -93,6 +120,46 @@ def short_rel_id(rule: SelectorRule) -> str:
 
     inner = ",".join(str(x) for x in elems)
     return f"{abbr}[{inner}]{n}"
+
+
+def _short_calendar_months_id(*, elems: tuple[int, ...], n: int) -> str:
+    """
+    Ergonomic short id for CALENDAR_MONTHS cycle subsets.
+    """
+    _validate_calendar_months(elems)
+
+    if elems == _ALL_CALENDAR_MONTHS:
+        return f"M{n}"
+
+    if len(elems) == 1:
+        return f"{_month_abbrev(elems[0])}{n}"
+
+    if len(elems) == 2:
+        head = "".join(_month_abbrev(m) for m in elems)
+        return f"{head}{n}"
+
+    head = "".join(_month_futures_code(m) for m in elems)
+    return f"{head}{n}"
+
+
+def _month_abbrev(month: int) -> str:
+    try:
+        return _MONTH_ABBREV[month]
+    except KeyError as e:
+        raise ValueError(f"Invalid calendar month element: {month}") from e
+
+
+def _month_futures_code(month: int) -> str:
+    try:
+        return _MONTH_TO_FUTURES_CODE[month]
+    except KeyError as e:
+        raise ValueError(f"Invalid calendar month element: {month}") from e
+
+
+def _validate_calendar_months(elems: tuple[int, ...]) -> None:
+    bad = [m for m in elems if m < 1 or m > 12]
+    if bad:
+        raise ValueError(f"Invalid calendar month elements: {bad}")
 
 
 def _cycle_repr(cycle_id: str | None, cycle_elements: frozenset[int] | None) -> str:
@@ -133,7 +200,6 @@ def parse_canonical_relative_id(s: str) -> SelectorRule:
     Required roundtrip invariant:
         parse_canonical_relative_id(canonical_relative_id(rule)) == rule
     """
-
     if not s.startswith(_RC_PREFIX):
         raise ValueError(f"Invalid relative id prefix; expected {_RC_PREFIX!r}")
 

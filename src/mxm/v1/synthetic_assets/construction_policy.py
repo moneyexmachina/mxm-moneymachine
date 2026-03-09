@@ -1,159 +1,267 @@
-# src/mxm/v1/synthetic_assets/construction_policy.py
 from __future__ import annotations
 
 """
-MXM V1 — Synthetic Asset construction policy (Session 24b).
+MXM V1 — Synthetic Asset Construction Policy
 
-This module defines the *declarative policy* describing which SyntheticAssetSpec
-definitions should be constructed and written into the synthetic-asset spec
-registry.
+This module defines the declarative policy describing which synthetic assets
+should be constructed for each futures product.
 
-Scope
------
-This is a policy-as-data module only.
+The policy is expressed as *families of synthetic assets*, where each family
+corresponds to a specific contract-selection rule applied to a product’s listed
+contracts.
 
-It MUST NOT:
-- call RefDataAPI
-- touch the filesystem / registries
-- construct SelectorRule objects
-- call spec_builder functions
+Conceptually:
 
-Those responsibilities belong to the compiler layer:
+    product
+        → period-filter family
+            → ranked contracts (n = 1..N)
+                → synthetic assets (CONT, TS, etc.)
+
+Each family is defined by:
+- a PeriodFilter describing which contracts belong to the family
+- a family_code used in asset identifiers
+- maximum depths for continuous rolls (CONT) and time spreads (TS)
+
+Examples of families include:
+- full calendar-month ladders (e.g. M1..M70)
+- quarterly ladders (e.g. HMUZ1..HMUZ20)
+- seasonal ladders (e.g. HKNUZ1..HKNUZ8)
+- repeating annual months (e.g. Mar1..Mar5)
+
+The policy does not construct any assets itself. It only describes the intended
+synthetic asset surface.
+
+Compilation of this policy into concrete SyntheticAssetSpec objects is handled
+by:
+
     mxm.v1.synthetic_assets.policy_compile
 
-Design intent
--------------
-We keep the builder layer fully expressive, but adopt a deliberately narrow V1
-policy surface to avoid configuration sprawl.
+Design constraints
+------------------
+This module is strictly policy-as-data and must remain free of operational
+dependencies. It must not:
 
-In V1, we construct:
+- access reference data APIs
+- read or write registries or files
+- construct SelectorRule objects
+- call spec builder functions
 
-1) Continuous rolls (CONT)
-   - Listed chain rolls: L1..L12 for every product (rolling pair Ln/L(n+1))
-
-2) Time spreads (TS)
-   - Adjacent ladder spreads derived from listed chain rolls:
-       TS(n) := (Ln/L(n+1)) vs (L(n+1)/L(n+2))
-     therefore TS is defined for n=1..11 when CONT is defined for n=1..12.
-
-3) Fixed-month continuous rolls (CONT, calendar-month-filtered)
-   - For each product, build "fixed calendar month" rolls for selected delivery
-     months, for seasonality and liquidity studies.
-   - Month sets are derived from product metadata (valid_period_rule) with
-     per-product overrides.
-   - Special case: GBP has quarterly listings far out; therefore fixed-month
-     rolls are quarterlies only (Mar, Jun, Sep, Dec).
-
-4) Product spreads (PS)
-   - A small global directional list of product pairs, primarily for unit/size
-     transformation testing.
-   - For each pair, build PS for levels n=1..3 (rolling pair Ln/L(n+1) on both legs).
-   - Directional semantics: PS(A,B) is distinct from PS(B,A).
-
-Policy knobs
-------------
-This module defines:
-- default weights_rule_id
-- maximum depth for listed-chain rolls and derived time spreads
-- per-product fixed-month behaviour
-- global product spread pair list
-
-The compiler is responsible for:
-- taking authoritative currency/unit/contract_size from FuturesProduct
-- mapping month codes to calendar months and cycle_elements
-- emitting SyntheticAssetSpec objects deterministically
+Its only responsibility is to author the synthetic asset construction policy
+in a clear, deterministic, and declarative form.
 """
-
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Iterable
 
+from mxm_refdata.models.periods import PeriodType
+
+from mxm.v1.contracts.selectors import PeriodFilter
 from mxm.v1.synthetic_assets.weights_rules import (
     WeightsRuleSpec,
     canonical_weights_rule_id,
 )
 
 # -----------------------------------------------------------------------------
-# Core policy dataclasses (pure data; no refdata / no builder calls)
+# Constants
 # -----------------------------------------------------------------------------
 
-FixedMonthMode = Literal["none", "valid_rule", "quarterlies"]
+ALL_CALENDAR_MONTHS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+HMUZ_MONTHS: tuple[int, ...] = (3, 6, 9, 12)
+HKNUZ_MONTHS: tuple[int, ...] = (3, 5, 7, 9, 12)
+JUNDEC_MONTHS: tuple[int, ...] = (6, 12)
+
+_MONTH_TO_ABBR: dict[int, str] = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
+
+# -----------------------------------------------------------------------------
+# Helpers for policy authoring
+# -----------------------------------------------------------------------------
+
+
+def _validate_months(months: Iterable[int]) -> tuple[int, ...]:
+    """
+    Validate and normalise calendar month numbers.
+
+    Returns:
+        Stable tuple of unique month numbers in ascending order.
+    """
+    out = tuple(sorted({int(m) for m in months}))
+    if not out:
+        raise ValueError("months must be non-empty")
+    bad = [m for m in out if m < 1 or m > 12]
+    if bad:
+        raise ValueError(f"Invalid calendar months {bad}; must be in 1..12")
+    return out
+
+
+def calendar_months_period_filter(*, months: Iterable[int]) -> PeriodFilter:
+    """
+    Build a PeriodFilter over CALENDAR_MONTHS for the given month subset.
+
+    Examples:
+        {1..12}      -> monthly family
+        {3,6,9,12}   -> HMUZ quarterly family
+        {6,12}       -> JunDec semiannual family
+        {3}          -> March repeated annually
+    """
+    month_tuple = _validate_months(months)
+    return PeriodFilter(
+        period_type=PeriodType.MONTH,
+        cycle_id="CALENDAR_MONTHS",
+        cycle_elements=frozenset(month_tuple),
+    )
+
+
+def repeated_calendar_period_family(
+    *,
+    family_code: str,
+    months: Iterable[int],
+    cont_max_n: int,
+    ts_max_n: int,
+) -> "PeriodFamilyPolicy":
+    """
+    Convenience helper to author one PeriodFamilyPolicy over CALENDAR_MONTHS.
+    """
+    return PeriodFamilyPolicy(
+        family_code=family_code,
+        period_filter=calendar_months_period_filter(months=months),
+        cont_max_n=cont_max_n,
+        ts_max_n=ts_max_n,
+    )
+
+
+def repeated_singleton_calendar_families(
+    *,
+    months: Iterable[int],
+    cont_max_n: int,
+    ts_max_n: int,
+) -> tuple["PeriodFamilyPolicy", ...]:
+    """
+    Convenience helper to author repeated singleton calendar-month families.
+
+    Example:
+        months=(3,6,9,12), cont_max_n=5, ts_max_n=4
+        -> Mar, Jun, Sep, Dec family policies
+    """
+    out: list[PeriodFamilyPolicy] = []
+    for month in _validate_months(months):
+        family_code = _MONTH_TO_ABBR[month]
+        out.append(
+            repeated_calendar_period_family(
+                family_code=family_code,
+                months=(month,),
+                cont_max_n=cont_max_n,
+                ts_max_n=ts_max_n,
+            )
+        )
+    return tuple(out)
+
+
+# -----------------------------------------------------------------------------
+# Policy dataclasses
+# -----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyDefaults:
     """
-    Global defaults and depth knobs.
+    Global defaults that genuinely remain global.
 
-    Semantics:
-    - cont_max_n: build CONT for n=1..cont_max_n (each uses Ln/L(n+1))
-    - ts_max_n: build TS for n=1..ts_max_n, where TS(n) uses levels n..(n+2)
-      therefore ts_max_n should typically be cont_max_n - 1.
-    - ps_max_n: build PS for n=1..ps_max_n for each product spread pair.
+    For Session 26, the roll weights rule remains global across all families.
     """
 
-    weights_rule_id: str = canonical_weights_rule_id(
-        WeightsRuleSpec(
-            kind="LINEAR_ROLL",
-            roll_start_offset=3,
-            roll_duration=1,
-        )
-    )
-    cont_max_n: int = 12
-    ts_max_n: int = 11
-    ps_max_n: int = 3
+    weights_rule_id: str
 
 
 @dataclass(frozen=True, slots=True)
-class ProductOverrides:
+class PeriodFamilyPolicy:
     """
-    Per-product policy overrides.
+    One explicitly authored synthetic family for a product.
 
-    fixed_month_mode:
-      - "none":         do not build fixed-month CONT assets
-      - "valid_rule":   build fixed-month CONT for months derived from product.valid_period_rule
-      - "quarterlies":  build fixed-month CONT for Mar/Jun/Sep/Dec regardless of valid_period_rule
+    Examples:
+    - M       : PeriodFilter(MONTH, CALENDAR_MONTHS, {1..12})
+    - HMUZ    : PeriodFilter(MONTH, CALENDAR_MONTHS, {3,6,9,12})
+    - HKNUZ   : PeriodFilter(MONTH, CALENDAR_MONTHS, {3,5,7,9,12})
+    - JunDec  : PeriodFilter(MONTH, CALENDAR_MONTHS, {6,12})
+    - Mar     : PeriodFilter(MONTH, CALENDAR_MONTHS, {3})
 
-    fixed_month_months:
-      - optional explicit calendar month numbers (1..12) if you want to pin a
-        custom subset. If provided, it takes precedence over fixed_month_mode.
+    Semantics:
+    - family_code is the token used in asset_ids for this family
+    - period_filter defines the cycle family
+    - cont_max_n builds CONT family_code1 .. family_codeN
+    - ts_max_n builds TS family_code1/family_code2 .. family_codeN/family_code(N+1)
+
+    Convention:
+    - ts_max_n should usually equal cont_max_n - 1
     """
 
-    fixed_month_mode: FixedMonthMode = "valid_rule"
-    fixed_month_months: tuple[int, ...] | None = None
+    family_code: str
+    period_filter: PeriodFilter
+    cont_max_n: int
+    ts_max_n: int
 
 
 @dataclass(frozen=True, slots=True)
-class ProductSpreadPair:
+class ProductPolicy:
     """
-    One directional product spread pair PS(A,B).
+    All synthetic-family policy for one product.
+    """
 
-    Semantics:
-    - product_a_id is the first leg (A) and product_b_id is the second (B).
-    - The compiler builds PS for levels n=1..defaults.ps_max_n, using Ln/L(n+1)
-      on both products.
+    product_id: str
+    families: tuple[PeriodFamilyPolicy, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProductSpreadPolicy:
+    """
+    One directional family-aware product spread policy.
+
+    Example:
+        A = cme_emini_snp500_futures, family_a_code = "HMUZ"
+        B = cme_gbp_futures,         family_b_code = "HMUZ"
+
+    This means:
+        build PS over the quarterly HMUZ families on both products.
     """
 
     product_a_id: str
+    family_a_code: str
     product_b_id: str
+    family_b_code: str
+    ps_max_n: int
 
 
 @dataclass(frozen=True, slots=True)
 class SyntheticAssetsPolicy:
     """
-    Top-level policy container.
+    Top-level policy container for Session 26+.
 
-    - defaults apply to all products unless overridden by product_overrides.
-    - product_spreads is a global directional list.
+    Structure:
+    - defaults: truly global settings
+    - products: explicit per-product family authoring
+    - product_spreads: explicit family-aware PS authoring
     """
 
     defaults: PolicyDefaults
-    product_overrides: dict[str, ProductOverrides]
-    product_spreads: tuple[ProductSpreadPair, ...]
+    products: tuple[ProductPolicy, ...]
+    product_spreads: tuple[ProductSpreadPolicy, ...]
 
 
 # -----------------------------------------------------------------------------
-# V1 policy authoring
+# V1 / Session-26 authored policy
 # -----------------------------------------------------------------------------
+
 V1_LINEAR_ROLL_RULE = canonical_weights_rule_id(
     WeightsRuleSpec(
         kind="LINEAR_ROLL",
@@ -164,56 +272,143 @@ V1_LINEAR_ROLL_RULE = canonical_weights_rule_id(
 
 V1_DEFAULTS = PolicyDefaults(
     weights_rule_id=V1_LINEAR_ROLL_RULE,
-    cont_max_n=12,
-    ts_max_n=11,
-    ps_max_n=3,
 )
 
 
 def v1_policy(*, product_ids: Iterable[str]) -> SyntheticAssetsPolicy:
     """
-    Construct the V1 policy for a given product universe.
+    Construct the Session-26 synthetic-asset policy for a given product universe.
 
     Notes:
-    - For most products we use fixed_month_mode="valid_rule".
-    - Explicit override for GBP: fixed_month_mode="quarterlies".
+    - This function authors the agreed product-family surface explicitly.
+    - It does not inspect refdata.
+    - It simply filters the authored policy to the requested universe.
     """
     universe = set(product_ids)
-    overrides: dict[str, ProductOverrides] = {}
-    for pid in product_ids:
-        overrides[pid] = ProductOverrides(fixed_month_mode="valid_rule")
 
-    # Product-specific overrides (locked for V1).
-    # GBP: far-out listings are quarterly; serial months exist only near the front.
-    if "cme_gbp_futures" in overrides:
-        overrides["cme_gbp_futures"] = ProductOverrides(fixed_month_mode="quarterlies")
+    authored_products: tuple[ProductPolicy, ...] = (
+        ProductPolicy(
+            product_id="comex_gold_futures",
+            families=(
+                repeated_calendar_period_family(
+                    family_code="M",
+                    months=ALL_CALENDAR_MONTHS,
+                    cont_max_n=22,
+                    ts_max_n=21,
+                ),
+                *repeated_singleton_calendar_families(
+                    months=ALL_CALENDAR_MONTHS,
+                    cont_max_n=2,
+                    ts_max_n=1,
+                ),
+                repeated_calendar_period_family(
+                    family_code="JunDec",
+                    months=JUNDEC_MONTHS,
+                    cont_max_n=5,
+                    ts_max_n=4,
+                ),
+            ),
+        ),
+        ProductPolicy(
+            product_id="nymex_natural_gas_futures",
+            families=(
+                repeated_calendar_period_family(
+                    family_code="M",
+                    months=ALL_CALENDAR_MONTHS,
+                    cont_max_n=70,
+                    ts_max_n=69,
+                ),
+                *repeated_singleton_calendar_families(
+                    months=ALL_CALENDAR_MONTHS,
+                    cont_max_n=5,
+                    ts_max_n=4,
+                ),
+            ),
+        ),
+        ProductPolicy(
+            product_id="cme_gbp_futures",
+            families=(
+                repeated_calendar_period_family(
+                    family_code="M",
+                    months=ALL_CALENDAR_MONTHS,
+                    cont_max_n=3,
+                    ts_max_n=2,
+                ),
+                repeated_calendar_period_family(
+                    family_code="HMUZ",
+                    months=HMUZ_MONTHS,
+                    cont_max_n=20,
+                    ts_max_n=19,
+                ),
+                *repeated_singleton_calendar_families(
+                    months=HMUZ_MONTHS,
+                    cont_max_n=5,
+                    ts_max_n=4,
+                ),
+            ),
+        ),
+        ProductPolicy(
+            product_id="cme_emini_snp500_futures",
+            families=(
+                repeated_calendar_period_family(
+                    family_code="HMUZ",
+                    months=HMUZ_MONTHS,
+                    cont_max_n=20,
+                    ts_max_n=19,
+                ),
+                *repeated_singleton_calendar_families(
+                    months=HMUZ_MONTHS,
+                    cont_max_n=5,
+                    ts_max_n=4,
+                ),
+            ),
+        ),
+        ProductPolicy(
+            product_id="cbot_corn_futures",
+            families=(
+                repeated_calendar_period_family(
+                    family_code="HKNUZ",
+                    months=HKNUZ_MONTHS,
+                    cont_max_n=8,
+                    ts_max_n=7,
+                ),
+                *repeated_singleton_calendar_families(
+                    months=HKNUZ_MONTHS,
+                    cont_max_n=2,
+                    ts_max_n=1,
+                ),
+            ),
+        ),
+    )
 
-    # If you later want to pin explicit month sets, do it like:
-    # overrides["cbot_corn_futures"] = ProductOverrides(
-    #     fixed_month_months=(3, 5, 7, 9, 12),
-    # )
-
-    base_spreads: tuple[ProductSpreadPair, ...] = (
-        ProductSpreadPair(
+    authored_spreads: tuple[ProductSpreadPolicy, ...] = (
+        ProductSpreadPolicy(
             product_a_id="comex_gold_futures",
+            family_a_code="M",
             product_b_id="nymex_natural_gas_futures",
+            family_b_code="M",
+            ps_max_n=3,
         ),
-        ProductSpreadPair(
-            product_a_id="cbot_corn_futures",
-            product_b_id="nymex_natural_gas_futures",
-        ),
-        ProductSpreadPair(
+        ProductSpreadPolicy(
             product_a_id="cme_emini_snp500_futures",
+            family_a_code="HMUZ",
             product_b_id="cme_gbp_futures",
+            family_b_code="HMUZ",
+            ps_max_n=3,
         ),
+        # Corn product spreads left out until explicitly paired with a
+        # compatible family on another product.
     )
+
+    products = tuple(p for p in authored_products if p.product_id in universe)
     spreads = tuple(
-        p
-        for p in base_spreads
-        if (p.product_a_id in universe and p.product_b_id in universe)
+        s
+        for s in authored_spreads
+        if s.product_a_id in universe and s.product_b_id in universe
     )
+
     return SyntheticAssetsPolicy(
         defaults=V1_DEFAULTS,
-        product_overrides=overrides,
+        products=products,
         product_spreads=spreads,
     )
