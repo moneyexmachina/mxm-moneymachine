@@ -21,9 +21,20 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "Remove registry entries not present in the current compiled spec set. "
+            "For safety, this cannot be used together with --product-id."
+        ),
+    )
     ap.add_argument("--product-id", default=None)
     ap.add_argument("--registry-root", default=None)
     args = ap.parse_args()
+
+    if args.prune and args.product_id is not None:
+        raise ValueError("--prune cannot be used together with --product-id")
 
     # ------------------------------------------------------------------
     # Products (authoritative)
@@ -54,15 +65,45 @@ def main() -> int:
 
     registry = SyntheticAssetSpecRegistry(layout=layout)
 
+    compiled_ids = {s.asset_id for s in specs}
+
     # ------------------------------------------------------------------
-    # Save / Dry-run
+    # Dry-run
+    # ------------------------------------------------------------------
+    if args.dry_run:
+        print(f"[DRY RUN] compiled specs: {len(specs)}")
+        for s in specs:
+            print(f"[DRY RUN] SAVE   {s.asset_id}")
+
+        if args.prune:
+            existing_ids = set(registry.list_asset_ids())
+            stale_ids = sorted(existing_ids - compiled_ids)
+            print(f"[DRY RUN] prune stale specs: {len(stale_ids)}")
+            for asset_id in stale_ids:
+                print(f"[DRY RUN] REMOVE {asset_id}")
+
+        print(f"done: {len(specs)} specs")
+        return 0
+
+    # ------------------------------------------------------------------
+    # Optional prune
+    # ------------------------------------------------------------------
+    if args.prune:
+        existing_ids = set(registry.list_asset_ids())
+        stale_ids = sorted(existing_ids - compiled_ids)
+
+        for asset_id in stale_ids:
+            path = layout.asset_spec_path(asset_id=asset_id)
+            if path.exists():
+                path.unlink()
+                print(f"[REMOVED] {asset_id}")
+
+    # ------------------------------------------------------------------
+    # Save
     # ------------------------------------------------------------------
     for s in specs:
-        if args.dry_run:
-            print(f"[DRY RUN] {s.asset_id}")
-        else:
-            registry.save(spec=s, overwrite=args.overwrite)
-            print(f"[SAVED] {s.asset_id}")
+        registry.save(spec=s, overwrite=args.overwrite or args.prune)
+        print(f"[SAVED] {s.asset_id}")
 
     print(f"done: {len(specs)} specs")
     return 0

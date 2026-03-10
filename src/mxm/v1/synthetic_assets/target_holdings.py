@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 MXM V1 — Target Holdings for Synthetic Assets
 
-This module converts a realised WeightsSeries into concrete target holdings
+This module converts realised component weights into concrete target holdings
 of futures contracts.
 
 Conceptually:
@@ -15,13 +15,9 @@ synthetic contract of the SyntheticAssetSpec.
 
 Scope
 -----
-Session 27 scope:
-
-- reuse realised role structure from SyntheticAssetSpec
-- realise ContractSeries by role over the WeightsSeries session range
-- combine role weights with realised contract_ids
+- combine ComponentContracts with ComponentWeights
 - apply unit conversion and size scaling
-- aggregate to (session, contract_id)
+- aggregate from component-level contributions to contract-level holdings
 - return a canonical TargetHoldings object
 
 Out of scope
@@ -34,7 +30,6 @@ Out of scope
 """
 
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -42,15 +37,10 @@ from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
     RefDataAPI,
 )
 
-from mxm.v1.calendars.service import TradingCalendarService
-from mxm.v1.contracts.engine import ContractSelectorEngine
+from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
+from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
 from mxm.v1.synthetic_assets.unit_conversion import UnitConverter
-from mxm.v1.synthetic_assets.weights_series import (
-    WeightsSeries,
-    assert_identical_sessions,
-    build_contract_series_by_role,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,151 +62,142 @@ class TargetHoldings:
 
     def validate_schema(self) -> None:
         frame = self.frame
+
         if not isinstance(frame.index, pd.MultiIndex):
-            raise ValueError("frame.index must be a pandas MultiIndex")
+            raise ValueError("TargetHoldings.frame index must be a pandas MultiIndex")
 
         if frame.index.nlevels != 2:
-            raise ValueError("frame.index must have exactly two levels")
+            raise ValueError("TargetHoldings.frame index must have exactly two levels")
 
         expected_names = ["session", "contract_id"]
         if list(frame.index.names) != expected_names:
             raise ValueError(
-                f"frame.index names must be {expected_names}, got {list(frame.index.names)}"
+                f"TargetHoldings.frame index names must be {expected_names}, "
+                f"got {list(frame.index.names)}"
             )
 
         expected_columns = ["target_holding"]
         if list(frame.columns) != expected_columns:
             raise ValueError(
-                f"frame must contain exactly one column {expected_columns}, got {list(frame.columns)}"
+                f"TargetHoldings.frame must contain exactly one column "
+                f"{expected_columns}, got {list(frame.columns)}"
             )
 
         if frame.index.has_duplicates:
             raise ValueError(
-                "frame index contains duplicate (session, contract_id) rows"
+                "TargetHoldings.frame index contains duplicate "
+                "(session, contract_id) rows"
+            )
+
+        if np.any(frame.index.get_level_values("session").isna()):
+            raise ValueError("TargetHoldings.frame session index contains null values")
+
+        if np.any(frame.index.get_level_values("contract_id").isna()):
+            raise ValueError(
+                "TargetHoldings.frame contract_id index contains null values"
             )
 
         if not frame.index.is_monotonic_increasing:
-            raise ValueError("frame index must be sorted by (session, contract_id)")
-
-        if frame.index.get_level_values("session").isna().any():
-            raise ValueError("session index contains null values")
-
-        if frame.index.get_level_values("contract_id").isna().any():
-            raise ValueError("contract_id index contains null values")
+            raise ValueError(
+                "TargetHoldings.frame index must be sorted by (session, contract_id)"
+            )
 
         if frame["target_holding"].isna().any():
-            raise ValueError("target_holding contains null values")
+            raise ValueError("TargetHoldings.frame target_holding contains null values")
 
         values = frame["target_holding"].to_numpy()
         if not np.issubdtype(values.dtype, np.number):
-            raise TypeError("target_holding must be numeric")
+            raise TypeError("TargetHoldings.frame target_holding must be numeric")
 
         if not np.isfinite(values).all():
-            raise ValueError("target_holding must contain only finite values")
+            raise ValueError(
+                "TargetHoldings.frame target_holding must contain only finite values"
+            )
 
     def holdings_for_session(self, session: np.datetime64) -> pd.DataFrame:
+        """
+        Return the target holdings rows for a specific session.
+        """
         out = self.frame.xs(session, level="session", drop_level=False)
         if not isinstance(out, pd.DataFrame):
             raise TypeError("expected DataFrame from holdings_for_session()")
-        return cast(pd.DataFrame, out)
+        return out
 
     def holdings_for_contract(self, contract_id: str) -> pd.DataFrame:
+        """
+        Return the target holdings rows for a specific contract.
+        """
         out = self.frame.xs(contract_id, level="contract_id", drop_level=False)
         if not isinstance(out, pd.DataFrame):
             raise TypeError("expected DataFrame from holdings_for_contract()")
-        return cast(pd.DataFrame, out)
+        return out
 
 
 def build_target_holdings(
     *,
     spec: SyntheticAssetSpec,
-    weights: WeightsSeries,
-    engine: ContractSelectorEngine,
-    calendar_service: TradingCalendarService,
+    component_contracts: ComponentContracts,
+    component_weights: ComponentWeights,
     refdata_api: RefDataAPI,
     unit_converter: UnitConverter,
 ) -> TargetHoldings:
     """
-    Build target holdings for one synthetic asset over the WeightsSeries sessions.
+    Build target holdings for one synthetic asset.
 
     Notes
     -----
-    - weights.role_weights are already signed correctly for supported V1 spread
-      structures because build_weights_series() has already applied the static
-      spread multipliers.
-    - this function therefore does not infer sign from role names.
+    - ComponentWeights are already signed correctly for supported V1 spread
+      structures because build_component_weights() has already applied the
+      static multipliers.
+    - This function therefore does not infer sign from component names.
     """
-    _validate_weights_match_spec(spec=spec, weights=weights)
-
-    start_session = weights.sessions[0]
-    end_session = weights.sessions[-1]
-
-    contract_series_by_role = build_contract_series_by_role(
+    _validate_component_inputs_match_spec(
         spec=spec,
-        start_session=start_session,
-        end_session=end_session,
-        engine=engine,
-        calendar_service=calendar_service,
+        component_contracts=component_contracts,
+        component_weights=component_weights,
     )
 
-    realised_sessions = assert_identical_sessions(contract_series_by_role.values())
-    if realised_sessions.shape != weights.sessions.shape or not np.array_equal(
-        realised_sessions, weights.sessions
-    ):
+    contracts_long = _stack_component_contracts(component_contracts)
+    weights_long = _stack_component_weights(component_weights)
+
+    joined = contracts_long.merge(
+        weights_long,
+        on=["session", "component"],
+        how="inner",
+        validate="one_to_one",
+    )
+
+    if joined.empty:
         raise ValueError(
-            "WeightsSeries sessions do not match realised ContractSeries sessions"
+            "No component contract/weight rows available to build holdings"
         )
 
-    role_frames: list[pd.DataFrame] = []
+    contract_meta = _build_contract_metadata_frame(
+        contract_ids=joined["contract_id"].unique().tolist(),
+        refdata_api=refdata_api,
+        unit_converter=unit_converter,
+        synthetic_unit=spec.unit,
+    )
 
-    for role, leg in spec.legs.items():
-        cs = contract_series_by_role[role]
-        role_weight = weights.role_weights[role]
+    joined = joined.merge(
+        contract_meta,
+        on="contract_id",
+        how="left",
+        validate="many_to_one",
+    )
 
-        contract_ids = cs.contract_ids
-        if contract_ids.shape != weights.sessions.shape:
-            raise ValueError(
-                f"ContractSeries contract_ids shape mismatch for role {role!r}"
-            )
+    if joined[["contract_size", "unit_factor"]].isna().any().any():
+        raise ValueError("Missing contract metadata or unit conversion factor")
 
-        rows = []
-        for i, session in enumerate(weights.sessions):
-            contract_id = str(contract_ids[i])
-
-            contract = refdata_api.get_contract(contract_id)  # adjust to your real API
-            contract_unit = contract.unit
-            contract_size = float(contract.contract_size)
-
-            unit_factor = float(
-                unit_converter.conversion_factor(
-                    from_unit=spec.unit,
-                    to_unit=contract_unit,
-                )
-            )
-
-            target_holding = (
-                float(role_weight[i]) * unit_factor * float(spec.size) / contract_size
-            )
-
-            rows.append(
-                {
-                    "session": session,
-                    "contract_id": contract_id,
-                    "target_holding": target_holding,
-                }
-            )
-
-        role_frames.append(
-            pd.DataFrame(rows, columns=["session", "contract_id", "target_holding"])
-        )
-
-    if not role_frames:
-        raise ValueError(f"synthetic asset {spec.asset_id!r} has no legs")
-
-    frame = pd.concat(role_frames, axis=0, ignore_index=True)
+    joined["target_holding"] = (
+        joined["weight"].astype(float)
+        * joined["unit_factor"].astype(float)
+        * float(spec.size)
+        / joined["contract_size"].astype(float)
+    )
 
     out = (
-        frame.groupby(["session", "contract_id"], sort=True, as_index=True)[
+        joined.groupby(["session", "contract_id"], sort=True, as_index=True)[
             "target_holding"
         ]
         .sum()
@@ -232,49 +213,132 @@ def build_target_holdings(
     )
 
 
-def _validate_weights_match_spec(
+def _validate_component_inputs_match_spec(
     *,
     spec: SyntheticAssetSpec,
-    weights: WeightsSeries,
+    component_contracts: ComponentContracts,
+    component_weights: ComponentWeights,
 ) -> None:
-    if weights.asset_id != spec.asset_id:
+    if component_contracts.asset_id != spec.asset_id:
         raise ValueError(
-            f"weights.asset_id={weights.asset_id!r} does not match spec.asset_id={spec.asset_id!r}"
+            f"component_contracts.asset_id={component_contracts.asset_id!r} "
+            f"does not match spec.asset_id={spec.asset_id!r}"
         )
 
-    if weights.canonical_id != spec.canonical_id:
+    if component_contracts.canonical_id != spec.canonical_id:
         raise ValueError(
-            f"weights.canonical_id={weights.canonical_id!r} does not match "
-            f"spec.canonical_id={spec.canonical_id!r}"
+            f"component_contracts.canonical_id={component_contracts.canonical_id!r} "
+            f"does not match spec.canonical_id={spec.canonical_id!r}"
         )
 
-    if weights.weights_rule_id != spec.weights_rule_id:
+    if component_weights.asset_id != spec.asset_id:
         raise ValueError(
-            f"weights.weights_rule_id={weights.weights_rule_id!r} does not match "
-            f"spec.weights_rule_id={spec.weights_rule_id!r}"
+            f"component_weights.asset_id={component_weights.asset_id!r} "
+            f"does not match spec.asset_id={spec.asset_id!r}"
         )
 
-    spec_roles = set(spec.legs.keys())
-    weight_roles = set(weights.role_weights.keys())
-
-    if spec_roles != weight_roles:
+    if component_weights.canonical_id != spec.canonical_id:
         raise ValueError(
-            f"weights roles {sorted(weight_roles)!r} do not match spec roles {sorted(spec_roles)!r}"
+            f"component_weights.canonical_id={component_weights.canonical_id!r} "
+            f"does not match spec.canonical_id={spec.canonical_id!r}"
         )
 
-    if weights.sessions.ndim != 1:
-        raise ValueError("weights.sessions must be one-dimensional")
+    if component_weights.weights_rule_id != spec.weights_rule_id:
+        raise ValueError(
+            f"component_weights.weights_rule_id={component_weights.weights_rule_id!r} "
+            f"does not match spec.weights_rule_id={spec.weights_rule_id!r}"
+        )
 
-    if len(weights.sessions) == 0:
-        raise ValueError("weights.sessions must not be empty")
+    spec_component_ids = list(spec.components.keys())
+    contract_component_ids = list(component_contracts.frame.columns)
+    weight_component_ids = list(component_weights.frame.columns)
 
-    for role, arr in weights.role_weights.items():
-        if arr.ndim != 1:
-            raise ValueError(f"weights for role {role!r} must be one-dimensional")
-        if arr.shape != weights.sessions.shape:
-            raise ValueError(
-                f"weights shape mismatch for role {role!r}: "
-                f"{arr.shape!r} != {weights.sessions.shape!r}"
+    if contract_component_ids != spec_component_ids:
+        raise ValueError(
+            "ComponentContracts columns do not match spec.components order: "
+            f"{contract_component_ids!r} != {spec_component_ids!r}"
+        )
+
+    if weight_component_ids != spec_component_ids:
+        raise ValueError(
+            "ComponentWeights columns do not match spec.components order: "
+            f"{weight_component_ids!r} != {spec_component_ids!r}"
+        )
+
+    contracts_index = component_contracts.frame.index
+    weights_index = component_weights.frame.index
+
+    if len(contracts_index) != len(weights_index) or not contracts_index.equals(
+        weights_index
+    ):
+        raise ValueError(
+            "ComponentContracts and ComponentWeights session indices do not match"
+        )
+
+
+def _stack_component_contracts(component_contracts: ComponentContracts) -> pd.DataFrame:
+    """
+    Convert session x component -> contract_id into long form:
+
+        session | component | contract_id
+    """
+    series = component_contracts.frame.stack()
+    series.index = series.index.set_names(["session", "component"])
+    out = series.rename("contract_id").reset_index()
+    return out
+
+
+def _stack_component_weights(component_weights: ComponentWeights) -> pd.DataFrame:
+    """
+    Convert session x component -> weight into long form:
+
+        session | component | weight
+    """
+    series = component_weights.frame.stack()
+    series.index = series.index.set_names(["session", "component"])
+    out = series.rename("weight").reset_index()
+    return out
+
+
+def _build_contract_metadata_frame(
+    *,
+    contract_ids: list[str],
+    refdata_api: RefDataAPI,
+    unit_converter: UnitConverter,
+    synthetic_unit: str,
+) -> pd.DataFrame:
+    """
+    Build a contract metadata table with columns:
+
+        contract_id
+        contract_size
+        contract_unit
+        unit_factor
+    """
+    rows: list[dict[str, object]] = []
+
+    for contract_id in contract_ids:
+        contract = refdata_api.get_contract_by_id(contract_id)
+        contract_unit = contract.unit
+        contract_size = float(contract.contract_size)
+
+        unit_factor = float(
+            unit_converter.conversion_factor(
+                from_unit=synthetic_unit,
+                to_unit=contract_unit,
             )
-        if not np.isfinite(arr).all():
-            raise ValueError(f"weights for role {role!r} contain non-finite values")
+        )
+
+        rows.append(
+            {
+                "contract_id": contract_id,
+                "contract_size": contract_size,
+                "contract_unit": contract_unit,
+                "unit_factor": unit_factor,
+            }
+        )
+
+    return pd.DataFrame(
+        rows,
+        columns=["contract_id", "contract_size", "contract_unit", "unit_factor"],
+    )
