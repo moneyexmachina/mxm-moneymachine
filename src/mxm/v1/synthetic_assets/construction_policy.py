@@ -52,7 +52,7 @@ in a clear, deterministic, and declarative form.
 from dataclasses import dataclass
 from typing import Iterable
 
-from mxm_refdata.models.periods import PeriodType
+from mxm_refdata.models import PeriodType
 
 from mxm.v1.contracts.selectors import PeriodFilter
 from mxm.v1.synthetic_assets.weights_rules import (

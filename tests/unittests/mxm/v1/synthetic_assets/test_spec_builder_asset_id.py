@@ -108,7 +108,7 @@ def test_asset_id_ps_is_directional_and_includes_wr() -> None:
     assert s_ab.asset_id != s_ba.asset_id
 
 
-def test_time_spread_allows_shared_leg_binding_across_roles() -> None:
+def test_time_spread_allows_shared_component_binding_across_components() -> None:
     s = build_time_spread_spec(
         product_id="p0",
         currency="USD",
@@ -120,4 +120,7 @@ def test_time_spread_allows_shared_leg_binding_across_roles() -> None:
         far_cur=_l(2),  # shared with near_nxt
         far_nxt=_l(3),
     )
-    assert s.legs["near_nxt"].selector_rule_id == s.legs["far_cur"].selector_rule_id
+    assert (
+        s.components["near_nxt"].selector_rule_id
+        == s.components["far_cur"].selector_rule_id
+    )

@@ -8,7 +8,7 @@ mxm.v1.synthetic_assets.models
 Domain models for Synthetic Asset instrument definitions (MXM V1).
 
 This module defines the canonical, static specification objects for
-synthetic assets. These models represent *instrument definitions*,
+synthetic assets. These models represent instrument definitions,
 not time-indexed trading artefacts.
 
 Architectural Position
@@ -16,11 +16,11 @@ Architectural Position
 
 Contracts subsystem:
     SelectorRule
-    ContractSeries  (identity over sessions)
+    ContractsSeries  (identity over sessions)
 
 Synthetic Assets (this module):
     SyntheticAssetSpec
-    LegBinding
+    Components
     SyntheticAsset (runtime wrapper)
 
 Strategies (later layers):
@@ -38,27 +38,27 @@ SyntheticAssetSpec
 
         - asset_id
         - canonical_id
-        - base_currency
+        - currency
         - unit (semantic synthetic unit)
         - weights_rule_id (product-agnostic rule identifier)
-        - legs: mapping role -> LegBinding
+        - components: mapping component_id -> ComponentBinding
 
-LegBinding
-    Binds a *role* to a concrete leg defined by:
+ComponentBinding
+    Binds a component to a concrete expression, defined by:
 
         - product_id
         - selector_rule_id (canonical relative id)
 
     Contract identity over time is realised later as:
-        (product_id, selector_rule_id) -> ContractSeries
+        (product_id, selector_rule_id) -> ComponentContracts
 
-Roles
------
+Components
+----------
 
-Legs are keyed by role (string identifiers). Weight rules operate over
-roles, not products. This allows weight rules to remain generic and
-reusable across products, while the synthetic asset specification binds
-those roles to concrete products and selector rules.
+A component is keyed by component_id (string identifier). Weight rules operate
+over components, not products. This allows weight rules to remain generic and
+reusable across products, while the synthetic asset specification binds those
+components to concrete products and selector rules.
 
 Separation of Concerns
 ----------------------
@@ -72,8 +72,8 @@ These models are:
 
 They do NOT contain:
 
-    - ContractSeries realisation
-    - Weight time series
+    - ComponentContracts realisation
+    - ComponentWeights time series
     - FX conversion
     - Contract multiplier logic
     - Target holdings
@@ -85,14 +85,11 @@ They do NOT contain:
 All time-indexed surfaces are constructed in later sessions by combining:
 
     - SyntheticAssetSpec
-    - ContractSeries per role
+    - ComponentContracts per component
     - Trading calendars
     - Instrument metadata
-
-After Session 24, the identity and structure of a synthetic asset are
-considered locked. Subsequent layers may derive time-series artefacts,
-but must not mutate the instrument-definition model defined here.
 """
+
 import re
 from dataclasses import dataclass
 from typing import Mapping
@@ -100,7 +97,7 @@ from typing import Mapping
 from mxm.v1.synthetic_assets.canonical_ids import validate_synthetic_asset_canonical_id
 
 _ASSET_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-_ROLE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_COMPONENT_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def _validate_asset_id(value: str, *, field: str) -> None:
@@ -112,34 +109,43 @@ def _validate_asset_id(value: str, *, field: str) -> None:
         raise ValueError(f"{field} must not contain '__'; got {value!r}")
 
 
-def _validate_role(role: str) -> None:
-    if not _ROLE_RE.fullmatch(role):
-        raise ValueError(f"leg role {role!r} must match {_ROLE_RE.pattern}")
+def _validate_component_id(component_id: str) -> None:
+    if not _COMPONENT_ID_RE.fullmatch(component_id):
+        raise ValueError(
+            f"component_id {component_id!r} must match {_COMPONENT_ID_RE.pattern}"
+        )
 
-    if "__" in role:
-        raise ValueError(f"leg role {role!r} must not contain '__'")
+    if "__" in component_id:
+        raise ValueError(f"component_id {component_id!r} must not contain '__'")
 
 
 @dataclass(frozen=True, slots=True)
-class LegBinding:
+class ComponentBinding:
     """
-    Role-bound leg definition.
+    Static binding of a synthetic-asset component.
 
-    A leg is not an instrument. It is a binding from a role name to a
-    product_id and a selector-rule id (canonical relative id).
+    A ComponentBinding binds a component_id to:
 
-    Contract identity over time is realised later via ContractSeries:
+        - product_id
+        - selector_rule_id
+
+    Contract identity over time is realised later via ContractsSeries:
+
         (product_id, selector_rule_id) + sessions -> contract_id[session]
     """
 
     product_id: str
     selector_rule_id: str  # canonical_relative_id string
 
+    @property
+    def component_spec_id(self) -> str:
+        return f"{self.product_id}.{self.selector_rule_id}"
+
 
 @dataclass(frozen=True, slots=True)
 class SyntheticAssetSpec:
     """
-    Authoritative, static specification for a Synthetic Asset instrument.
+    Authoritative, static specification for a Synthetic Asset.
 
     Locked model:
         SyntheticAssetSpec(
@@ -147,15 +153,17 @@ class SyntheticAssetSpec:
             canonical_id: str,
             currency: str,
             unit: str,
-            size: int,
+            size: float,
             weights_rule_id: str,
-            legs: Mapping[str, LegBinding]   # role -> binding
+            components: Mapping[str, ComponentBinding]
         )
 
     Notes:
-    - weights_rule_id is product-agnostic; it operates over roles.
-    - legs bind roles to concrete (product_id, selector_rule_id).
-    - No time series surfaces exist here (weights/holdings/trades/etc.).
+    - weights_rule_id is product-agnostic; it operates over components.
+    - ComponentBindings bind component_ids to concrete
+      (product_id, selector_rule_id) pairs.
+    - No time series surfaces exist here
+      (contracts/weights/holdings/trades/etc.).
     """
 
     asset_id: str
@@ -164,27 +172,17 @@ class SyntheticAssetSpec:
     unit: str
     size: float
     weights_rule_id: str
-    legs: Mapping[str, LegBinding]
+    components: Mapping[str, ComponentBinding]
 
     def __post_init__(self) -> None:
         validate_synthetic_asset_canonical_id(self.canonical_id)
         _validate_asset_id(self.asset_id, field="SyntheticAssetSpec.asset_id")
 
-        if len(self.legs) == 0:
-            raise ValueError("SyntheticAssetSpec.legs must be non-empty")
+        if len(self.components) == 0:
+            raise ValueError("SyntheticAssetSpec.components must be non-empty")
 
-        # Validate roles + bindings.
-        for role, _ in self.legs.items():
-            _validate_role(role)
-
-    def leg_key(self, role: str) -> str:
-        """
-        Canonical string key for a role-bound leg.
-
-        This is suitable for logging / audit / debug surfaces. It is NOT a rule id.
-        """
-        binding = self.legs[role]
-        return f"{binding.product_id}.{binding.selector_rule_id}"
+        for component_id in self.components:
+            _validate_component_id(component_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,9 +190,9 @@ class SyntheticAsset:
     """
     Runtime wrapper for a Synthetic Asset instrument.
 
-    In Session 24 this is intentionally thin: it carries only the spec.
-    Derived surfaces (ContractSeries, weights, holdings) are attached by
-    builders in later sessions.
+    At this stage this wrapper is intentionally thin: it carries only the spec.
+    Derived realised datasets (ComponentContracts, ComponentWeights,
+    TargetHoldings) are attached by builders in later sessions.
     """
 
     spec: SyntheticAssetSpec

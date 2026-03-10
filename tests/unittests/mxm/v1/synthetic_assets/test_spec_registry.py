@@ -54,7 +54,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -71,9 +71,9 @@ legs:
     assert spec.unit == "contract"
     assert spec.size == 1000
     assert spec.weights_rule_id == "roll.linear.ltd_end.window_5"
-    assert set(spec.legs.keys()) == {"m1", "m2"}
-    assert spec.legs["m1"].product_id == "cme_emini_snp500_futures"
-    assert spec.legs["m1"].selector_rule_id == "cme_emini_snp500_futures.front"
+    assert set(spec.components.keys()) == {"m1", "m2"}
+    assert spec.components["m1"].product_id == "cme_emini_snp500_futures"
+    assert spec.components["m1"].selector_rule_id == "cme_emini_snp500_futures.front"
 
 
 def test_load_synthetic_asset_spec_missing_canonical_id_schema_error(
@@ -88,7 +88,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -114,7 +114,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -124,7 +124,6 @@ legs:
 """.lstrip(),
     )
 
-    # Should fail in SyntheticAssetSpec.__post_init__ via validate_synthetic_asset_canonical_id.
     with pytest.raises(ValueError):
         _ = load_synthetic_asset_spec(p)
 
@@ -132,7 +131,6 @@ legs:
 @pytest.mark.parametrize(
     "bad_yaml, expected_substr",
     [
-        # Missing required top-level field (currency)
         (
             f"""
 asset_id: cme_es_front
@@ -140,14 +138,13 @@ canonical_id: "{_CANON_CONT}"
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
 """.lstrip(),
             "currency",
         ),
-        # legs missing
         (
             f"""
 asset_id: cme_es_front
@@ -157,9 +154,8 @@ unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
 """.lstrip(),
-            "root.legs is required",
+            "root.components is required",
         ),
-        # legs not an object
         (
             f"""
 asset_id: cme_es_front
@@ -168,11 +164,10 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs: []
+components: []
 """.lstrip(),
-            "root.legs must be a JSON object",
+            "root.components must be a JSON object",
         ),
-        # leg missing required field
         (
             f"""
 asset_id: cme_es_front
@@ -181,7 +176,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
 """.lstrip(),
@@ -214,7 +209,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -225,10 +220,10 @@ legs:
         _ = load_synthetic_asset_spec(p)
 
 
-def test_load_synthetic_asset_spec_invalid_role_key_fails_model_validation(
+def test_load_synthetic_asset_spec_invalid_component_key_fails_model_validation(
     tmp_path: Path,
 ) -> None:
-    p = tmp_path / "bad_role.yaml"
+    p = tmp_path / "bad_component.yaml"
     _write(
         p,
         f"""
@@ -238,7 +233,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   M1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -260,10 +255,9 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-# YAML timestamp-like value: safe_load may materialise a date/datetime object.
 metadata:
   created: 2020-01-01
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -304,7 +298,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -316,14 +310,14 @@ legs:
 
     _write(
         layout.asset_spec_path(asset_id="cme_nq_front"),
-        f"""
+        """
 asset_id: cme_nq_front
 canonical_id: "SA::KIND=CONT::P0=cme_emini_nasdaq_futures::CUR=RC::PT=MONTH::CYCLE=NONE::RANK=LTD::N=1::NXT=RC::PT=MONTH::CYCLE=NONE::RANK=LTD::N=2::WR=roll.linear.ltd_end.window_5"
 currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_nasdaq_futures
     selector_rule_id: cme_emini_nasdaq_futures.front
@@ -341,7 +335,7 @@ legs:
     spec = reg.load(asset_id="cme_es_front")
     assert spec.asset_id == "cme_es_front"
     assert spec.canonical_id.startswith("SA::KIND=CONT")
-    assert spec.legs["m1"].selector_rule_id.endswith(".front")
+    assert spec.components["m1"].selector_rule_id.endswith(".front")
 
 
 def test_spec_registry_load_missing_asset_raises_filenotfound(tmp_path: Path) -> None:
@@ -356,8 +350,6 @@ def test_spec_registry_save_round_trip(tmp_path: Path) -> None:
     layout = SyntheticAssetSpecRegistryLayout(root=tmp_path)
     reg = SyntheticAssetSpecRegistry(layout=layout)
 
-    # Start from a YAML-loaded spec so we do not depend on direct dataclass construction
-    # details here (and we reuse the existing minimal fixture shape).
     p = tmp_path / "seed.yaml"
     _write(
         p,
@@ -368,7 +360,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -390,10 +382,13 @@ legs:
     assert loaded.currency == spec.currency
     assert loaded.unit == spec.unit
     assert loaded.weights_rule_id == spec.weights_rule_id
-    assert set(loaded.legs.keys()) == set(spec.legs.keys())
-    for role, leg in spec.legs.items():
-        assert loaded.legs[role].product_id == leg.product_id
-        assert loaded.legs[role].selector_rule_id == leg.selector_rule_id
+    assert set(loaded.components.keys()) == set(spec.components.keys())
+    for component_id, component in spec.components.items():
+        assert loaded.components[component_id].product_id == component.product_id
+        assert (
+            loaded.components[component_id].selector_rule_id
+            == component.selector_rule_id
+        )
 
 
 def test_spec_registry_save_refuses_overwrite_by_default(tmp_path: Path) -> None:
@@ -410,7 +405,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -437,7 +432,7 @@ currency: USD
 unit: contract
 size: 1000
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -447,9 +442,6 @@ legs:
 
     _ = reg.save(spec=spec1)
 
-    # Modify one field (weights_rule_id) and save with overwrite=True.
-    # We keep canonical_id unchanged here because this test is about overwrite mechanics,
-    # not canonical-id consistency policies.
     spec2 = SyntheticAssetSpec(
         asset_id=spec1.asset_id,
         canonical_id=spec1.canonical_id,
@@ -457,12 +449,11 @@ legs:
         unit=spec1.unit,
         size=spec1.size,
         weights_rule_id="roll.linear.ltd_end.window_10",
-        legs=spec1.legs,
+        components=spec1.components,
     )
 
     _ = reg.save(spec=spec2, overwrite=True)
     loaded = reg.load(asset_id="cme_es_front")
     assert loaded.weights_rule_id == "roll.linear.ltd_end.window_10"
 
-    # Optional hygiene: tmp file should not remain after save.
     assert not layout.tmp_asset_spec_path(asset_id="cme_es_front").exists()

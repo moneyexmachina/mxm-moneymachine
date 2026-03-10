@@ -7,18 +7,18 @@ Synthetic Asset Instrument Definitions (MXM V1).
 Position in Architecture
 ------------------------
 
-This module defines the *instrument-definition layer* for synthetic assets.
+This module defines the instrument-definition layer for synthetic assets.
 
 Synthetic assets sit:
 
     Contracts  →  Synthetic Assets  →  Strategies
 
 The contracts subsystem provides deterministic contract identity over
-sessions via SelectorRule and ContractSeries.
+sessions via SelectorRule and ComponentContracts.
 
-This module defines synthetic assets as *deterministic replication
-instruments* composed of a fixed set of role-bound legs and a
-product-agnostic weight rule.
+This module defines synthetic assets as deterministic replication
+instruments composed of a fixed set of component bindings and a
+product-agnostic weights rule.
 
 Core Model
 ----------
@@ -26,23 +26,25 @@ Core Model
 A SyntheticAssetSpec consists of:
 
 - asset_id
-- base_currency
-- unit (semantic unit of one synthetic unit)
+- canonical_id
+- currency
+- unit (semantic unit of one synthetic contract)
+- size
 - weights_rule_id (generic, product-agnostic)
-- legs: mapping role -> LegBinding
+- components: mapping component_id -> ComponentBinding
 
-Each LegBinding binds a role to:
+Each ComponentBinding binds a component to:
 
 - product_id
 - selector_rule_id (canonical relative id)
 
-Roles
------
+Components
+----------
 
-Legs are keyed by *role* (string identifiers). Weight rules operate over
-roles, not products. This allows weight rules to remain generic and reusable
-across products, while synthetic asset specs bind those roles to concrete
-product/selector combinations.
+Synthetic-asset components are keyed by component_id (string identifiers).
+Weights rules operate over components, not products. This allows weights
+rules to remain generic and reusable across products, while synthetic asset
+specifications bind those components to concrete product/selector pairs.
 
 Separation of Concerns
 ----------------------
@@ -51,23 +53,23 @@ This module defines only static instrument specifications.
 
 It does NOT implement:
 
-- ContractSeries realisation
-- Weight time series
+- ComponentContracts realisation
+- ComponentWeights realisation
 - FX conversion
 - Contract multiplier handling
-- Target holdings
+- TargetHoldings
 - Trade construction
 - Execution
 - P&L
 - Storage pipelines
 
-Time-indexed surfaces (weights, holdings, trades) are constructed in later
-sessions using builders that combine:
+Time-indexed realised datasets (contracts, weights, holdings, trades) are
+constructed in later sessions using builders that combine:
 
 - SyntheticAssetSpec
-- ContractSeries (per role)
+- ComponentContracts
 - Trading calendars
-- Instrument metadata (e.g. LTD, multiplier, currency)
+- Instrument metadata
 
 Design Principles
 -----------------
@@ -77,9 +79,9 @@ Design Principles
 - Stateless
 - Registry-driven
 - Fully serialisable
-- Explicit role binding
+- Explicit component binding
 
 After Session 24, the identity of a synthetic asset is fixed.
-Subsequent sessions may add derived time-series layers, but must not
+Subsequent sessions may add derived realised datasets, but must not
 change the instrument-definition model.
 """

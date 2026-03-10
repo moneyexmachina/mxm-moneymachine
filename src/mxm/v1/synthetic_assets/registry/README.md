@@ -5,8 +5,7 @@ This directory documents the **SyntheticAssetSpec registry schema** used by MXM 
 A `SyntheticAssetSpec` is a **static instrument definition** for a synthetic asset.
 It defines **what the instrument is**, not how it is traded.
 
-Synthetic assets sit above the contracts subsystem (SelectorRules / ContractSeries)
-and below strategies.
+Synthetic assets sit above the contracts subsystem (SelectorRules / ComponentContrats) and below strategies.
 
 ## Scope and Non-Goals
 
@@ -15,14 +14,13 @@ This registry stores **specifications only**.
 It does **not** store or define:
  
 - time-indexed weights
-- ContractSeries realisations
+- ComponentContracts realisations
 - target holdings
 - target trades
 - execution
 - P&L
 - storage pipelines for derived surfaces
 
-Those are constructed in later layers (Sessions 25+).
 
 ## Registry Layout (Runtime)
 
@@ -56,8 +54,8 @@ Each asset spec file **must** be a YAML mapping with the following keys:
   Identifier for the weight rule used to realise time-indexed weights
   over the asset roles (defined in a separate weights-rule registry).
 
-- `legs: mapping`  
-  Mapping from **role id** to leg binding. Roles are stable identifiers used by
+- `components: mapping`  
+  Mapping from **component_id** to ComponentBinding. component_ids are stable identifiers used by
   weight rules. A leg binding must be a mapping with:
 
   - `product_id: str`  
@@ -65,7 +63,7 @@ Each asset spec file **must** be a YAML mapping with the following keys:
 
   - `selector_rule_id: str`  
     Canonical selector rule id. This identifies the relative contract intent
-    (e.g. front month, second month) and is resolved later into a `ContractSeries`.
+    (e.g. front month, second month) and is resolved later into a `ComponentContracts` series.
 
 ### Example
 
@@ -74,7 +72,7 @@ asset_id: cme_es_front
 currency: USD
 unit: contract
 weights_rule_id: roll.linear.ltd_end.window_5
-legs:
+components:
   m1:
     product_id: cme_emini_snp500_futures
     selector_rule_id: cme_emini_snp500_futures.front
@@ -85,13 +83,13 @@ legs:
 
 ## Semantics
 
-### Roles
+### Components
 
-Roles are the *interface* between the static spec and generic weight rules.
+Components are the *interface* between the static spec and generic weight rules.
 
-- Roles must be stable and deterministic.
+- Components must be stable and deterministic.
 - Weight rules refer to roles, not products.
-- The spec binds roles to concrete `(product_id, selector_rule_id)` legs.
+- The spec binds component_ids to concrete `(product_id, selector_rule_id)` specifications.
 
 ### Selector Rules
 
@@ -102,7 +100,7 @@ for clarity and registry hygiene.
 A leg’s contract identity over sessions is realised later as:
 
 ```
-(product_id, selector_rule_id) -> ContractSeries
+(product_id, selector_rule_id) -> ComponentContracts
 ```
 
 ### Currency and Units
@@ -110,7 +108,7 @@ A leg’s contract identity over sessions is realised later as:
 `currency` is the synthetic instrument currency.
 
 Contracts may have a native currency and physical unit owned by contract metadata.
-FX and unit conversion are performed in later builders when deriving holdings.
+Unit conversion is performed in later builders when deriving holdings.
 
 ## Validation
 

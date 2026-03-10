@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 from mxm.types import JSONObj, JSONValue
 
-from mxm.v1.synthetic_assets.models import LegBinding, SyntheticAssetSpec
+from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec
 from mxm.v1.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
@@ -73,12 +73,12 @@ def save_synthetic_asset_spec(
     if dst.exists() and not overwrite:
         raise FileExistsError(f"Spec already exists at {dst} (overwrite=False)")
 
-    legs_out: dict[str, dict[str, str]] = {}
-    for role in sorted(spec.legs.keys()):
-        leg = spec.legs[role]
-        legs_out[role] = {
-            "product_id": leg.product_id,
-            "selector_rule_id": leg.selector_rule_id,
+    components_out: dict[str, dict[str, str]] = {}
+    for component_id in sorted(spec.components.keys()):
+        component = spec.components[component_id]
+        components_out[component_id] = {
+            "product_id": component.product_id,
+            "selector_rule_id": component.selector_rule_id,
         }
 
     doc: dict[str, object] = {
@@ -88,7 +88,7 @@ def save_synthetic_asset_spec(
         "unit": spec.unit,
         "size": spec.size,
         "weights_rule_id": spec.weights_rule_id,
-        "legs": legs_out,
+        "components": components_out,
     }
 
     yml = yaml.safe_dump(
@@ -121,21 +121,27 @@ def load_synthetic_asset_spec(path: Path) -> SyntheticAssetSpec:
     size = _get_number(root, "size", field="size")
     weights_rule_id = _get_str(root, "weights_rule_id", field="root")
 
-    legs_val = root.get("legs")
-    if legs_val is None:
-        raise SyntheticAssetSpecSchemaError("root.legs is required")
+    components_val = root.get("components")
+    if components_val is None:
+        raise SyntheticAssetSpecSchemaError("root.components is required")
 
-    legs_obj = _as_obj(legs_val, field="root.legs")
+    components_obj = _as_obj(components_val, field="root.components")
 
-    legs: dict[str, LegBinding] = {}
-    for role, leg_val in legs_obj.items():
-        # role is already str by construction of JSONValue (dict[str, JSONValue])
-        leg_obj = _as_obj(leg_val, field=f"root.legs[{role!r}]")
-        product_id = _get_str(leg_obj, "product_id", field=f"root.legs[{role!r}]")
-        selector_rule_id = _get_str(
-            leg_obj, "selector_rule_id", field=f"root.legs[{role!r}]"
+    components: dict[str, ComponentBinding] = {}
+    for component_id, component_val in components_obj.items():
+        # component_id is already str by construction of JSONValue (dict[str, JSONValue])
+        component_obj = _as_obj(
+            component_val, field=f"root.components[{component_id!r}]"
         )
-        legs[role] = LegBinding(
+        product_id = _get_str(
+            component_obj, "product_id", field=f"root.components[{component_id!r}]"
+        )
+        selector_rule_id = _get_str(
+            component_obj,
+            "selector_rule_id",
+            field=f"root.components[{component_id!r}]",
+        )
+        components[component_id] = ComponentBinding(
             product_id=product_id, selector_rule_id=selector_rule_id
         )
 
@@ -146,7 +152,7 @@ def load_synthetic_asset_spec(path: Path) -> SyntheticAssetSpec:
         unit=unit,
         size=size,
         weights_rule_id=weights_rule_id,
-        legs=legs,
+        components=components,
     )
 
 

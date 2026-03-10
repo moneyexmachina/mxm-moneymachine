@@ -9,7 +9,7 @@ from mxm.v1.synthetic_assets.canonical_ids import (
     canonical_product_spread_id,
     canonical_time_spread_id,
 )
-from mxm.v1.synthetic_assets.models import LegBinding, SyntheticAssetSpec
+from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec
 from mxm.v1.synthetic_assets.weights_rules import (
     parse_weights_rule_id,
     short_weights_rule_id,
@@ -34,8 +34,8 @@ def build_continuous_roll_spec(
     weights_rule_id: str,
     cur: SelectorRule,
     nxt: SelectorRule,
-    role_cur: str = "cur",
-    role_nxt: str = "nxt",
+    component_id_cur: str = "cur",
+    component_id_nxt: str = "nxt",
 ) -> SyntheticAssetSpec:
     cur_short = _slugify_component(short_rel_id(cur))
     wr_short = short_weights_rule_id(parse_weights_rule_id(weights_rule_id))
@@ -48,12 +48,12 @@ def build_continuous_roll_spec(
         weights_rule_id=weights_rule_id,
     )
 
-    legs = {
-        role_cur: LegBinding(
+    components = {
+        component_id_cur: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(cur),
         ),
-        role_nxt: LegBinding(
+        component_id_nxt: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(nxt),
         ),
@@ -66,7 +66,7 @@ def build_continuous_roll_spec(
         unit=unit,
         size=size,
         weights_rule_id=weights_rule_id,
-        legs=legs,
+        components=components,
     )
 
 
@@ -81,10 +81,10 @@ def build_time_spread_spec(
     near_nxt: SelectorRule,
     far_cur: SelectorRule,
     far_nxt: SelectorRule,
-    role_near_cur: str = "near_cur",
-    role_near_nxt: str = "near_nxt",
-    role_far_cur: str = "far_cur",
-    role_far_nxt: str = "far_nxt",
+    component_id_near_cur: str = "near_cur",
+    component_id_near_nxt: str = "near_nxt",
+    component_id_far_cur: str = "far_cur",
+    component_id_far_nxt: str = "far_nxt",
 ) -> SyntheticAssetSpec:
     """
     Author a time-spread synthetic asset for a single product.
@@ -110,20 +110,20 @@ def build_time_spread_spec(
         weights_rule_id=weights_rule_id,
     )
 
-    legs = {
-        role_near_cur: LegBinding(
+    components = {
+        component_id_near_cur: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(near_cur),
         ),
-        role_near_nxt: LegBinding(
+        component_id_near_nxt: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(near_nxt),
         ),
-        role_far_cur: LegBinding(
+        component_id_far_cur: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(far_cur),
         ),
-        role_far_nxt: LegBinding(
+        component_id_far_nxt: ComponentBinding(
             product_id=product_id,
             selector_rule_id=canonical_relative_id(far_nxt),
         ),
@@ -136,7 +136,7 @@ def build_time_spread_spec(
         unit=unit,
         size=size,
         weights_rule_id=weights_rule_id,
-        legs=legs,
+        components=components,
     )
 
 
@@ -152,10 +152,10 @@ def build_product_spread_spec(
     a_nxt: SelectorRule,
     b_cur: SelectorRule,
     b_nxt: SelectorRule,
-    role_a_cur: str = "a_cur",
-    role_a_nxt: str = "a_nxt",
-    role_b_cur: str = "b_cur",
-    role_b_nxt: str = "b_nxt",
+    component_id_a_cur: str = "a_cur",
+    component_id_a_nxt: str = "a_nxt",
+    component_id_b_cur: str = "b_cur",
+    component_id_b_nxt: str = "b_nxt",
 ) -> SyntheticAssetSpec:
     """
     Author a product-spread synthetic asset between two products.
@@ -182,20 +182,20 @@ def build_product_spread_spec(
         weights_rule_id=weights_rule_id,
     )
 
-    legs = {
-        role_a_cur: LegBinding(
+    components = {
+        component_id_a_cur: ComponentBinding(
             product_id=product_a_id,
             selector_rule_id=canonical_relative_id(a_cur),
         ),
-        role_a_nxt: LegBinding(
+        component_id_a_nxt: ComponentBinding(
             product_id=product_a_id,
             selector_rule_id=canonical_relative_id(a_nxt),
         ),
-        role_b_cur: LegBinding(
+        component_id_b_cur: ComponentBinding(
             product_id=product_b_id,
             selector_rule_id=canonical_relative_id(b_cur),
         ),
-        role_b_nxt: LegBinding(
+        component_id_b_nxt: ComponentBinding(
             product_id=product_b_id,
             selector_rule_id=canonical_relative_id(b_nxt),
         ),
@@ -208,5 +208,5 @@ def build_product_spread_spec(
         unit=unit,
         size=size,
         weights_rule_id=weights_rule_id,
-        legs=legs,
+        components=components,
     )
