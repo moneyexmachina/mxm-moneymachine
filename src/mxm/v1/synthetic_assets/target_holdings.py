@@ -41,6 +41,7 @@ from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
 from mxm.v1.synthetic_assets.unit_conversion import UnitConverter
+from mxm.v1.utils.time_utils import UtcTimestampInput, to_utc_ts
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,11 +115,12 @@ class TargetHoldings:
                 "TargetHoldings.frame target_holding must contain only finite values"
             )
 
-    def holdings_for_session(self, session: np.datetime64) -> pd.DataFrame:
+    def holdings_for_session(self, session: UtcTimestampInput) -> pd.DataFrame:
         """
         Return the target holdings rows for a specific session.
         """
-        out = self.frame.xs(session, level="session", drop_level=False)
+        session_ts = to_utc_ts(session)
+        out = self.frame.xs(session_ts, level="session", drop_level=False)
         if not isinstance(out, pd.DataFrame):
             raise TypeError("expected DataFrame from holdings_for_session()")
         return out
