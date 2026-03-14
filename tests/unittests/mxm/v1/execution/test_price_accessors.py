@@ -172,7 +172,7 @@ def test_product_price_lookup_raises_for_missing_key() -> None:
         prices=prices,
     )
 
-    with pytest.raises(ValueError, match="Missing execution price"):
+    with pytest.raises(ValueError, match="Missing price"):
         lookup.get_price(
             contract_id="corn_mar2026",
             trading_date=pd.Timestamp("2026-03-11T00:00:00Z"),

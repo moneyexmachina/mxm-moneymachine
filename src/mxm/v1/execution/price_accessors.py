@@ -1,49 +1,71 @@
 from __future__ import annotations
 
 """
-MXM V1 — Execution price accessors.
+MXM V1 — Price accessors for execution and mark-to-market valuation.
 
-This module defines the boundary between the execution layer and the
-market-data layer for retrieval of execution reference prices.
+This module defines the boundary between execution / PnL layers and the
+market-data layer for retrieval of contract prices.
 
-At the current stage of the execution design, executors need a simple
-interface:
+Two semantic accessor roles are defined here:
 
-    (contract_id, submission_timestamp) -> execution_price
+1. ExecutionPriceAccessor
 
-The first concrete implementation provided here is a lazy-loading,
-product-cached accessor built on top of the daily_stats market-data
-surface.
+   Used by executors to obtain the execution reference price for a
+   contract at a given submission timestamp.
+
+   Interface:
+
+       (contract_id, submission_timestamp) -> execution_price
+
+2. MarkPriceAccessor
+
+   Used by PnL and valuation logic to obtain the mark price for a
+   contract at a given session timestamp.
+
+   Interface:
+
+       (contract_id, session) -> mark_price
+
+At the current stage of the implementation, both accessors are backed by
+the same underlying daily_stats market-data surface and may resolve the
+same price field (for example 'settle'). However, the semantic roles are
+kept distinct because execution pricing and mark-to-market valuation are
+architecturally different concerns.
+
+The first concrete implementations provided here are lazy-loading,
+product-cached accessors built on top of the daily_stats dataset.
 
 Design principles
 -----------------
-- execution-facing API remains small and stable
+- accessor-facing APIs remain small and semantically explicit
 - loading is lazy and cached by product_id
 - in-memory lookup is normalised once per loaded product
 - timestamp handling is UTC-normalised and deterministic
-- missing execution prices fail loudly
+- missing prices fail loudly
+- execution and mark-price semantics remain distinct even when backed by
+  the same dataset
 
 Current assumptions
 -------------------
-- submission timestamps are already aligned to the intended trading
-  session semantics of the backtest
+- submission timestamps and session timestamps are already aligned to the
+  intended trading-session semantics of the backtest
 - daily_stats trading_date is therefore the correct lookup key after
   UTC-day normalisation
-- the execution reference price field (for example 'settle' or 'close')
-  is explicitly selected by configuration
+- the chosen price field (for example 'settle' or 'close') is selected
+  explicitly by configuration
 
 Performance notes
 -----------------
 The current implementation is designed to avoid repeated filesystem /
-SQLite access during the hot execution loop by:
+SQLite access during hot loops by:
 
 1. loading daily_stats only on first need for a given product_id
 2. normalising the chosen price field into an in-memory lookup object
 3. serving subsequent scalar lookups from that cached structure
 
-If later profiling shows this accessor to be a bottleneck, the internal
-lookup representation can be replaced without changing the executor
-interface.
+If later profiling shows these accessors to be a bottleneck, the
+internal lookup representation can be replaced without changing the
+public accessor interfaces.
 """
 
 from abc import ABC, abstractmethod
@@ -81,10 +103,37 @@ class ExecutionPriceAccessor(ABC):
         raise NotImplementedError
 
 
+class MarkPriceAccessor(ABC):
+    """
+    Abstract accessor for session mark prices.
+
+    PnL and valuation logic use this interface to resolve the mark price
+    for a contract at a given session timestamp.
+
+    The session timestamp is assumed to already represent the intended
+    valuation session context.
+    """
+
+    @abstractmethod
+    def get_mark_price(
+        self,
+        contract_id: str,
+        session: pd.Timestamp,
+    ) -> float:
+        """
+        Return the mark price for a contract at the given session.
+        """
+        raise NotImplementedError
+
+
+class MissingDailyStatsPriceError(ValueError):
+    """Raised when no daily_stats price exists for a contract/day key."""
+
+
 @dataclass(frozen=True, slots=True)
 class _ProductDailyStatsPriceLookup:
     """
-    In-memory execution-price lookup for one product.
+    In-memory price lookup for one product.
 
     Parameters
     ----------
@@ -93,11 +142,11 @@ class _ProductDailyStatsPriceLookup:
         lookup.
 
     price_field:
-        Name of the daily_stats column used as execution price.
+        Name of the daily_stats column used as the resolved price.
 
     prices:
         MultiIndex Series indexed by (contract_id, trading_date) and
-        containing float execution prices.
+        containing float prices.
     """
 
     product_id: str
@@ -149,7 +198,7 @@ class _ProductDailyStatsPriceLookup:
         trading_date: pd.Timestamp,
     ) -> float:
         """
-        Return the execution price for a contract on a given trading day.
+        Return the price for a contract on a given trading day.
 
         Raises
         ------
@@ -161,8 +210,8 @@ class _ProductDailyStatsPriceLookup:
         try:
             value = self.prices.loc[key]
         except KeyError as exc:
-            raise ValueError(
-                "Missing execution price in daily_stats lookup for "
+            raise MissingDailyStatsPriceError(
+                "Missing price in daily_stats lookup for "
                 f"product_id={self.product_id!r}, contract_id={contract_id!r}, "
                 f"trading_date={trading_date!r}, price_field={self.price_field!r}."
             ) from exc
@@ -175,14 +224,14 @@ def _empty_product_lookup_cache() -> dict[str, _ProductDailyStatsPriceLookup]:
 
 
 @dataclass(slots=True)
-class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
+class _DailyStatsPriceAccessorBase:
     """
-    Lazy-loading execution-price accessor backed by daily_stats.
+    Shared lazy-loading daily_stats-backed price accessor base.
 
     Parameters
     ----------
     price_field:
-        Name of the daily_stats column used as the execution price.
+        Name of the daily_stats column used as the resolved price.
         Typical choices are 'settle' or 'close'.
 
     root:
@@ -194,8 +243,8 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
 
     Notes
     -----
-    This accessor loads daily_stats product-by-product on first use and
-    caches each product's execution-price lookup in memory.
+    This base class loads daily_stats product-by-product on first use and
+    caches each product's price lookup in memory.
     """
 
     price_field: str
@@ -207,25 +256,25 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
         repr=False,
     )
 
-    def get_execution_price(
+    def _get_price_for_timestamp(
         self,
+        *,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        timestamp: pd.Timestamp,
     ) -> float:
         """
-        Return the execution reference price for a contract at the given
-        submission timestamp.
+        Resolve a daily_stats price for a contract at a given timestamp.
 
         Semantics
         ---------
-        The submission timestamp is normalised to UTC day and used as the
+        The timestamp is normalised to UTC day and used as the
         daily_stats trading_date lookup key.
 
         Raises
         ------
         ValueError
             If the contract cannot be resolved, the relevant product
-            cannot be loaded, or no execution price exists for the given
+            cannot be loaded, or no price exists for the given
             contract/day.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
@@ -235,7 +284,7 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
             )
 
         product_id = contract.product_id
-        trading_date = to_utc_day(submission_timestamp)
+        trading_date = to_utc_day(timestamp)
 
         lookup = self._get_or_load_product_lookup(product_id)
         return lookup.get_price(contract_id=contract_id, trading_date=trading_date)
@@ -259,7 +308,7 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
         product_id: str,
     ) -> _ProductDailyStatsPriceLookup:
         """
-        Load and normalise daily_stats execution prices for one product.
+        Load and normalise daily_stats prices for one product.
         """
         df = read_daily_stats_product(
             product_id=product_id,
@@ -302,6 +351,7 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
                 f"daily_stats for product_id={product_id!r} has non-numeric values in "
                 f"price_field={self.price_field!r}."
             )
+
         if not isinstance(out["trading_date"].dtype, pd.DatetimeTZDtype):
             raise TypeError(
                 f"daily_stats for product_id={product_id!r} trading_date must be tz-aware."
@@ -318,3 +368,61 @@ class DailyStatsExecutionPriceAccessor(ExecutionPriceAccessor):
             price_field=self.price_field,
             prices=prices,
         )
+
+
+@dataclass(slots=True)
+class DailyStatsExecutionPriceAccessor(
+    _DailyStatsPriceAccessorBase, ExecutionPriceAccessor
+):
+    """
+    Lazy-loading execution-price accessor backed by daily_stats.
+
+    This accessor is intended for execution reference pricing, for
+    example fill-price lookup in the perfect backtest executor.
+    """
+
+    def get_execution_price(
+        self,
+        contract_id: str,
+        submission_timestamp: pd.Timestamp,
+    ) -> float:
+        try:
+            return self._get_price_for_timestamp(
+                contract_id=contract_id,
+                timestamp=submission_timestamp,
+            )
+        except MissingDailyStatsPriceError as exc:
+            raise ValueError(
+                "Missing execution price for "
+                f"contract_id={contract_id!r}, "
+                f"submission_timestamp={submission_timestamp!r}, "
+                f"price_field={self.price_field!r}."
+            ) from exc
+
+
+@dataclass(slots=True)
+class DailyStatsMarkPriceAccessor(_DailyStatsPriceAccessorBase, MarkPriceAccessor):
+    """
+    Lazy-loading mark-price accessor backed by daily_stats.
+
+    This accessor is intended for mark-to-market valuation and PnL
+    construction, for example session settlement lookup in the PnL layer.
+    """
+
+    def get_mark_price(
+        self,
+        contract_id: str,
+        session: pd.Timestamp,
+    ) -> float:
+        try:
+            return self._get_price_for_timestamp(
+                contract_id=contract_id,
+                timestamp=session,
+            )
+        except MissingDailyStatsPriceError as exc:
+            raise ValueError(
+                "Missing mark price for "
+                f"contract_id={contract_id!r}, "
+                f"session={session!r}, "
+                f"price_field={self.price_field!r}."
+            ) from exc
