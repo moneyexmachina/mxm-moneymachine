@@ -143,7 +143,7 @@ def read_daily_stats_product(
 def _canonicalise(
     *, df: pd.DataFrame, product_id: str, contract_id: str
 ) -> pd.DataFrame:
-    if df is None or df.empty:
+    if df.empty:
         return _empty_canonical()
 
     out = df.copy()

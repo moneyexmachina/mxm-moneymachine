@@ -12,7 +12,7 @@ transformation is:
     target_trades
         ↓ order generation policy
     implemented_trades
-        ↓ order rendering
+        ↓ order rendering + timestamp assignment
     orders
 
 Conceptually:
@@ -29,24 +29,28 @@ implementation of intent. It does not yet model execution quality,
 partial fills, routing, or broker order lifecycle. Those concerns belong
 later in the execution / routing layer.
 
+Temporal semantics
+------------------
+MXM V1 order generation sits at the boundary between:
+
+- session-native portfolio intent
+- timestamped executable order instructions
+
+`generate_orders(...)` therefore accepts a session label and resolves
+per-order `created_at` timestamps according to an injected timestamping
+policy and the relevant product trading calendar.
+
 The current implementation supports one generation style:
 
 - round target trades to the nearest executable block
 - default block size = 1
 - optional per-contract block-size overrides
 - render one market order per non-zero implemented trade
-
-The gap between:
-
-    target_trades
-    implemented_trades
-
-is not explicitly stored as its own object here, but can be derived
-later for attribution purposes.
+- assign one timestamp per order from the contract's trading calendar
 
 All logic in this module is deterministic:
-given target trades and a policy configuration, the resulting
-implemented trades and orders are deterministic.
+given target trades, a session label, and a policy configuration, the
+resulting implemented trades and orders are deterministic.
 """
 
 from dataclasses import dataclass
@@ -54,9 +58,14 @@ from enum import Enum
 
 import numpy as np
 import pandas as pd
+from mxm_refdata.api.ref_data_api import (
+    RefDataAPI,  # type: ignore[reportMissingTypeStubs]
+)
 
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
-from mxm.v1.utils.time_utils import UtcTimestampInput, to_utc_ts
+from mxm.v1.utils.date_utils import coerce_np_day
+from mxm.v1.utils.time_utils import to_utc_ts
 
 
 class OrderType(str, Enum):
@@ -67,6 +76,23 @@ class OrderType(str, Enum):
     """
 
     MARKET = "market"
+
+
+class OrderTimestampPolicy(str, Enum):
+    """
+    Policy for assigning `created_at` timestamps to generated orders.
+
+    SESSION_OPEN:
+        Stamp each generated order with the open timestamp of the
+        relevant contract's product calendar for the given session.
+
+    SESSION_CLOSE:
+        Stamp each generated order with the close timestamp of the
+        relevant contract's product calendar for the given session.
+    """
+
+    SESSION_OPEN = "session_open"
+    SESSION_CLOSE = "session_close"
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +193,10 @@ class OrderGenerationPolicy:
     default_order_type:
         Order type used when rendering executable orders.
 
+    timestamp_policy:
+        Policy used to assign `created_at` timestamps to generated
+        orders.
+
     Notes
     -----
     This policy is intentionally declarative. It specifies how order
@@ -174,13 +204,14 @@ class OrderGenerationPolicy:
     generation method.
 
     The current implementation assumes block-rounded generation into
-    market orders, but the policy object is intended to remain
-    extensible as order-generation styles evolve.
+    market orders, with timestamp assignment from the relevant product
+    trading calendar.
     """
 
     default_min_block_size: int = 1
     min_block_sizes: pd.Series | None = None
     default_order_type: OrderType = OrderType.MARKET
+    timestamp_policy: OrderTimestampPolicy = OrderTimestampPolicy.SESSION_OPEN
 
     def __post_init__(self) -> None:
         if self.default_min_block_size <= 0:
@@ -209,27 +240,36 @@ class OrderGenerator:
             ↓
         implemented_trades
             ↓
-        orders
+        timestamped orders
 
     while the injected policy defines how this should be done.
 
     Parameters
     ----------
     policy:
-        Declarative generation policy controlling block sizes and order
-        rendering defaults.
+        Declarative generation policy controlling block sizes, order
+        rendering defaults, and timestamp assignment.
+
+    ref_data_api:
+        Reference-data API used to resolve contract_id -> product_id.
+
+    calendar_service:
+        Trading-calendar bridge used to resolve product calendars for
+        timestamp assignment.
     """
 
     policy: OrderGenerationPolicy
+    ref_data_api: RefDataAPI
+    calendar_service: TradingCalendarService
 
     def generate_orders(
         self,
         target_trades: TargetContractBundle,
-        created_at: UtcTimestampInput,
+        session: np.datetime64,
     ) -> OrderGenerationResult:
         """
         Generate implemented trades and executable orders from target
-        trades.
+        trades for a given session.
 
         Current behaviour
         -----------------
@@ -237,23 +277,28 @@ class OrderGenerator:
         - half-way cases round away from zero
         - one non-zero implemented trade becomes one order
         - orders use the policy default order type
+        - each order receives a `created_at` timestamp derived from the
+          contract's product trading calendar and the policy's
+          timestamping rule
 
         Parameters
         ----------
         target_trades:
             Ideal target trade quantities in target-space.
 
-        created_at:
-            Timestamp assigned to the generated order instructions.
+        session:
+            Trading session label for which orders are being generated.
 
         Returns
         -------
         OrderGenerationResult
             Implemented executable trades and rendered orders.
         """
+        session_day = coerce_np_day(session)
+
         implemented_quantities: dict[str, int] = {}
         orders: list[Order] = []
-        created_at_utc = to_utc_ts(created_at)
+
         for contract_key, target_quantity in target_trades.quantities.items():
             contract_id = str(contract_key)
 
@@ -266,13 +311,18 @@ class OrderGenerator:
             if implemented_quantity == 0:
                 continue
 
+            created_at = self._resolve_order_timestamp(
+                contract_id=contract_id,
+                session=session_day,
+            )
+
             implemented_quantities[contract_id] = implemented_quantity
             orders.append(
                 Order(
                     contract_id=contract_id,
                     quantity=implemented_quantity,
                     order_type=self.policy.default_order_type,
-                    created_at=created_at_utc,
+                    created_at=created_at,
                 )
             )
 
@@ -284,6 +334,37 @@ class OrderGenerator:
         return OrderGenerationResult(
             implemented_trades=implemented_trades,
             orders=orders,
+        )
+
+    def _resolve_order_timestamp(
+        self,
+        *,
+        contract_id: str,
+        session: np.datetime64,
+    ) -> pd.Timestamp:
+        """
+        Resolve the `created_at` timestamp for one generated order.
+
+        This is the explicit bridge from session-native target-trade
+        intent to timestamped executable order instructions.
+        """
+        contract = self.ref_data_api.get_contract_by_id(contract_id)
+        if contract is None:
+            raise ValueError(
+                f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
+            )
+
+        product_id = contract.product_id
+        calendar = self.calendar_service.calendar_for_product(product_id)
+
+        if self.policy.timestamp_policy == OrderTimestampPolicy.SESSION_OPEN:
+            return calendar.session_open(session)
+
+        if self.policy.timestamp_policy == OrderTimestampPolicy.SESSION_CLOSE:
+            return calendar.session_close(session)
+
+        raise ValueError(
+            f"Unsupported OrderTimestampPolicy: {self.policy.timestamp_policy!r}"
         )
 
     def _resolve_block_size(self, contract_id: str) -> int:

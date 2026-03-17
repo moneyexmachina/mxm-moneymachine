@@ -6,21 +6,37 @@ MXM V1 — Price accessors for execution and mark-to-market valuation.
 This module defines the boundary between execution / PnL layers and the
 market-data layer for retrieval of contract prices.
 
+V1 temporal policy
+------------------
+This module is fully session-native.
+
+Both accessor roles consume a trading-session label, not an execution
+timestamp. In MXM V1, the canonical session-label representation is
+`np.datetime64[D]`.
+
+The current concrete accessors are backed by the `daily_stats` dataset.
+That dataset stores its session-level lookup key in the column
+`trading_date`, represented as a UTC-normalized midnight pandas
+Timestamp. This is treated here as a storage representation of the
+session label, not as a true event timestamp.
+
+Semantic accessor roles
+-----------------------
 Two semantic accessor roles are defined here:
 
 1. ExecutionPriceAccessor
 
    Used by executors to obtain the execution reference price for a
-   contract at a given submission timestamp.
+   contract for a given trading session.
 
    Interface:
 
-       (contract_id, submission_timestamp) -> execution_price
+       (contract_id, session) -> execution_price
 
 2. MarkPriceAccessor
 
    Used by PnL and valuation logic to obtain the mark price for a
-   contract at a given session timestamp.
+   contract for a given trading session.
 
    Interface:
 
@@ -40,19 +56,10 @@ Design principles
 - accessor-facing APIs remain small and semantically explicit
 - loading is lazy and cached by product_id
 - in-memory lookup is normalised once per loaded product
-- timestamp handling is UTC-normalised and deterministic
+- session handling is deterministic and explicit
 - missing prices fail loudly
 - execution and mark-price semantics remain distinct even when backed by
   the same dataset
-
-Current assumptions
--------------------
-- submission timestamps and session timestamps are already aligned to the
-  intended trading-session semantics of the backtest
-- daily_stats trading_date is therefore the correct lookup key after
-  UTC-day normalisation
-- the chosen price field (for example 'settle' or 'close') is selected
-  explicitly by configuration
 
 Performance notes
 -----------------
@@ -71,12 +78,14 @@ public accessor interfaces.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pandas as pd
 from mxm_refdata.api.ref_data_api import RefDataAPI
 
 from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_product
-from mxm.v1.utils.time_utils import to_utc_day
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 class ExecutionPriceAccessor(ABC):
@@ -84,21 +93,21 @@ class ExecutionPriceAccessor(ABC):
     Abstract accessor for execution reference prices.
 
     Executors use this interface to resolve the execution price for a
-    contract at a given submission timestamp.
+    contract for a given trading session.
 
-    The submission timestamp is assumed to already represent the intended
-    session context of the execution step.
+    In MXM V1, execution is modelled at session resolution rather than at
+    timestamp/event resolution.
     """
 
     @abstractmethod
     def get_execution_price(
         self,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         """
-        Return the execution reference price for a contract at the given
-        submission timestamp.
+        Return the execution reference price for a contract for the given
+        trading session.
         """
         raise NotImplementedError
 
@@ -108,20 +117,18 @@ class MarkPriceAccessor(ABC):
     Abstract accessor for session mark prices.
 
     PnL and valuation logic use this interface to resolve the mark price
-    for a contract at a given session timestamp.
-
-    The session timestamp is assumed to already represent the intended
-    valuation session context.
+    for a contract for a given trading session.
     """
 
     @abstractmethod
     def get_mark_price(
         self,
         contract_id: str,
-        session: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         """
-        Return the mark price for a contract at the given session.
+        Return the mark price for a contract for the given trading
+        session.
         """
         raise NotImplementedError
 
@@ -147,6 +154,10 @@ class _ProductDailyStatsPriceLookup:
     prices:
         MultiIndex Series indexed by (contract_id, trading_date) and
         containing float prices.
+
+        Here `trading_date` is the stored representation of the session
+        label used by the daily_stats dataset:
+            pd.Timestamp at 00:00:00+00:00
     """
 
     product_id: str
@@ -198,7 +209,16 @@ class _ProductDailyStatsPriceLookup:
         trading_date: pd.Timestamp,
     ) -> float:
         """
-        Return the price for a contract on a given trading day.
+        Return the price for a contract on a given stored trading-date key.
+
+        Parameters
+        ----------
+        contract_id:
+            Contract identifier.
+
+        trading_date:
+            UTC-normalized midnight pandas Timestamp used by daily_stats
+            as the stored representation of the session label.
 
         Raises
         ------
@@ -221,6 +241,25 @@ class _ProductDailyStatsPriceLookup:
 
 def _empty_product_lookup_cache() -> dict[str, _ProductDailyStatsPriceLookup]:
     return {}
+
+
+def _session_to_trading_date_key(session: Any) -> pd.Timestamp:
+    """
+    Convert a V1 session label into the stored daily_stats lookup key.
+
+    Parameters
+    ----------
+    session:
+        Session label, expected to be coercible to `np.datetime64[D]`.
+
+    Returns
+    -------
+    pd.Timestamp
+        UTC-normalized midnight Timestamp used by daily_stats as the
+        storage representation of the session label.
+    """
+    session_day = coerce_np_day(session)
+    return pd.Timestamp(session_day, tz="UTC")
 
 
 @dataclass(slots=True)
@@ -256,26 +295,29 @@ class _DailyStatsPriceAccessorBase:
         repr=False,
     )
 
-    def _get_price_for_timestamp(
+    def _get_price_for_session(
         self,
         *,
         contract_id: str,
-        timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         """
-        Resolve a daily_stats price for a contract at a given timestamp.
+        Resolve a daily_stats price for a contract for a given session.
 
         Semantics
         ---------
-        The timestamp is normalised to UTC day and used as the
-        daily_stats trading_date lookup key.
+        The input `session` is a V1 session label (`np.datetime64[D]`).
+        It is converted to the stored daily_stats lookup-key
+        representation:
+
+            session label -> UTC-midnight pandas Timestamp
 
         Raises
         ------
         ValueError
             If the contract cannot be resolved, the relevant product
             cannot be loaded, or no price exists for the given
-            contract/day.
+            contract/session key.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
         if contract is None:
@@ -284,7 +326,7 @@ class _DailyStatsPriceAccessorBase:
             )
 
         product_id = contract.product_id
-        trading_date = to_utc_day(timestamp)
+        trading_date = _session_to_trading_date_key(session)
 
         lookup = self._get_or_load_product_lookup(product_id)
         return lookup.get_price(contract_id=contract_id, trading_date=trading_date)
@@ -340,9 +382,11 @@ class _DailyStatsPriceAccessorBase:
                 f"daily_stats for product_id={product_id!r} contains null trading_date."
             )
 
-        if out[self.price_field].isna().any():
+        out = out.loc[out[self.price_field].notna()].copy()
+
+        if out.empty:
             raise ValueError(
-                f"daily_stats for product_id={product_id!r} contains null values in "
+                f"daily_stats for product_id={product_id!r} has no non-null values in "
                 f"price_field={self.price_field!r}."
             )
 
@@ -377,25 +421,25 @@ class DailyStatsExecutionPriceAccessor(
     """
     Lazy-loading execution-price accessor backed by daily_stats.
 
-    This accessor is intended for execution reference pricing, for
-    example fill-price lookup in the perfect backtest executor.
+    In MXM V1, this accessor is session-native and resolves an execution
+    reference price for a contract for a given trading session.
     """
 
     def get_execution_price(
         self,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         try:
-            return self._get_price_for_timestamp(
+            return self._get_price_for_session(
                 contract_id=contract_id,
-                timestamp=submission_timestamp,
+                session=session,
             )
         except MissingDailyStatsPriceError as exc:
             raise ValueError(
                 "Missing execution price for "
                 f"contract_id={contract_id!r}, "
-                f"submission_timestamp={submission_timestamp!r}, "
+                f"session={session!r}, "
                 f"price_field={self.price_field!r}."
             ) from exc
 
@@ -412,12 +456,12 @@ class DailyStatsMarkPriceAccessor(_DailyStatsPriceAccessorBase, MarkPriceAccesso
     def get_mark_price(
         self,
         contract_id: str,
-        session: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         try:
-            return self._get_price_for_timestamp(
+            return self._get_price_for_session(
                 contract_id=contract_id,
-                timestamp=session,
+                session=session,
             )
         except MissingDailyStatsPriceError as exc:
             raise ValueError(

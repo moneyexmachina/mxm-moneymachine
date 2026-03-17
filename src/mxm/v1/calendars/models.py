@@ -684,3 +684,136 @@ class TradingCalendar:
         if return_projected_flag:
             return out, projected_flag
         return out
+
+    # ---------- session label -> schedule boundary mapping (schedule mode) ----------
+
+    def session_open(self, session: Union[str, np.datetime64]) -> pd.Timestamp:
+        """
+        Return the UTC open timestamp for a given session label.
+
+        Parameters
+        ----------
+        session:
+            Trading session label. Must be coercible to `np.datetime64[D]`.
+
+        Returns
+        -------
+        pd.Timestamp
+            TZ-aware UTC timestamp for the session open.
+
+        Raises
+        ------
+        ScheduleUnavailable
+            If this calendar has no schedule.
+
+        CalendarOutOfRange
+            If the requested session lies outside the observed schedule coverage.
+
+        ValueError
+            If the session label is not a trading day for this calendar.
+        """
+        cache = self._schedule_cache()
+        session_day = coerce_np_day(session)
+
+        idx = searchsorted_exact(cache.labels, session_day)
+        if idx is None:
+            if not self.is_trading_day(session_day):
+                raise ValueError(
+                    f"{session_day} is not a trading day for calendar {self.calendar_id}"
+                )
+
+            raise CalendarOutOfRange(
+                f"{session_day} is outside observed schedule coverage for calendar "
+                f"{self.calendar_id}; schedule is only available through {self.observed_end}"
+            )
+
+        return to_utc_ts(pd.Timestamp(cache.opens[idx]))
+
+    def session_close(self, session: Union[str, np.datetime64]) -> pd.Timestamp:
+        """
+        Return the UTC close timestamp for a given session label.
+
+        Parameters
+        ----------
+        session:
+            Trading session label. Must be coercible to `np.datetime64[D]`.
+
+        Returns
+        -------
+        pd.Timestamp
+            TZ-aware UTC timestamp for the session close.
+
+        Raises
+        ------
+        ScheduleUnavailable
+            If this calendar has no schedule.
+
+        CalendarOutOfRange
+            If the requested session lies outside the observed schedule coverage.
+
+        ValueError
+            If the session label is not a trading day for this calendar.
+        """
+        cache = self._schedule_cache()
+        session_day = coerce_np_day(session)
+
+        idx = searchsorted_exact(cache.labels, session_day)
+        if idx is None:
+            if not self.is_trading_day(session_day):
+                raise ValueError(
+                    f"{session_day} is not a trading day for calendar {self.calendar_id}"
+                )
+
+            raise CalendarOutOfRange(
+                f"{session_day} is outside observed schedule coverage for calendar "
+                f"{self.calendar_id}; schedule is only available through {self.observed_end}"
+            )
+
+        return to_utc_ts(pd.Timestamp(cache.closes[idx]))
+
+    def session_bounds(
+        self,
+        session: Union[str, np.datetime64],
+    ) -> tuple[pd.Timestamp, pd.Timestamp]:
+        """
+        Return the UTC (open, close) timestamps for a given session label.
+
+        Parameters
+        ----------
+        session:
+            Trading session label. Must be coercible to `np.datetime64[D]`.
+
+        Returns
+        -------
+        tuple[pd.Timestamp, pd.Timestamp]
+            `(open_utc, close_utc)` as tz-aware UTC timestamps.
+
+        Raises
+        ------
+        ScheduleUnavailable
+            If this calendar has no schedule.
+
+        CalendarOutOfRange
+            If the requested session lies outside the observed schedule coverage.
+
+        ValueError
+            If the session label is not a trading day for this calendar.
+        """
+        cache = self._schedule_cache()
+        session_day = coerce_np_day(session)
+
+        idx = searchsorted_exact(cache.labels, session_day)
+        if idx is None:
+            if not self.is_trading_day(session_day):
+                raise ValueError(
+                    f"{session_day} is not a trading day for calendar {self.calendar_id}"
+                )
+
+            raise CalendarOutOfRange(
+                f"{session_day} is outside observed schedule coverage for calendar "
+                f"{self.calendar_id}; schedule is only available through {self.observed_end}"
+            )
+
+        open_ts = to_utc_ts(pd.Timestamp(cache.opens[idx]))
+        close_ts = to_utc_ts(pd.Timestamp(cache.closes[idx]))
+        return open_ts, close_ts

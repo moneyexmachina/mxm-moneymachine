@@ -2,15 +2,27 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
-from mxm.v1.execution.executor import ExecutionPriceAccessor, PerfectBacktestExecutor
-from mxm.v1.execution.orders import OrderGenerationPolicy, OrderGenerator, OrderType
+from mxm.v1.execution.executor import PerfectBacktestExecutor
+from mxm.v1.execution.orders import (
+    OrderGenerationPolicy,
+    OrderGenerator,
+    OrderTimestampPolicy,
+    OrderType,
+)
+from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.execution.session_engine import SessionEngine
 from mxm.v1.utils.time_utils import to_utc_ts
+
+SESSION = np.datetime64("2026-03-10", "D")
+PREVIOUS_SESSION = np.datetime64("2026-03-09", "D")
+SESSION_OPEN_TS = to_utc_ts("2026-03-10T08:00:00Z")
+SESSION_CLOSE_TS = to_utc_ts("2026-03-10T16:00:00Z")
 
 
 class DummyContract:
@@ -28,31 +40,80 @@ class DummyRefDataAPI:
 
 
 class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
-    def __init__(self, prices: dict[tuple[str, pd.Timestamp], float]) -> None:
+    def __init__(self, prices: dict[tuple[str, np.datetime64], float]) -> None:
         self._prices = prices
-        self.calls: list[tuple[str, pd.Timestamp]] = []
+        self.calls: list[tuple[str, np.datetime64]] = []
 
     def get_execution_price(
         self,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
-        key = (contract_id, submission_timestamp)
+        key = (contract_id, np.datetime64(session, "D"))
         self.calls.append(key)
         return self._prices[key]
+
+
+class DummyCalendar:
+    def __init__(
+        self,
+        *,
+        open_ts: pd.Timestamp = SESSION_OPEN_TS,
+        close_ts: pd.Timestamp = SESSION_CLOSE_TS,
+    ) -> None:
+        self._open_ts = open_ts
+        self._close_ts = close_ts
+
+    def session_open(self, session: np.datetime64) -> pd.Timestamp:
+        assert np.datetime64(session, "D") == SESSION
+        return self._open_ts
+
+    def session_close(self, session: np.datetime64) -> pd.Timestamp:
+        assert np.datetime64(session, "D") == SESSION
+        return self._close_ts
+
+
+class DummyCalendarService:
+    def __init__(self, mapping: dict[str, DummyCalendar]) -> None:
+        self._mapping = mapping
+
+    def calendar_for_product(self, product_id: str) -> DummyCalendar:
+        try:
+            return self._mapping[product_id]
+        except KeyError as exc:
+            raise ValueError(f"Unknown product_id {product_id!r}") from exc
 
 
 def _make_engine(
     *,
     ref_data_api: DummyRefDataAPI,
-    prices: dict[tuple[str, pd.Timestamp], float],
+    prices: dict[tuple[str, np.datetime64], float],
     default_min_block_size: int = 1,
+    timestamp_policy: OrderTimestampPolicy = OrderTimestampPolicy.SESSION_OPEN,
+    calendars_by_product: dict[str, DummyCalendar] | None = None,
 ) -> tuple[SessionEngine, DummyExecutionPriceAccessor]:
     accessor = DummyExecutionPriceAccessor(prices=prices)
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
+
+    if calendars_by_product is None:
+        product_ids = {
+            contract.product_id for contract in ref_data_api._contracts.values()
+        }
+        calendars_by_product = {
+            product_id: DummyCalendar() for product_id in product_ids
+        }
+
+    calendar_service = DummyCalendarService(calendars_by_product)
+
     order_generator = OrderGenerator(
-        policy=OrderGenerationPolicy(default_min_block_size=default_min_block_size)
+        policy=OrderGenerationPolicy(
+            default_min_block_size=default_min_block_size,
+            timestamp_policy=timestamp_policy,
+        ),
+        ref_data_api=ref_data_api,
+        calendar_service=calendar_service,
     )
+
     engine = SessionEngine(
         ref_data_api=ref_data_api,
         order_generator=order_generator,
@@ -62,8 +123,6 @@ def _make_engine(
 
 
 def test_run_session_happy_path_returns_full_session_result() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -80,8 +139,8 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
     engine, accessor = _make_engine(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", session_ts): 101.5,
-            ("corn_may2026", session_ts): 102.25,
+            ("corn_mar2026", SESSION): 101.5,
+            ("corn_may2026", SESSION): 102.25,
         },
     )
 
@@ -99,10 +158,10 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
     )
 
     result = engine.run_session(
-        session=session_ts,
+        session=SESSION,
         previous_realised_holdings=previous_realised_holdings,
         target_holdings=target_holdings,
-        previous_session="2026-03-09T00:00:00Z",
+        previous_session=PREVIOUS_SESSION,
     )
 
     expected_initial = pd.Series(
@@ -126,8 +185,8 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
         dtype="int64",
     )
 
-    assert result.previous_session == to_utc_ts("2026-03-09T00:00:00Z")
-    assert result.session == session_ts
+    assert result.previous_session == PREVIOUS_SESSION
+    assert result.session == SESSION
     pdt.assert_series_equal(result.initial_holdings.quantities, expected_initial)
     pdt.assert_series_equal(result.target_trades.quantities, expected_target_trades)
     pdt.assert_series_equal(result.implemented_trades.quantities, expected_implemented)
@@ -140,14 +199,12 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
 
     assert len(result.execution_result.order_executions) == 2
     assert accessor.calls == [
-        ("corn_mar2026", session_ts),
-        ("corn_may2026", session_ts),
+        ("corn_mar2026", SESSION),
+        ("corn_may2026", SESSION),
     ]
 
 
 def test_run_session_accepts_none_previous_session_for_first_step() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -160,25 +217,22 @@ def test_run_session_accepts_none_previous_session_for_first_step() -> None:
     engine, _ = _make_engine(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", session_ts): 101.5,
+            ("corn_mar2026", SESSION): 101.5,
         },
     )
 
     result = engine.run_session(
-        session=session_ts,
+        session=SESSION,
         previous_realised_holdings=ContractBundle.empty(),
         target_holdings=TargetContractBundle.from_dict({"corn_mar2026": 1.0}),
         previous_session=None,
     )
 
     assert result.previous_session is None
-    assert result.session == session_ts
+    assert result.session == SESSION
 
 
-def test_run_session_normalises_session_timestamps_to_utc() -> None:
-    session_str = "2026-03-10T00:00:00Z"
-    session_ts = to_utc_ts(session_str)
-
+def test_run_session_normalises_session_labels() -> None:
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -191,25 +245,23 @@ def test_run_session_normalises_session_timestamps_to_utc() -> None:
     engine, accessor = _make_engine(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", session_ts): 101.5,
+            ("corn_mar2026", SESSION): 101.5,
         },
     )
 
     result = engine.run_session(
-        session=session_str,
+        session="2026-03-10",
         previous_realised_holdings=ContractBundle.empty(),
         target_holdings=TargetContractBundle.from_dict({"corn_mar2026": 1.0}),
-        previous_session="2026-03-09T00:00:00Z",
+        previous_session="2026-03-09",
     )
 
-    assert result.session == session_ts
-    assert result.previous_session == to_utc_ts("2026-03-09T00:00:00Z")
-    assert accessor.calls == [("corn_mar2026", session_ts)]
+    assert result.session == SESSION
+    assert result.previous_session == PREVIOUS_SESSION
+    assert accessor.calls == [("corn_mar2026", SESSION)]
 
 
-def test_run_session_propagates_session_timestamp_to_order_and_fill_times() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
+def test_run_session_uses_order_generator_timestamp_for_order_and_fill_times() -> None:
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -222,26 +274,29 @@ def test_run_session_propagates_session_timestamp_to_order_and_fill_times() -> N
     engine, _ = _make_engine(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", session_ts): 101.5,
+            ("corn_mar2026", SESSION): 101.5,
+        },
+        calendars_by_product={
+            "corn": DummyCalendar(open_ts=SESSION_OPEN_TS),
         },
     )
 
     result = engine.run_session(
-        session=session_ts,
+        session=SESSION,
         previous_realised_holdings=ContractBundle.empty(),
         target_holdings=TargetContractBundle.from_dict({"corn_mar2026": 1.0}),
     )
 
     assert len(result.orders) == 1
-    assert result.orders[0].created_at == session_ts
+    assert result.orders[0].created_at == SESSION_OPEN_TS
 
     assert len(result.execution_result.order_executions) == 1
-    assert result.execution_result.order_executions[0].fill_timestamp == session_ts
+    # SessionEngine does not provide submission_timestamp, so perfect executor
+    # falls back to order.created_at.
+    assert result.execution_result.order_executions[0].fill_timestamp == SESSION_OPEN_TS
 
 
-def test_run_session_respects_order_generation_rounding() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
+def test_run_session_can_use_session_close_timestamp_policy() -> None:
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -254,7 +309,41 @@ def test_run_session_respects_order_generation_rounding() -> None:
     engine, _ = _make_engine(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", session_ts): 101.5,
+            ("corn_mar2026", SESSION): 101.5,
+        },
+        timestamp_policy=OrderTimestampPolicy.SESSION_CLOSE,
+        calendars_by_product={
+            "corn": DummyCalendar(close_ts=SESSION_CLOSE_TS),
+        },
+    )
+
+    result = engine.run_session(
+        session=SESSION,
+        previous_realised_holdings=ContractBundle.empty(),
+        target_holdings=TargetContractBundle.from_dict({"corn_mar2026": 1.0}),
+    )
+
+    assert len(result.orders) == 1
+    assert result.orders[0].created_at == SESSION_CLOSE_TS
+    assert (
+        result.execution_result.order_executions[0].fill_timestamp == SESSION_CLOSE_TS
+    )
+
+
+def test_run_session_respects_order_generation_rounding() -> None:
+    ref_data_api = DummyRefDataAPI(
+        {
+            "corn_mar2026": DummyContract(
+                product_id="corn",
+                last_trading_day=date(2026, 3, 20),
+            ),
+        }
+    )
+
+    engine, _ = _make_engine(
+        ref_data_api=ref_data_api,
+        prices={
+            ("corn_mar2026", SESSION): 101.5,
         },
     )
 
@@ -262,7 +351,7 @@ def test_run_session_respects_order_generation_rounding() -> None:
     target_holdings = TargetContractBundle.from_dict({"corn_mar2026": 0.6})
 
     result = engine.run_session(
-        session=session_ts,
+        session=SESSION,
         previous_realised_holdings=previous_realised_holdings,
         target_holdings=target_holdings,
     )
@@ -293,8 +382,6 @@ def test_run_session_respects_order_generation_rounding() -> None:
 def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_unchanged() -> (
     None
 ):
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -313,7 +400,7 @@ def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_uncha
     target_holdings = TargetContractBundle.from_dict({"corn_mar2026": 2.49})
 
     result = engine.run_session(
-        session=session_ts,
+        session=SESSION,
         previous_realised_holdings=previous_realised_holdings,
         target_holdings=target_holdings,
     )
@@ -332,8 +419,6 @@ def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_uncha
 
 
 def test_run_session_propagates_prepare_initial_holdings_failure() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -353,15 +438,13 @@ def test_run_session_propagates_prepare_initial_holdings_failure() -> None:
 
     with pytest.raises(ValueError, match="on or beyond last trading day"):
         engine.run_session(
-            session=session_ts,
+            session=SESSION,
             previous_realised_holdings=previous_realised_holdings,
             target_holdings=target_holdings,
         )
 
 
 def test_run_session_propagates_executor_failure() -> None:
-    session_ts = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -381,7 +464,7 @@ def test_run_session_propagates_executor_failure() -> None:
 
     with pytest.raises(KeyError):
         engine.run_session(
-            session=session_ts,
+            session=SESSION,
             previous_realised_holdings=previous_realised_holdings,
             target_holdings=target_holdings,
         )

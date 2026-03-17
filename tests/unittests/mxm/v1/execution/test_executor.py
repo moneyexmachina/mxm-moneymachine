@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
 from mxm.v1.execution.contract_bundles import ContractBundle
 from mxm.v1.execution.executor import (
-    ExecutionPriceAccessor,
     ExecutionResult,
     ExecutionStatus,
     OrderExecution,
@@ -16,23 +16,25 @@ from mxm.v1.execution.executor import (
     PerfectBacktestExecutor,
 )
 from mxm.v1.execution.orders import Order, OrderType
+from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.utils.time_utils import to_utc_ts
 
+SESSION = np.datetime64("2026-03-12", "D")
 CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=timezone.utc))
 SUBMISSION_TS = to_utc_ts(datetime(2026, 3, 12, 16, 0, 0, tzinfo=timezone.utc))
 
 
 class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
-    def __init__(self, prices: dict[tuple[str, pd.Timestamp], float]) -> None:
+    def __init__(self, prices: dict[tuple[str, np.datetime64], float]) -> None:
         self._prices = prices
-        self.calls: list[tuple[str, pd.Timestamp]] = []
+        self.calls: list[tuple[str, np.datetime64]] = []
 
     def get_execution_price(
         self,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
-        key = (contract_id, submission_timestamp)
+        key = (contract_id, np.datetime64(session, "D"))
         self.calls.append(key)
         return self._prices[key]
 
@@ -51,13 +53,26 @@ def _make_order(
     )
 
 
-def test_order_submission_normalises_submission_timestamp_to_utc() -> None:
+def test_order_submission_normalises_session_and_submission_timestamp() -> None:
     submission = OrderSubmission(
         orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
+        session="2026-03-12",
         submission_timestamp="2026-03-12T16:00:00Z",
     )
 
+    assert submission.session == np.datetime64("2026-03-12", "D")
     assert submission.submission_timestamp == to_utc_ts("2026-03-12T16:00:00Z")
+
+
+def test_order_submission_accepts_optional_submission_timestamp_none() -> None:
+    submission = OrderSubmission(
+        orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
+        session=SESSION,
+        submission_timestamp=None,
+    )
+
+    assert submission.session == SESSION
+    assert submission.submission_timestamp is None
 
 
 def test_order_submission_accepts_orders_unchanged() -> None:
@@ -65,6 +80,7 @@ def test_order_submission_accepts_orders_unchanged() -> None:
 
     submission = OrderSubmission(
         orders=[order],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -185,6 +201,7 @@ def test_perfect_executor_returns_empty_result_for_empty_submission() -> None:
 
     submission = OrderSubmission(
         orders=[],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -202,10 +219,9 @@ def test_perfect_executor_returns_empty_result_for_empty_submission() -> None:
 
 
 def test_perfect_executor_fills_single_order_completely() -> None:
-    submission_ts = to_utc_ts(SUBMISSION_TS)
     accessor = DummyExecutionPriceAccessor(
         prices={
-            ("corn_mar2026", submission_ts): 101.5,
+            ("corn_mar2026", SESSION): 101.5,
         }
     )
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
@@ -213,6 +229,7 @@ def test_perfect_executor_fills_single_order_completely() -> None:
     order = _make_order(contract_id="corn_mar2026", quantity=3)
     submission = OrderSubmission(
         orders=[order],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -238,15 +255,14 @@ def test_perfect_executor_fills_single_order_completely() -> None:
     assert execution.status == ExecutionStatus.FILLED
     assert execution.filled_quantity == 3
     assert execution.fill_price == 101.5
-    assert execution.fill_timestamp == submission_ts
+    assert execution.fill_timestamp == SUBMISSION_TS
 
 
 def test_perfect_executor_uses_accessor_prices() -> None:
-    submission_ts = to_utc_ts(SUBMISSION_TS)
     accessor = DummyExecutionPriceAccessor(
         prices={
-            ("corn_mar2026", submission_ts): 101.5,
-            ("corn_may2026", submission_ts): 102.25,
+            ("corn_mar2026", SESSION): 101.5,
+            ("corn_may2026", SESSION): 102.25,
         }
     )
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
@@ -256,6 +272,7 @@ def test_perfect_executor_uses_accessor_prices() -> None:
             _make_order(contract_id="corn_mar2026", quantity=1),
             _make_order(contract_id="corn_may2026", quantity=-2),
         ],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -270,29 +287,54 @@ def test_perfect_executor_uses_accessor_prices() -> None:
     pdt.assert_series_equal(result.fill_prices, expected_fill_prices)
 
 
-def test_perfect_executor_sets_fill_timestamp_to_submission_timestamp() -> None:
-    submission_ts = to_utc_ts("2026-03-12T16:00:00Z")
-    accessor = DummyExecutionPriceAccessor(
-        prices={("corn_mar2026", submission_ts): 101.5}
-    )
+def test_perfect_executor_sets_fill_timestamp_to_submission_timestamp_when_present() -> (
+    None
+):
+    accessor = DummyExecutionPriceAccessor(prices={("corn_mar2026", SESSION): 101.5})
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
 
     submission = OrderSubmission(
         orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
+        session=SESSION,
         submission_timestamp="2026-03-12T16:00:00Z",
     )
 
     result = executor.execute_orders(submission)
 
-    assert result.order_executions[0].fill_timestamp == submission_ts
+    assert result.order_executions[0].fill_timestamp == to_utc_ts(
+        "2026-03-12T16:00:00Z"
+    )
+
+
+def test_perfect_executor_falls_back_to_order_created_at_when_submission_timestamp_missing() -> (
+    None
+):
+    order = _make_order(
+        contract_id="corn_mar2026",
+        quantity=1,
+        created_at=to_utc_ts("2026-03-12T10:15:00Z"),
+    )
+    accessor = DummyExecutionPriceAccessor(prices={("corn_mar2026", SESSION): 101.5})
+    executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
+
+    submission = OrderSubmission(
+        orders=[order],
+        session=SESSION,
+        submission_timestamp=None,
+    )
+
+    result = executor.execute_orders(submission)
+
+    assert result.order_executions[0].fill_timestamp == to_utc_ts(
+        "2026-03-12T10:15:00Z"
+    )
 
 
 def test_perfect_executor_aggregates_realised_trades_by_contract() -> None:
-    submission_ts = to_utc_ts(SUBMISSION_TS)
     accessor = DummyExecutionPriceAccessor(
         prices={
-            ("corn_mar2026", submission_ts): 101.5,
-            ("corn_may2026", submission_ts): 102.25,
+            ("corn_mar2026", SESSION): 101.5,
+            ("corn_may2026", SESSION): 102.25,
         }
     )
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
@@ -302,6 +344,7 @@ def test_perfect_executor_aggregates_realised_trades_by_contract() -> None:
             _make_order(contract_id="corn_mar2026", quantity=2),
             _make_order(contract_id="corn_may2026", quantity=-1),
         ],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -316,31 +359,26 @@ def test_perfect_executor_aggregates_realised_trades_by_contract() -> None:
     pdt.assert_series_equal(result.realised_trades.quantities, expected_realised)
 
 
-def test_perfect_executor_queries_accessor_with_normalised_submission_timestamp() -> (
-    None
-):
-    submission_ts = to_utc_ts("2026-03-12T16:00:00Z")
-    accessor = DummyExecutionPriceAccessor(
-        prices={("corn_mar2026", submission_ts): 101.5}
-    )
+def test_perfect_executor_queries_accessor_with_session_label() -> None:
+    accessor = DummyExecutionPriceAccessor(prices={("corn_mar2026", SESSION): 101.5})
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
 
     submission = OrderSubmission(
         orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
+        session="2026-03-12",
         submission_timestamp="2026-03-12T16:00:00Z",
     )
 
     executor.execute_orders(submission)
 
-    assert accessor.calls == [("corn_mar2026", submission_ts)]
+    assert accessor.calls == [("corn_mar2026", np.datetime64("2026-03-12", "D"))]
 
 
 def test_perfect_executor_all_order_executions_have_filled_status() -> None:
-    submission_ts = to_utc_ts(SUBMISSION_TS)
     accessor = DummyExecutionPriceAccessor(
         prices={
-            ("corn_mar2026", submission_ts): 101.5,
-            ("corn_may2026", submission_ts): 102.25,
+            ("corn_mar2026", SESSION): 101.5,
+            ("corn_may2026", SESSION): 102.25,
         }
     )
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
@@ -350,6 +388,7 @@ def test_perfect_executor_all_order_executions_have_filled_status() -> None:
             _make_order(contract_id="corn_mar2026", quantity=1),
             _make_order(contract_id="corn_may2026", quantity=-2),
         ],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 
@@ -364,10 +403,7 @@ def test_perfect_executor_all_order_executions_have_filled_status() -> None:
 def test_perfect_executor_rejects_same_contract_multiple_orders_in_one_submission() -> (
     None
 ):
-    submission_ts = to_utc_ts(SUBMISSION_TS)
-    accessor = DummyExecutionPriceAccessor(
-        prices={("corn_mar2026", submission_ts): 101.5}
-    )
+    accessor = DummyExecutionPriceAccessor(prices={("corn_mar2026", SESSION): 101.5})
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
 
     submission = OrderSubmission(
@@ -375,6 +411,7 @@ def test_perfect_executor_rejects_same_contract_multiple_orders_in_one_submissio
             _make_order(contract_id="corn_mar2026", quantity=1),
             _make_order(contract_id="corn_mar2026", quantity=-2),
         ],
+        session=SESSION,
         submission_timestamp=SUBMISSION_TS,
     )
 

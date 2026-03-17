@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -179,7 +180,7 @@ def test_product_price_lookup_raises_for_missing_key() -> None:
         )
 
 
-def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_day(
+def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_read_daily_stats_product(
@@ -206,13 +207,13 @@ def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_day
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        submission_timestamp=pd.Timestamp("2026-03-10T14:30:00Z"),
+        session=np.datetime64("2026-03-10"),
     )
 
     assert result == 101.5
 
 
-def test_daily_stats_accessor_normalises_submission_timestamp_to_utc_day(
+def test_daily_stats_accessor_coerces_session_like_input_to_session_day(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_read_daily_stats_product(
@@ -238,7 +239,7 @@ def test_daily_stats_accessor_normalises_submission_timestamp_to_utc_day(
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        submission_timestamp=pd.Timestamp("2026-03-10T23:59:59Z"),
+        session=pd.Timestamp("2026-03-10T23:59:59Z"),
     )
 
     assert result == 101.5
@@ -278,7 +279,7 @@ def test_daily_stats_accessor_uses_selected_price_field(
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+        session=np.datetime64("2026-03-10"),
     )
 
     assert result == 102.75
@@ -313,11 +314,11 @@ def test_daily_stats_accessor_loads_product_only_once(
 
     first = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+        session=np.datetime64("2026-03-10"),
     )
     second = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        submission_timestamp=pd.Timestamp("2026-03-11T10:00:00Z"),
+        session=np.datetime64("2026-03-11"),
     )
 
     assert first == 101.5
@@ -364,11 +365,11 @@ def test_daily_stats_accessor_loads_different_products_separately(
 
     corn_price = accessor.get_execution_price(
         contract_id="corn_front",
-        submission_timestamp=pd.Timestamp("2026-03-10T12:00:00Z"),
+        session=np.datetime64("2026-03-10"),
     )
     wheat_price = accessor.get_execution_price(
         contract_id="wheat_front",
-        submission_timestamp=pd.Timestamp("2026-03-10T12:00:00Z"),
+        session=np.datetime64("2026-03-10"),
     )
 
     assert corn_price == 100.0
@@ -401,7 +402,7 @@ def test_daily_stats_accessor_raises_for_unknown_contract(
     with pytest.raises(ValueError, match="Unknown contract_id"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -432,7 +433,7 @@ def test_daily_stats_accessor_raises_for_empty_daily_stats(
     with pytest.raises(ValueError, match="No daily_stats rows available"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -469,7 +470,7 @@ def test_daily_stats_accessor_raises_for_missing_required_columns(
     with pytest.raises(ValueError, match="missing required columns"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -507,7 +508,7 @@ def test_daily_stats_accessor_raises_for_missing_price_field_column(
     with pytest.raises(ValueError, match="missing required columns"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -545,7 +546,7 @@ def test_daily_stats_accessor_raises_for_null_contract_id(
     with pytest.raises(ValueError, match="contains null contract_id"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -583,11 +584,11 @@ def test_daily_stats_accessor_raises_for_null_trading_date(
     with pytest.raises(ValueError, match="contains null trading_date"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
-def test_daily_stats_accessor_raises_for_null_price_field_values(
+def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_read_daily_stats_product(
@@ -618,11 +619,53 @@ def test_daily_stats_accessor_raises_for_null_price_field_values(
         ),
     )
 
-    with pytest.raises(ValueError, match="contains null values"):
+    with pytest.raises(ValueError, match="has no non-null values"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
+
+
+def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_read_daily_stats_product(
+        *,
+        product_id: str,
+        root: object | None = None,
+        start: object | None = None,
+        end: object | None = None,
+    ) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "trading_date": [
+                    pd.Timestamp("2026-03-10T00:00:00Z"),
+                    pd.Timestamp("2026-03-11T00:00:00Z"),
+                ],
+                "contract_id": ["corn_mar2026", "corn_mar2026"],
+                "product_id": [product_id, product_id],
+                "settle": [None, 103.25],
+            }
+        )
+
+    monkeypatch.setattr(
+        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        fake_read_daily_stats_product,
+    )
+
+    accessor = DailyStatsExecutionPriceAccessor(
+        price_field="settle",
+        ref_data_api=DummyRefDataAPI(
+            {"corn_mar2026": DummyContract(product_id="corn")}
+        ),
+    )
+
+    result = accessor.get_execution_price(
+        contract_id="corn_mar2026",
+        session=np.datetime64("2026-03-11"),
+    )
+
+    assert result == 103.25
 
 
 def test_daily_stats_accessor_raises_for_non_numeric_price_field(
@@ -659,7 +702,7 @@ def test_daily_stats_accessor_raises_for_non_numeric_price_field(
     with pytest.raises(TypeError, match="non-numeric values"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -697,7 +740,7 @@ def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
     with pytest.raises(TypeError, match="trading_date must be tz-aware"):
         accessor.get_execution_price(
             contract_id="corn_mar2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )
 
 
@@ -728,5 +771,5 @@ def test_daily_stats_accessor_raises_for_missing_contract_day_price(
     with pytest.raises(ValueError, match="Missing execution price"):
         accessor.get_execution_price(
             contract_id="corn_may2026",
-            submission_timestamp=pd.Timestamp("2026-03-10T10:00:00Z"),
+            session=np.datetime64("2026-03-10"),
         )

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
@@ -9,11 +12,102 @@ from mxm.v1.execution.orders import (
     Order,
     OrderGenerationPolicy,
     OrderGenerator,
+    OrderTimestampPolicy,
     OrderType,
 )
 from mxm.v1.utils.time_utils import to_utc_ts
 
+SESSION = np.datetime64("2026-03-12", "D")
+OPEN_TS = to_utc_ts("2026-03-12T08:00:00Z")
+CLOSE_TS = to_utc_ts("2026-03-12T16:00:00Z")
 CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=timezone.utc))
+
+
+class DummyContract:
+    def __init__(self, product_id: str) -> None:
+        self.product_id = product_id
+
+
+class DummyRefDataAPI:
+    def __init__(self, mapping: dict[str, DummyContract]) -> None:
+        self._mapping = mapping
+
+    def get_contract_by_id(self, contract_id: str) -> DummyContract | None:
+        return self._mapping.get(contract_id)
+
+
+class DummyCalendar:
+    def __init__(
+        self,
+        *,
+        open_ts: pd.Timestamp = OPEN_TS,
+        close_ts: pd.Timestamp = CLOSE_TS,
+    ) -> None:
+        self._open_ts = open_ts
+        self._close_ts = close_ts
+
+    def session_open(self, session: np.datetime64) -> pd.Timestamp:
+        assert session == SESSION
+        return self._open_ts
+
+    def session_close(self, session: np.datetime64) -> pd.Timestamp:
+        assert session == SESSION
+        return self._close_ts
+
+
+class DummyCalendarService:
+    def __init__(self, mapping: dict[str, DummyCalendar]) -> None:
+        self._mapping = mapping
+
+    def calendar_for_product(self, product_id: str) -> DummyCalendar:
+        try:
+            return self._mapping[product_id]
+        except KeyError as exc:
+            raise ValueError(f"Unknown product_id {product_id!r}") from exc
+
+
+def _make_generator(
+    *,
+    policy: OrderGenerationPolicy | None = None,
+    contract_to_product: dict[str, str] | None = None,
+    calendars_by_product: dict[str, DummyCalendar] | None = None,
+) -> OrderGenerator:
+    if policy is None:
+        policy = OrderGenerationPolicy()
+
+    if contract_to_product is None:
+        contract_to_product = {
+            "a": "prod_a",
+            "b": "prod_b",
+            "corn_mar2026": "corn",
+            "corn_may2026": "corn",
+            "soy_nov2026": "soy",
+            "wheat_jul2026": "wheat",
+        }
+
+    refdata = DummyRefDataAPI(
+        {
+            contract_id: DummyContract(product_id=product_id)
+            for contract_id, product_id in contract_to_product.items()
+        }
+    )
+
+    if calendars_by_product is None:
+        calendars_by_product = {
+            "prod_a": DummyCalendar(),
+            "prod_b": DummyCalendar(),
+            "corn": DummyCalendar(),
+            "soy": DummyCalendar(),
+            "wheat": DummyCalendar(),
+        }
+
+    calendar_service = DummyCalendarService(calendars_by_product)
+
+    return OrderGenerator(
+        policy=policy,
+        ref_data_api=refdata,
+        calendar_service=calendar_service,
+    )
 
 
 def _order_tuples(
@@ -103,6 +197,7 @@ def test_order_generation_policy_accepts_default_configuration() -> None:
     assert policy.default_min_block_size == 1
     assert policy.min_block_sizes is None
     assert policy.default_order_type == OrderType.MARKET
+    assert policy.timestamp_policy == OrderTimestampPolicy.SESSION_OPEN
 
 
 def test_order_generation_policy_rejects_non_positive_default_min_block_size() -> None:
@@ -142,12 +237,12 @@ def test_order_generation_policy_rejects_non_positive_min_block_size_entries() -
 
 
 def test_generate_orders_from_empty_target_trades_returns_empty_result() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.empty()
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(dtype="int64", index=pd.Index([], name="contract_id"))
@@ -158,7 +253,7 @@ def test_generate_orders_from_empty_target_trades_returns_empty_result() -> None
 
 
 def test_generate_orders_rounds_small_trades_to_zero_with_default_block_size() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "corn_mar2026": 0.49,
@@ -168,7 +263,7 @@ def test_generate_orders_rounds_small_trades_to_zero_with_default_block_size() -
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(dtype="int64", index=pd.Index([], name="contract_id"))
@@ -179,7 +274,7 @@ def test_generate_orders_rounds_small_trades_to_zero_with_default_block_size() -
 
 
 def test_generate_orders_rounds_positive_half_away_from_zero() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "a": 0.50,
@@ -189,7 +284,7 @@ def test_generate_orders_rounds_positive_half_away_from_zero() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -200,13 +295,13 @@ def test_generate_orders_rounds_positive_half_away_from_zero() -> None:
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("a", 1, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("b", 2, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("a", 1, OrderType.MARKET, OPEN_TS, None),
+        ("b", 2, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
 def test_generate_orders_rounds_negative_half_away_from_zero() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "a": -0.50,
@@ -216,7 +311,7 @@ def test_generate_orders_rounds_negative_half_away_from_zero() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -227,19 +322,19 @@ def test_generate_orders_rounds_negative_half_away_from_zero() -> None:
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("a", -1, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("b", -2, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("a", -1, OrderType.MARKET, OPEN_TS, None),
+        ("b", -2, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
 def test_generate_orders_uses_default_block_size_when_no_override_exists() -> None:
     policy = OrderGenerationPolicy(default_min_block_size=5)
-    generator = OrderGenerator(policy=policy)
+    generator = _make_generator(policy=policy)
     target_trades = TargetContractBundle.from_dict({"corn_mar2026": 7.4})
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -250,7 +345,7 @@ def test_generate_orders_uses_default_block_size_when_no_override_exists() -> No
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 5, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_mar2026", 5, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
@@ -264,12 +359,12 @@ def test_generate_orders_uses_per_contract_block_size_override() -> None:
         default_min_block_size=1,
         min_block_sizes=min_block_sizes,
     )
-    generator = OrderGenerator(policy=policy)
+    generator = _make_generator(policy=policy)
     target_trades = TargetContractBundle.from_dict({"corn_mar2026": 7.5})
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -280,7 +375,7 @@ def test_generate_orders_uses_per_contract_block_size_override() -> None:
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 10, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_mar2026", 10, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
@@ -294,7 +389,7 @@ def test_generate_orders_handles_mixed_contract_block_sizes() -> None:
         default_min_block_size=1,
         min_block_sizes=min_block_sizes,
     )
-    generator = OrderGenerator(policy=policy)
+    generator = _make_generator(policy=policy)
     target_trades = TargetContractBundle.from_dict(
         {
             "corn_mar2026": 7.4,
@@ -305,7 +400,7 @@ def test_generate_orders_handles_mixed_contract_block_sizes() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -319,27 +414,27 @@ def test_generate_orders_handles_mixed_contract_block_sizes() -> None:
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 5, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("soy_nov2026", 2, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("wheat_jul2026", -4, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_mar2026", 5, OrderType.MARKET, OPEN_TS, None),
+        ("soy_nov2026", 2, OrderType.MARKET, OPEN_TS, None),
+        ("wheat_jul2026", -4, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
 def test_generate_orders_returns_market_orders_by_default() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict({"corn_mar2026": 1.0})
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     assert len(result.orders) == 1
     assert result.orders[0].order_type == OrderType.MARKET
 
 
-def test_generate_orders_assigns_created_at_to_all_orders() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+def test_generate_orders_assigns_session_open_created_at_by_default() -> None:
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "corn_mar2026": 1.0,
@@ -349,15 +444,69 @@ def test_generate_orders_assigns_created_at_to_all_orders() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at="2026-03-12T10:00:00Z",
+        session=SESSION,
     )
 
-    expected_created_at = to_utc_ts("2026-03-12T10:00:00Z")
-    assert all(order.created_at == expected_created_at for order in result.orders)
+    assert all(order.created_at == OPEN_TS for order in result.orders)
+
+
+def test_generate_orders_assigns_session_close_when_configured() -> None:
+    policy = OrderGenerationPolicy(
+        timestamp_policy=OrderTimestampPolicy.SESSION_CLOSE,
+    )
+    generator = _make_generator(policy=policy)
+    target_trades = TargetContractBundle.from_dict({"corn_mar2026": 1.0})
+
+    result = generator.generate_orders(
+        target_trades=target_trades,
+        session=SESSION,
+    )
+
+    assert len(result.orders) == 1
+    assert result.orders[0].created_at == CLOSE_TS
+
+
+def test_generate_orders_can_assign_different_timestamps_by_product_calendar() -> None:
+    policy = OrderGenerationPolicy(
+        timestamp_policy=OrderTimestampPolicy.SESSION_OPEN,
+    )
+    generator = _make_generator(
+        policy=policy,
+        contract_to_product={
+            "corn_mar2026": "corn",
+            "wheat_jul2026": "wheat",
+        },
+        calendars_by_product={
+            "corn": DummyCalendar(open_ts=to_utc_ts("2026-03-12T08:00:00Z")),
+            "wheat": DummyCalendar(open_ts=to_utc_ts("2026-03-12T09:30:00Z")),
+        },
+    )
+    target_trades = TargetContractBundle.from_dict(
+        {
+            "corn_mar2026": 1.0,
+            "wheat_jul2026": -1.0,
+        }
+    )
+
+    result = generator.generate_orders(
+        target_trades=target_trades,
+        session=SESSION,
+    )
+
+    assert _order_tuples(result.orders) == [
+        ("corn_mar2026", 1, OrderType.MARKET, to_utc_ts("2026-03-12T08:00:00Z"), None),
+        (
+            "wheat_jul2026",
+            -1,
+            OrderType.MARKET,
+            to_utc_ts("2026-03-12T09:30:00Z"),
+            None,
+        ),
+    ]
 
 
 def test_generate_orders_returns_orders_consistent_with_implemented_trades() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "corn_mar2026": 2.0,
@@ -368,7 +517,7 @@ def test_generate_orders_returns_orders_consistent_with_implemented_trades() -> 
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected_trades = pd.Series(
@@ -379,13 +528,13 @@ def test_generate_orders_returns_orders_consistent_with_implemented_trades() -> 
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected_trades)
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 2, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("corn_may2026", -1, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_mar2026", 2, OrderType.MARKET, OPEN_TS, None),
+        ("corn_may2026", -1, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
 def test_generate_orders_drops_zero_implemented_trades() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "corn_mar2026": 0.49,
@@ -395,7 +544,7 @@ def test_generate_orders_drops_zero_implemented_trades() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     expected = pd.Series(
@@ -406,12 +555,12 @@ def test_generate_orders_drops_zero_implemented_trades() -> None:
 
     pdt.assert_series_equal(result.implemented_trades.quantities, expected)
     assert _order_tuples(result.orders) == [
-        ("corn_may2026", 1, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_may2026", 1, OrderType.MARKET, OPEN_TS, None),
     ]
 
 
 def test_generate_orders_returns_deterministic_contract_order() -> None:
-    generator = OrderGenerator(policy=OrderGenerationPolicy())
+    generator = _make_generator()
     target_trades = TargetContractBundle.from_dict(
         {
             "wheat_jul2026": 2.0,
@@ -422,11 +571,22 @@ def test_generate_orders_returns_deterministic_contract_order() -> None:
 
     result = generator.generate_orders(
         target_trades=target_trades,
-        created_at=CREATED_AT,
+        session=SESSION,
     )
 
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 1, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("soy_nov2026", -3, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
-        ("wheat_jul2026", 2, OrderType.MARKET, to_utc_ts(CREATED_AT), None),
+        ("corn_mar2026", 1, OrderType.MARKET, OPEN_TS, None),
+        ("soy_nov2026", -3, OrderType.MARKET, OPEN_TS, None),
+        ("wheat_jul2026", 2, OrderType.MARKET, OPEN_TS, None),
     ]
+
+
+def test_generate_orders_raises_for_unknown_contract_in_refdata() -> None:
+    generator = _make_generator(contract_to_product={})
+    target_trades = TargetContractBundle.from_dict({"corn_mar2026": 1.0})
+
+    with pytest.raises(ValueError, match="Unknown contract_id"):
+        generator.generate_orders(
+            target_trades=target_trades,
+            session=SESSION,
+        )

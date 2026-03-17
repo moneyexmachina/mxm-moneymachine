@@ -47,6 +47,8 @@ Those extensions belong to a later attribution-focused refactor.
 
 Temporal semantics
 ------------------
+MXM V1 is session-native at the orchestration layer.
+
 The engine distinguishes:
 
 - previous_session:
@@ -55,21 +57,24 @@ The engine distinguishes:
 - session:
     the current session being processed
 
+Both are session labels, represented canonically as `np.datetime64[D]`.
+
 For the first session in a run, previous_session may be None.
 
 Current implementation choices
 ------------------------------
-- the session timestamp is used as:
-    - the order created_at timestamp
-    - the order submission_timestamp
-
-This keeps the first implementation simple and deterministic. Later
-versions may separate these timestamps if needed.
+- the engine itself is fully session-native
+- no synthetic timestamps are introduced here
+- timestamped execution facts may be introduced downstream by the
+  OrderGenerator and Executor
+- any future timestamp-based execution layer should be added as a later
+  adapter or execution-model extension, not by smuggling timestamp
+  semantics into the V1 session engine
 """
 
 from dataclasses import dataclass
 
-import pandas as pd
+import numpy as np
 from mxm_refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
@@ -82,7 +87,7 @@ from mxm.v1.execution.holdings import (
 )
 from mxm.v1.execution.orders import Order, OrderGenerator
 from mxm.v1.execution.trades import build_target_trades
-from mxm.v1.utils.time_utils import UtcTimestampInput, to_utc_ts
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,8 +137,8 @@ class SessionResult:
     Later versions may extend it with attributed companions.
     """
 
-    previous_session: pd.Timestamp | None
-    session: pd.Timestamp
+    previous_session: np.datetime64 | None
+    session: np.datetime64
     previous_realised_holdings: ContractBundle
     initial_holdings: ContractBundle
     target_holdings: TargetContractBundle
@@ -148,10 +153,10 @@ class SessionResult:
             object.__setattr__(
                 self,
                 "previous_session",
-                to_utc_ts(self.previous_session),
+                coerce_np_day(self.previous_session),
             )
 
-        object.__setattr__(self, "session", to_utc_ts(self.session))
+        object.__setattr__(self, "session", coerce_np_day(self.session))
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,10 +185,10 @@ class SessionEngine:
     def run_session(
         self,
         *,
-        session: UtcTimestampInput,
+        session: np.datetime64,
         previous_realised_holdings: ContractBundle,
         target_holdings: TargetContractBundle,
-        previous_session: UtcTimestampInput | None = None,
+        previous_session: np.datetime64 | None = None,
     ) -> SessionResult:
         """
         Run one canonical trading session step.
@@ -191,7 +196,7 @@ class SessionEngine:
         Parameters
         ----------
         session:
-            The current session timestamp.
+            The current session label.
 
         previous_realised_holdings:
             Realised holdings carried from the previous session.
@@ -200,22 +205,22 @@ class SessionEngine:
             Ideal target holdings for the current session.
 
         previous_session:
-            Optional session timestamp from which
-            previous_realised_holdings were carried.
+            Optional session label from which previous_realised_holdings
+            were carried.
 
         Returns
         -------
         SessionResult
             Full net transition record for the session.
         """
-        session_ts = to_utc_ts(session)
-        previous_session_ts = (
-            None if previous_session is None else to_utc_ts(previous_session)
+        session_day = coerce_np_day(session)
+        previous_session_day = (
+            None if previous_session is None else coerce_np_day(previous_session)
         )
 
         initial_holdings = prepare_initial_holdings(
             realised_holdings=previous_realised_holdings,
-            session=session_ts.to_datetime64(),
+            session=session_day,
             ref_data_api=self.ref_data_api,
         )
 
@@ -226,12 +231,12 @@ class SessionEngine:
 
         order_generation = self.order_generator.generate_orders(
             target_trades=target_trades,
-            created_at=session_ts,
+            session=session_day,
         )
 
         submission = OrderSubmission(
             orders=order_generation.orders,
-            submission_timestamp=session_ts,
+            session=session_day,
         )
 
         execution_result = self.executor.execute_orders(submission)
@@ -242,8 +247,8 @@ class SessionEngine:
         )
 
         return SessionResult(
-            previous_session=previous_session_ts,
-            session=session_ts,
+            previous_session=previous_session_day,
+            session=session_day,
             previous_realised_holdings=previous_realised_holdings,
             initial_holdings=initial_holdings,
             target_holdings=target_holdings,

@@ -2,17 +2,27 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
 from mxm.v1.execution.backtester import Backtester, BacktestResult
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
-from mxm.v1.execution.executor import ExecutionPriceAccessor, PerfectBacktestExecutor
-from mxm.v1.execution.orders import OrderGenerationPolicy, OrderGenerator
+from mxm.v1.execution.executor import OrderSubmission, PerfectBacktestExecutor
+from mxm.v1.execution.orders import (
+    OrderGenerationPolicy,
+    OrderGenerator,
+    OrderTimestampPolicy,
+)
+from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.execution.session_engine import SessionEngine, SessionResult
 from mxm.v1.synthetic_assets.target_holdings import TargetHoldings
 from mxm.v1.utils.time_utils import to_utc_ts
+
+S1 = np.datetime64("2026-03-10", "D")
+S2 = np.datetime64("2026-03-11", "D")
+S3 = np.datetime64("2026-03-12", "D")
 
 
 class DummyContract:
@@ -30,30 +40,82 @@ class DummyRefDataAPI:
 
 
 class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
-    def __init__(self, prices: dict[tuple[str, pd.Timestamp], float]) -> None:
+    def __init__(self, prices: dict[tuple[str, np.datetime64], float]) -> None:
         self._prices = prices
-        self.calls: list[tuple[str, pd.Timestamp]] = []
+        self.calls: list[tuple[str, np.datetime64]] = []
 
     def get_execution_price(
         self,
         contract_id: str,
-        submission_timestamp: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
-        key = (contract_id, submission_timestamp)
+        key = (contract_id, np.datetime64(session, "D"))
         self.calls.append(key)
         return self._prices[key]
+
+
+class DummyCalendar:
+    def __init__(
+        self,
+        *,
+        open_ts: pd.Timestamp | None = None,
+        close_ts: pd.Timestamp | None = None,
+    ) -> None:
+        self._open_ts = (
+            to_utc_ts("2026-03-10T08:00:00Z") if open_ts is None else open_ts
+        )
+        self._close_ts = (
+            to_utc_ts("2026-03-10T16:00:00Z") if close_ts is None else close_ts
+        )
+
+    def session_open(self, session: np.datetime64) -> pd.Timestamp:
+        day = np.datetime64(session, "D")
+        return to_utc_ts(f"{day.astype(str)}T08:00:00Z")
+
+    def session_close(self, session: np.datetime64) -> pd.Timestamp:
+        day = np.datetime64(session, "D")
+        return to_utc_ts(f"{day.astype(str)}T16:00:00Z")
+
+
+class DummyCalendarService:
+    def __init__(self, mapping: dict[str, DummyCalendar]) -> None:
+        self._mapping = mapping
+
+    def calendar_for_product(self, product_id: str) -> DummyCalendar:
+        try:
+            return self._mapping[product_id]
+        except KeyError as exc:
+            raise ValueError(f"Unknown product_id {product_id!r}") from exc
 
 
 def _make_backtester(
     *,
     ref_data_api: DummyRefDataAPI,
-    prices: dict[tuple[str, pd.Timestamp], float],
+    prices: dict[tuple[str, np.datetime64], float],
     default_min_block_size: int = 1,
+    timestamp_policy: OrderTimestampPolicy = OrderTimestampPolicy.SESSION_OPEN,
+    calendars_by_product: dict[str, DummyCalendar] | None = None,
 ) -> tuple[Backtester, DummyExecutionPriceAccessor]:
     accessor = DummyExecutionPriceAccessor(prices=prices)
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
+
+    if calendars_by_product is None:
+        product_ids = {
+            contract.product_id for contract in ref_data_api._contracts.values()
+        }
+        calendars_by_product = {
+            product_id: DummyCalendar() for product_id in product_ids
+        }
+
+    calendar_service = DummyCalendarService(calendars_by_product)
+
     order_generator = OrderGenerator(
-        policy=OrderGenerationPolicy(default_min_block_size=default_min_block_size)
+        policy=OrderGenerationPolicy(
+            default_min_block_size=default_min_block_size,
+            timestamp_policy=timestamp_policy,
+        ),
+        ref_data_api=ref_data_api,
+        calendar_service=calendar_service,
     )
     session_engine = SessionEngine(
         ref_data_api=ref_data_api,
@@ -65,7 +127,7 @@ def _make_backtester(
 
 
 def _make_target_holdings(
-    rows: list[tuple[pd.Timestamp, str, float]],
+    rows: list[tuple[np.datetime64, str, float]],
     *,
     asset_id: str = "asset_1",
     canonical_id: str = "asset_1.canonical",
@@ -86,9 +148,6 @@ def _make_target_holdings(
 
 
 def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-    s2 = to_utc_ts("2026-03-11T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -101,15 +160,15 @@ def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
     backtester, accessor = _make_backtester(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", s1): 101.5,
-            ("corn_mar2026", s2): 102.25,
+            ("corn_mar2026", S1): 101.5,
+            ("corn_mar2026", S2): 102.25,
         },
     )
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 1.0),
-            (s2, "corn_mar2026", 2.0),
+            (S1, "corn_mar2026", 1.0),
+            (S2, "corn_mar2026", 2.0),
         ]
     )
 
@@ -121,9 +180,9 @@ def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
     r2 = result.session_results[1]
 
     assert r1.previous_session is None
-    assert r1.session == s1
-    assert r2.previous_session == s1
-    assert r2.session == s2
+    assert r1.session == S1
+    assert r2.previous_session == S1
+    assert r2.session == S2
 
     expected_r1_realised = pd.Series(
         [1],
@@ -148,14 +207,12 @@ def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
     pdt.assert_series_equal(r2.realised_holdings.quantities, expected_r2_realised)
 
     assert accessor.calls == [
-        ("corn_mar2026", s1),
-        ("corn_mar2026", s2),
+        ("corn_mar2026", S1),
+        ("corn_mar2026", S2),
     ]
 
 
 def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -167,12 +224,12 @@ def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -
 
     backtester, _ = _make_backtester(
         ref_data_api=ref_data_api,
-        prices={("corn_mar2026", s1): 101.5},
+        prices={("corn_mar2026", S1): 101.5},
     )
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 1.0),
+            (S1, "corn_mar2026", 1.0),
         ]
     )
 
@@ -186,8 +243,6 @@ def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -
 
 
 def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -199,13 +254,13 @@ def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> Non
 
     backtester, _ = _make_backtester(
         ref_data_api=ref_data_api,
-        prices={("corn_mar2026", s1): 101.5},
+        prices={("corn_mar2026", S1): 101.5},
     )
 
     initial_realised_holdings = ContractBundle.from_dict({"corn_mar2026": 2})
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 3.0),
+            (S1, "corn_mar2026", 3.0),
         ]
     )
 
@@ -226,9 +281,6 @@ def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> Non
 
 
 def test_run_target_holdings_slices_correct_target_holdings_per_session() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-    s2 = to_utc_ts("2026-03-11T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -245,19 +297,19 @@ def test_run_target_holdings_slices_correct_target_holdings_per_session() -> Non
     backtester, _ = _make_backtester(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", s1): 101.5,
-            ("corn_may2026", s1): 102.25,
-            ("corn_mar2026", s2): 103.0,
-            ("corn_may2026", s2): 104.0,
+            ("corn_mar2026", S1): 101.5,
+            ("corn_may2026", S1): 102.25,
+            ("corn_mar2026", S2): 103.0,
+            ("corn_may2026", S2): 104.0,
         },
     )
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 1.0),
-            (s1, "corn_may2026", -1.0),
-            (s2, "corn_mar2026", 2.0),
-            (s2, "corn_may2026", 0.0),
+            (S1, "corn_mar2026", 1.0),
+            (S1, "corn_may2026", -1.0),
+            (S2, "corn_mar2026", 2.0),
+            (S2, "corn_may2026", 0.0),
         ]
     )
 
@@ -287,9 +339,6 @@ def test_run_target_holdings_slices_correct_target_holdings_per_session() -> Non
 def test_run_target_holdings_carries_realised_holdings_forward_between_sessions() -> (
     None
 ):
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-    s2 = to_utc_ts("2026-03-11T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -302,15 +351,15 @@ def test_run_target_holdings_carries_realised_holdings_forward_between_sessions(
     backtester, _ = _make_backtester(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", s1): 101.5,
-            ("corn_mar2026", s2): 102.25,
+            ("corn_mar2026", S1): 101.5,
+            ("corn_mar2026", S2): 102.25,
         },
     )
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 1.0),
-            (s2, "corn_mar2026", 1.0),
+            (S1, "corn_mar2026", 1.0),
+            (S2, "corn_mar2026", 1.0),
         ]
     )
 
@@ -344,10 +393,6 @@ def test_run_target_holdings_carries_realised_holdings_forward_between_sessions(
 
 
 def test_run_target_holdings_respects_rounding_across_sessions() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-    s2 = to_utc_ts("2026-03-11T00:00:00Z")
-    s3 = to_utc_ts("2026-03-12T00:00:00Z")
-
     ref_data_api = DummyRefDataAPI(
         {
             "corn_mar2026": DummyContract(
@@ -360,16 +405,16 @@ def test_run_target_holdings_respects_rounding_across_sessions() -> None:
     backtester, accessor = _make_backtester(
         ref_data_api=ref_data_api,
         prices={
-            ("corn_mar2026", s1): 101.5,
-            ("corn_mar2026", s3): 103.25,
+            ("corn_mar2026", S1): 101.5,
+            ("corn_mar2026", S3): 103.25,
         },
     )
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 0.6),
-            (s2, "corn_mar2026", 1.4),
-            (s3, "corn_mar2026", 1.6),
+            (S1, "corn_mar2026", 0.6),
+            (S2, "corn_mar2026", 1.4),
+            (S3, "corn_mar2026", 1.6),
         ]
     )
 
@@ -403,31 +448,28 @@ def test_run_target_holdings_respects_rounding_across_sessions() -> None:
     pdt.assert_series_equal(r3.realised_holdings.quantities, expected_r3_realised)
 
     assert accessor.calls == [
-        ("corn_mar2026", s1),
-        ("corn_mar2026", s3),
+        ("corn_mar2026", S1),
+        ("corn_mar2026", S3),
     ]
 
 
 def test_backtest_result_rejects_unsorted_session_results() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
-    s2 = to_utc_ts("2026-03-11T00:00:00Z")
-
     empty_holdings = ContractBundle.empty()
     empty_target = TargetContractBundle.empty()
 
     dummy_execution_result = PerfectBacktestExecutor(
         execution_price_accessor=DummyExecutionPriceAccessor(prices={})
     ).execute_orders(
-        submission=type(
-            "DummySubmission",
-            (),
-            {"orders": [], "submission_timestamp": s1},
-        )()
+        OrderSubmission(
+            orders=[],
+            session=S1,
+            submission_timestamp=None,
+        )
     )
 
     r2 = SessionResult(
-        previous_session=s1,
-        session=s2,
+        previous_session=S1,
+        session=S2,
         previous_realised_holdings=empty_holdings,
         initial_holdings=empty_holdings,
         target_holdings=empty_target,
@@ -439,7 +481,7 @@ def test_backtest_result_rejects_unsorted_session_results() -> None:
     )
     r1 = SessionResult(
         previous_session=None,
-        session=s1,
+        session=S1,
         previous_realised_holdings=empty_holdings,
         initial_holdings=empty_holdings,
         target_holdings=empty_target,
@@ -455,7 +497,6 @@ def test_backtest_result_rejects_unsorted_session_results() -> None:
 
 
 def test_run_target_holdings_propagates_session_engine_failure() -> None:
-    s1 = to_utc_ts("2026-03-10T00:00:00Z")
     initial_realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
     ref_data_api = DummyRefDataAPI(
         {
@@ -473,7 +514,7 @@ def test_run_target_holdings_propagates_session_engine_failure() -> None:
 
     target_holdings = _make_target_holdings(
         [
-            (s1, "corn_mar2026", 1.0),
+            (S1, "corn_mar2026", 1.0),
         ]
     )
 

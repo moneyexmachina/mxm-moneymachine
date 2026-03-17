@@ -9,7 +9,7 @@ generated orders and realised trade outcomes.
 At the current stage of the execution design, the relevant
 transformation is:
 
-    orders
+    submitted orders
         ↓ executor
     order executions
         ↓ aggregation
@@ -28,12 +28,16 @@ The execution layer distinguishes three different moments:
     carried on the Order object as metadata
 
 - order submission time
-    carried on the OrderSubmission object
+    carried optionally on the OrderSubmission object
 
 - execution / fill time
     produced by the executor as part of OrderExecution
 
-This separation is important for both backtests and live execution.
+MXM V1 execution is session-anchored:
+- submitted batches always carry a session label
+- perfect backtest execution prices are resolved by session
+- timestamp fields remain available for richer simulated or live
+  execution engines
 
 Current scope
 -------------
@@ -46,7 +50,9 @@ which assumes:
 - all submitted orders fill completely
 - fill quantity equals order quantity
 - fill price is obtained from an injected execution-price accessor
-- fill timestamp equals submission timestamp
+- fill timestamp equals:
+    - submission_timestamp, if provided
+    - otherwise order.created_at
 
 Later executors may introduce:
 
@@ -62,10 +68,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 
+import numpy as np
 import pandas as pd
 
 from mxm.v1.execution.contract_bundles import ContractBundle
 from mxm.v1.execution.orders import Order
+from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
+from mxm.v1.utils.date_utils import coerce_np_day
 from mxm.v1.utils.time_utils import to_utc_ts
 
 
@@ -94,24 +103,34 @@ class OrderSubmission:
     orders:
         Orders being submitted for execution.
 
-    submission_timestamp:
-        Canonical UTC-normalised timestamp at which the batch is
-        submitted.
+    session:
+        Trading session label anchoring this submission batch.
 
-        In backtests this is an artificial historical timestamp used to
-        identify the execution context.
+    submission_timestamp:
+        Optional canonical UTC-normalised timestamp at which the batch is
+        submitted.
 
         In live trading this would typically be the actual submission
         time.
+
+        In backtests this may be omitted, in which case executors may use
+        other available order metadata (for example `Order.created_at`)
+        when a timestamped execution fact is required.
     """
 
     orders: list[Order]
-    submission_timestamp: pd.Timestamp
+    session: np.datetime64
+    submission_timestamp: pd.Timestamp | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "submission_timestamp", to_utc_ts(self.submission_timestamp)
-        )
+        object.__setattr__(self, "session", coerce_np_day(self.session))
+
+        if self.submission_timestamp is not None:
+            object.__setattr__(
+                self,
+                "submission_timestamp",
+                to_utc_ts(self.submission_timestamp),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,36 +229,6 @@ class ExecutionResult:
             raise TypeError("ExecutionResult.fill_prices must be numeric.")
 
 
-class ExecutionPriceAccessor(ABC):
-    """
-    Abstract accessor for execution prices.
-
-    Executors use a price accessor to obtain the fill-reference price for
-    a contract at a given submission timestamp.
-
-    The current perfect backtest executor interprets this as the exact
-    fill price.
-
-    Notes
-    -----
-    The submission_timestamp argument is already canonical UTC-normalised
-    internal time and therefore uses pd.Timestamp rather than
-    UtcTimestampInput.
-    """
-
-    @abstractmethod
-    def get_execution_price(
-        self,
-        contract_id: str,
-        submission_timestamp: pd.Timestamp,
-    ) -> float:
-        """
-        Return the execution reference price for a contract at the given
-        submission timestamp.
-        """
-        raise NotImplementedError
-
-
 class Executor(ABC):
     """
     Abstract execution engine.
@@ -274,8 +263,11 @@ class PerfectBacktestExecutor(Executor):
     ---------
     - every submitted order fills completely
     - fill quantity equals order quantity
-    - fill price equals the accessed execution price
-    - fill timestamp equals submission timestamp
+    - fill price equals the accessed execution price for the submission
+      session
+    - fill timestamp equals:
+        - submission_timestamp, if present
+        - otherwise order.created_at
     """
 
     execution_price_accessor: ExecutionPriceAccessor
@@ -292,6 +284,7 @@ class PerfectBacktestExecutor(Executor):
         realised_quantities: dict[str, int] = {}
         fill_prices_by_contract: dict[str, float] = {}
         seen_contract_ids: set[str] = set()
+
         for order in submission.orders:
             if order.contract_id in seen_contract_ids:
                 raise ValueError(
@@ -300,9 +293,16 @@ class PerfectBacktestExecutor(Executor):
                     f"{order.contract_id!r}"
                 )
             seen_contract_ids.add(order.contract_id)
+
             fill_price = self.execution_price_accessor.get_execution_price(
                 contract_id=order.contract_id,
-                submission_timestamp=submission.submission_timestamp,
+                session=submission.session,
+            )
+
+            fill_timestamp = (
+                submission.submission_timestamp
+                if submission.submission_timestamp is not None
+                else order.created_at
             )
 
             execution = OrderExecution(
@@ -310,7 +310,7 @@ class PerfectBacktestExecutor(Executor):
                 status=ExecutionStatus.FILLED,
                 filled_quantity=order.quantity,
                 fill_price=float(fill_price),
-                fill_timestamp=submission.submission_timestamp,
+                fill_timestamp=fill_timestamp,
             )
             order_executions.append(execution)
 

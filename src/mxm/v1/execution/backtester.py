@@ -32,16 +32,26 @@ The current implementation is designed around TargetHoldings surfaces as
 produced by the synthetic-asset layer, but the runner is intentionally
 generic enough that later strategy- or portfolio-level target-holdings
 surfaces can be used in the same way.
+
+Temporal semantics
+------------------
+MXM V1 backtesting is session-native.
+
+The Backtester iterates over session labels represented canonically as
+`np.datetime64[D]`. It does not introduce timestamp semantics. Any
+timestamped order or execution facts are introduced downstream by the
+order-generation and execution layers.
 """
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 from mxm.v1.execution.session_engine import SessionEngine, SessionResult
 from mxm.v1.synthetic_assets.target_holdings import TargetHoldings
-from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,12 +85,12 @@ class BacktestResult:
     def is_empty(self) -> bool:
         return len(self.session_results) == 0
 
-    def first_session(self) -> pd.Timestamp:
+    def first_session(self) -> np.datetime64:
         if not self.session_results:
             raise ValueError("BacktestResult is empty.")
         return self.session_results[0].session
 
-    def last_session(self) -> pd.Timestamp:
+    def last_session(self) -> np.datetime64:
         if not self.session_results:
             raise ValueError("BacktestResult is empty.")
         return self.session_results[-1].session
@@ -130,7 +140,7 @@ class Backtester:
             else initial_realised_holdings
         )
 
-        previous_session: pd.Timestamp | None = None
+        previous_session: np.datetime64 | None = None
         session_results: list[SessionResult] = []
 
         for session in sessions:
@@ -153,19 +163,19 @@ class Backtester:
         return BacktestResult(session_results=session_results)
 
     @staticmethod
-    def _extract_sessions(target_holdings: TargetHoldings) -> list[pd.Timestamp]:
+    def _extract_sessions(target_holdings: TargetHoldings) -> list[np.datetime64]:
         """
         Extract unique realised sessions from the TargetHoldings surface in
         deterministic order.
         """
         sessions = target_holdings.frame.index.get_level_values("session").unique()
-        return [to_utc_ts(session) for session in sessions]
+        return [coerce_np_day(session) for session in sessions]
 
     @staticmethod
     def _target_bundle_for_session(
         *,
         target_holdings: TargetHoldings,
-        session: pd.Timestamp,
+        session: np.datetime64,
     ) -> TargetContractBundle:
         """
         Convert one TargetHoldings session slice into a TargetContractBundle.

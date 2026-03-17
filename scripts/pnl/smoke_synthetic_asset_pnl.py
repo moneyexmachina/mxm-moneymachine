@@ -42,6 +42,7 @@ from mxm.v1.execution.price_accessors import (
 )
 from mxm.v1.execution.session_engine import SessionEngine
 from mxm.v1.fx.spot_fx_converter import IdentitySpotFXConverter
+from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_product
 from mxm.v1.pnl.constructor import build_pnl_series
 from mxm.v1.pnl.models import PnLSeries
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
@@ -51,6 +52,7 @@ from mxm.v1.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
 from mxm.v1.synthetic_assets.unit_conversion import build_default_unit_converter
+from mxm.v1.utils.date_utils import coerce_np_day
 
 # ---------------------------------------------------------------------
 # Plotting helpers
@@ -99,7 +101,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     p.add_argument(
         "--price-field",
-        default="settle",
+        default="settle_px",
         help="daily_stats field used for execution and mark prices (default: settle)",
     )
     p.add_argument(
@@ -132,6 +134,197 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 # ---------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------
+def _print_contract_daily_stats_debug(
+    *,
+    product_id: str,
+    contract_id: str,
+    around_session: np.datetime64,
+    price_field: str,
+    window_days: int = 5,
+    max_rows: int = 50,
+) -> None:
+    df = read_daily_stats_product(product_id=product_id)
+
+    session_ts = pd.Timestamp(coerce_np_day(around_session), tz="UTC")
+    lo = session_ts - pd.Timedelta(days=window_days)
+    hi = session_ts + pd.Timedelta(days=window_days)
+
+    print("=" * 72)
+    print("contract-level daily_stats debug")
+    print(f"  product_id:   {product_id!r}")
+    print(f"  contract_id:  {contract_id!r}")
+    print(f"  around:       {session_ts}")
+    print(f"  price_field:  {price_field!r}")
+    print("=" * 72)
+
+    df_contract = df.loc[df["contract_id"] == contract_id].copy()
+
+    print(f"rows for exact contract_id: {len(df_contract)}")
+    if df_contract.empty:
+        similar = df.loc[
+            df["contract_id"].astype(str).str.contains("Mar-2025", na=False)
+        ].copy()
+        print("No exact rows found. Similar contract_ids containing 'Mar-2025':")
+        if similar.empty:
+            print("  <none>")
+        else:
+            print(
+                similar["contract_id"]
+                .drop_duplicates()
+                .sort_values()
+                .to_string(index=False)
+            )
+        print()
+        return
+
+    df_window = df_contract.loc[
+        (df_contract["trading_date"] >= lo) & (df_contract["trading_date"] <= hi)
+    ].copy()
+
+    cols = [
+        c
+        for c in [
+            "trading_date",
+            "contract_id",
+            "product_id",
+            "raw_symbol",
+            price_field,
+            "settle_px_is_final",
+            "open_px",
+            "high_px",
+            "low_px",
+            "open_interest_qty",
+            "cleared_volume_qty",
+        ]
+        if c in df_window.columns
+    ]
+
+    print(f"rows in date window [{lo}, {hi}]: {len(df_window)}")
+    if df_window.empty:
+        print("  <none>")
+    else:
+        print(
+            df_window.loc[:, cols]
+            .sort_values("trading_date")
+            .head(max_rows)
+            .to_string(index=False)
+        )
+    print()
+
+    exact_day = df_contract.loc[df_contract["trading_date"] == session_ts].copy()
+    print(f"rows on exact trading_date {session_ts}: {len(exact_day)}")
+    if exact_day.empty:
+        print("  <none>")
+    else:
+        print(exact_day.loc[:, cols].to_string(index=False))
+    print()
+
+
+def _print_contract_all_rows_debug(
+    *,
+    product_id: str,
+    contract_id: str,
+    price_field: str,
+    max_rows: int = 50,
+) -> None:
+    df = read_daily_stats_product(product_id=product_id)
+    df_contract = df.loc[df["contract_id"] == contract_id].copy()
+
+    print("=" * 72)
+    print("full contract daily_stats rows")
+    print(f"  product_id:  {product_id!r}")
+    print(f"  contract_id: {contract_id!r}")
+    print("=" * 72)
+    print(f"total rows: {len(df_contract)}")
+
+    if df_contract.empty:
+        print("  <none>")
+        print()
+        return
+
+    cols = [
+        c
+        for c in [
+            "trading_date",
+            "contract_id",
+            "product_id",
+            "instrument_id",
+            "publisher_id",
+            "dataset",
+            "raw_symbol",
+            price_field,
+            "settle_px_is_final",
+            "open_px",
+            "high_px",
+            "low_px",
+            "open_interest_qty",
+            "cleared_volume_qty",
+        ]
+        if c in df_contract.columns
+    ]
+
+    print(df_contract.loc[:, cols].sort_values("trading_date").to_string(index=False))
+    print()
+
+
+def _print_daily_stats_debug(
+    *,
+    product_id: str,
+    price_field: str,
+    max_rows: int = 20,
+) -> None:
+    print("=" * 72)
+    print(f"daily_stats debug for product_id={product_id!r}")
+    print("=" * 72)
+
+    df = read_daily_stats_product(product_id=product_id)
+
+    print(f"rows:    {len(df)}")
+    print(f"columns: {list(df.columns)}")
+    print()
+    print("dtypes:")
+    print(df.dtypes.to_string())
+    print()
+
+    if df.empty:
+        print("<empty daily_stats frame>")
+        print()
+        return
+
+    print("null counts:")
+    print(df.isna().sum().to_string())
+    print()
+
+    print("head:")
+    print(df.head(max_rows).to_string())
+    print()
+
+    print("tail:")
+    print(df.tail(max_rows).to_string())
+    print()
+
+    if price_field in df.columns:
+        null_mask = df[price_field].isna()
+        null_rows = df.loc[null_mask].copy()
+
+        print(f"rows with null {price_field!r}: {len(null_rows)}")
+        if not null_rows.empty:
+            cols = [
+                c
+                for c in ["trading_date", "contract_id", "product_id", price_field]
+                if c in null_rows.columns
+            ]
+            print(null_rows.loc[:, cols].head(max_rows).to_string())
+            if len(null_rows) > max_rows:
+                print(f"... truncated after {max_rows} rows")
+            print()
+
+        non_null_rows = df.loc[~null_mask].copy()
+        print(f"rows with non-null {price_field!r}: {len(non_null_rows)}")
+        print()
+    else:
+        print(f"price_field {price_field!r} is not present in the frame.")
+        print()
 
 
 def _print_spec_summary(spec: SyntheticAssetSpec) -> None:
@@ -299,8 +492,8 @@ def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
 
     asset_id = args.asset_id
-    start = np.datetime64(args.start)
-    end = np.datetime64(args.end)
+    start = coerce_np_day(args.start)
+    end = coerce_np_day(args.end)
 
     # --- Build real services ---
     refdata = RefDataAPI()
@@ -358,10 +551,23 @@ def main(argv: Sequence[str]) -> int:
 
     if asset.target_holdings.frame.empty:
         raise ValueError("SyntheticAsset.target_holdings is empty.")
-
+    product_ids = sorted(
+        {component.product_id for component in spec.components.values()}
+    )
+    print("daily_stats inspection")
+    for product_id in product_ids:
+        _print_daily_stats_debug(
+            product_id=product_id,
+            price_field=args.price_field,
+            max_rows=args.max_head,
+        )
     # --- Build real execution / backtest infrastructure ---
     order_policy = OrderGenerationPolicy(default_min_block_size=1)
-    order_generator = OrderGenerator(policy=order_policy)
+    order_generator = OrderGenerator(
+        policy=order_policy,
+        ref_data_api=refdata,
+        calendar_service=calendars,
+    )
 
     execution_price_accessor = DailyStatsExecutionPriceAccessor(
         price_field=args.price_field,
@@ -378,6 +584,17 @@ def main(argv: Sequence[str]) -> int:
     )
     backtester = Backtester(session_engine=session_engine)
 
+    _print_contract_daily_stats_debug(
+        product_id="cme_emini_snp500_futures",
+        contract_id="cme_emini_snp500_futures.Mar-2025",
+        around_session=start,
+        price_field=args.price_field,
+    )
+    _print_contract_all_rows_debug(
+        product_id="cme_emini_snp500_futures",
+        contract_id="cme_emini_snp500_futures.Mar-2025",
+        price_field=args.price_field,
+    )
     # --- Run historical backtest ---
     backtest_result = backtester.run_target_holdings(
         target_holdings=asset.target_holdings
@@ -405,7 +622,6 @@ def main(argv: Sequence[str]) -> int:
     _print_pnl_summary(pnl_series)
 
     session_df = pnl_series.to_cumulative_dataframe()
-    contract_df = pnl_series.to_contract_dataframe()
 
     _print_frame_head(
         "Session-level PnL (head)",
