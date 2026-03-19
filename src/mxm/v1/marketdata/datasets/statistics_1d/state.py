@@ -118,7 +118,7 @@ def derive_state(
     ew: ExpectedWindow,
     coverage_now: AttemptsCoverageSnapshot | None,
     is_mapped: bool,
-    reset_local: bool,
+    force_reset: bool,
 ) -> DerivedState:
     """
     Pure, deterministic state derivation.
@@ -127,7 +127,7 @@ def derive_state(
       - Blockers first.
       - coverage_now vs ew dominates for DONE vs NEEDS_INGEST.
       - vendor_final only allows DONE-for-partial when we have evidence of any local data.
-      - reset_local is an operator override that forces re-ingest (i.e. prevents DONE short-circuits).
+      - force_reset is an operator override that forces re-ingest (i.e. prevents DONE short-circuits).
       - latest_attempt is consulted for budget/error classification only after coverage-based checks.
     """
     # Blockers first
@@ -139,7 +139,7 @@ def derive_state(
 
     # Operator override: if they reset local, they explicitly want to ingest again
     # (except for empty expected, already handled above).
-    if reset_local:
+    if force_reset:
         return DerivedState.NEEDS_INGEST
 
     has_data_now = _has_any_local_data(coverage_now)

@@ -143,6 +143,7 @@ def pull_timeseries(
     source: str = "databento",
     kind: str = "databento.timeseries.get_range",
     extra: Optional[Mapping[str, Any]] = None,
+    force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
     Generic DataIO-backed pull for Databento timeseries.get_range(...) calls.
@@ -169,7 +170,7 @@ def pull_timeseries(
     with DataIoSession(
         source=source,
         cfg=dio_cfg,
-        cache_mode=CacheMode.DEFAULT,
+        cache_mode=CacheMode.BYPASS if force_refresh else CacheMode.DEFAULT,
         ttl=None,
         as_of_bucket=None,
         cache_tag=None,
@@ -238,6 +239,7 @@ def pull_statistics_1d(
     end: str,
     source: str = "databento",
     extra: Optional[Mapping[str, Any]] = None,
+    force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
     DataIO-backed pull for Databento statistics (rtype=24) over a time range.
@@ -256,6 +258,7 @@ def pull_statistics_1d(
         end=end,
         source=source,
         extra=extra,
+        force_refresh=force_refresh,
     )
 
 
@@ -267,6 +270,7 @@ def pull_statistics_1d_by_instrument_id(
     end: str,
     source: str = "databento",
     extra: Optional[Mapping[str, Any]] = None,
+    force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
     Convenience wrapper to pull statistics by Databento `instrument_id`.
@@ -279,6 +283,7 @@ def pull_statistics_1d_by_instrument_id(
         end=end,
         source=source,
         extra=extra,
+        force_refresh=force_refresh,
     )
 
 

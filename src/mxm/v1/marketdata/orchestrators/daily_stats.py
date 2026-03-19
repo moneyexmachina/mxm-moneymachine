@@ -111,6 +111,30 @@ def _as_date(x: Any) -> date:
     raise TypeError(f"expected date or ISO date string, got {type(x).__name__}: {x!r}")
 
 
+def _filter_contracts_by_id(
+    *,
+    contracts: list[FuturesContract],
+    product_id: str,
+    contract_ids: set[str] | None,
+) -> list[FuturesContract]:
+    if contract_ids is None:
+        return contracts
+
+    wanted = {str(x) for x in contract_ids}
+    present = {str(c.contract_id) for c in contracts}
+
+    missing = sorted(wanted - present)
+    if missing:
+        raise ValueError(
+            "Requested contract_id(s) not available for product_id="
+            f"{product_id!r}: {missing}"
+        )
+
+    out = [c for c in contracts if str(c.contract_id) in wanted]
+    out.sort(key=lambda c: (*contract_year_month(c), str(c.contract_id)))
+    return out
+
+
 def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
     api = RefDataAPI()
     contracts = list(api.get_contracts_for_product(product_id))
@@ -176,8 +200,9 @@ def derive_daily_stats_for_product(
     dataset_range_end: str | None = None,
     session_date_of: Callable[[pd.Series], pd.Series] = _default_session_date_of,
     max_contracts: int | None = None,
+    contract_ids: set[str] | None = None,
     dry_run: bool = False,
-    reset_local: bool = False,
+    force_reset: bool = False,
     require_source_meta: bool = True,
 ) -> DailyStatsOrchestratorReport:
     """
@@ -221,7 +246,11 @@ def derive_daily_stats_for_product(
             dataset_end=avail_end_ts,
         )
         contracts_all = eligible
-
+    contracts_all = _filter_contracts_by_id(
+        contracts=contracts_all,
+        product_id=product_id,
+        contract_ids=contract_ids,
+    )
     if max_contracts is not None:
         if max_contracts <= 0:
             raise ValueError("max_contracts must be > 0")
@@ -269,7 +298,7 @@ def derive_daily_stats_for_product(
             raw_symbol = ident.raw_symbol
 
             # Optional reset (daily_stats only)
-            if reset_local and not dry_run:
+            if force_reset and not dry_run:
                 daily_store.delete(
                     dataset=dataset,
                     publisher_id=publisher_id,

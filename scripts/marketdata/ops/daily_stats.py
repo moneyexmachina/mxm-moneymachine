@@ -48,6 +48,12 @@ def _parse_args() -> argparse.Namespace:
 
     # Optional run scoping
     p.add_argument("--max-contracts", type=int, default=None)
+    p.add_argument(
+        "--contract-id",
+        action="append",
+        default=None,
+        help="Optional explicit contract_id to restrict rebuild to. Repeatable.",
+    )
 
     # Optional dataset-range override (mostly for offline/testing)
     p.add_argument(
@@ -68,8 +74,9 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not write daily_stats parquet/meta; report what would be built/skipped.",
     )
+
     p.add_argument(
-        "--reset-local",
+        "--force-reset",
         action="store_true",
         help="Delete local daily_stats parquet+meta for identities touched before rebuilding.",
     )
@@ -97,21 +104,31 @@ def main() -> None:
 
     stats_store = Statistics1DStore(layout=layout)
     daily_store = DailyStatsStore(layout=layout)
+
+    contract_ids: set[str] | None
+    if args.contract_id is None:
+        contract_ids = None
+    else:
+        contract_ids = set(args.contract_id)
+
     require_source_meta = not bool(args.allow_fallback_provenance)
+
     print("\nMXM V1 — ops: daily_stats")
     print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
     print(f"[args] max_contracts={args.max_contracts}")
+    print(f"[args] contract_ids={contract_ids if contract_ids is not None else 'ALL'}")
     print(f"[args] dataset_range_start={args.dataset_range_start}")
     print(f"[args] dataset_range_end={args.dataset_range_end}")
     print(f"[args] dry_run={bool(args.dry_run)}")
-    print(f"[args] reset_local={bool(args.reset_local)}")
+    print(f"[args] force_reset={bool(args.force_reset)}")
     print(f"[args] require_source_meta={require_source_meta}")
     print(f"[args] root={root}")
     print(f"[db]   sqlite={layout.sqlite_db_path()}")
     if args.allow_fallback_provenance:
         print("[warn] allow_fallback_provenance=True — strict provenance disabled")
+
     report = derive_daily_stats_for_product(
         backend=backend,
         product_id=args.product_id,
@@ -120,10 +137,10 @@ def main() -> None:
         daily_store=daily_store,
         dataset_range_start=args.dataset_range_start,
         dataset_range_end=args.dataset_range_end,
-        # session_date_of left as orchestrator default (_default_session_date_of)
         max_contracts=(None if args.max_contracts is None else int(args.max_contracts)),
+        contract_ids=contract_ids,
         dry_run=bool(args.dry_run),
-        reset_local=bool(args.reset_local),
+        force_reset=bool(args.force_reset),
         require_source_meta=require_source_meta,
     )
 

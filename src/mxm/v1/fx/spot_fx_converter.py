@@ -43,8 +43,47 @@ Later implementations will need to support:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
+
+
+def _normalize_currency_code(currency: Any) -> str:
+    """
+    Normalize a currency-like object to a canonical uppercase code.
+
+    Accepted inputs for current MXM usage:
+    - plain ISO code strings, e.g. "USD"
+    - enum members whose `.name` is the ISO code, e.g. Currency.USD
+    - objects exposing a `.code` attribute equal to the ISO code
+
+    This keeps the FX boundary tolerant to mixed upstream representations
+    while preserving strict behaviour for unknown shapes.
+    """
+    if isinstance(currency, str):
+        code = currency.strip().upper()
+        if code == "":
+            raise ValueError("currency string must be non-empty")
+        return code
+
+    code_attr = getattr(currency, "code", None)
+    if isinstance(code_attr, str):
+        code = code_attr.strip().upper()
+        if code == "":
+            raise ValueError("currency.code must be non-empty")
+        return code
+
+    name_attr = getattr(currency, "name", None)
+    if isinstance(name_attr, str):
+        code = name_attr.strip().upper()
+        if code == "":
+            raise ValueError("currency.name must be non-empty")
+        return code
+
+    raise TypeError(
+        "Unsupported currency representation. "
+        f"currency={currency!r}, type={type(currency).__name__}"
+    )
 
 
 class SpotFXConverter(ABC):
@@ -65,8 +104,8 @@ class SpotFXConverter(ABC):
     def get_fx_multiplier(
         self,
         *,
-        from_currency: str,
-        to_currency: str,
+        from_currency: Any,
+        to_currency: Any,
         timestamp: pd.Timestamp,
     ) -> float:
         """
@@ -83,23 +122,26 @@ class IdentitySpotFXConverter(SpotFXConverter):
 
     Behaviour
     ---------
-    - returns 1.0 if from_currency == to_currency
+    - returns 1.0 if normalized from_currency == normalized to_currency
     - otherwise raises NotImplementedError
     """
 
     def get_fx_multiplier(
         self,
         *,
-        from_currency: str,
-        to_currency: str,
+        from_currency: Any,
+        to_currency: Any,
         timestamp: pd.Timestamp,
     ) -> float:
-        if from_currency == to_currency:
+        from_code = _normalize_currency_code(from_currency)
+        to_code = _normalize_currency_code(to_currency)
+
+        if from_code == to_code:
             return 1.0
 
         raise NotImplementedError(
             "Cross-currency spot FX conversion is not yet implemented. "
-            f"from_currency={from_currency!r}, "
-            f"to_currency={to_currency!r}, "
+            f"from_currency={from_currency!r} ({from_code}), "
+            f"to_currency={to_currency!r} ({to_code}), "
             f"timestamp={timestamp!r}"
         )

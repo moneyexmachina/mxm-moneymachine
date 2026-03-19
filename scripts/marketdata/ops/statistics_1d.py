@@ -46,14 +46,21 @@ def _parse_args() -> argparse.Namespace:
         default="update",
         help="bootstrap: attempt full contract lifecycle windows; update: only recent/live contracts (conservative).",
     )
+    p.add_argument(
+        "--contract-id",
+        action="append",
+        default=None,
+        help="Optional explicit contract_id to restrict ingest to. Repeatable.",
+    )
     p.add_argument("--cost-cap-usd", type=float, required=True)
     p.add_argument("--max-contracts", type=int, default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(
-        "--reset-local",
+        "--force-reset",
         action="store_true",
-        help="Delete local parquet for identities touched (identity-scoped) before ingesting.",
+        help="Delete local statistics_1d parquet and bypass cache before ingesting (identity-scoped).",
     )
+
     p.add_argument("--root", type=str, default=None)
     return p.parse_args()
 
@@ -78,14 +85,24 @@ def main() -> None:
         print("[dataio] adapter 'databento' already registered")
 
     store = Statistics1DStore(layout=layout)
-
+    contract_ids: set[str] | None
+    if args.contract_id is None:
+        contract_ids = None
+    else:
+        contract_ids = set(args.contract_id)
     print("\nMXM V1 — ops: statistics_1d")
     print(f"[run] ts_utc={now_iso}")
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
+    # Contract filter (explicit + visible)
+    if getattr(args, "contract_id", None):
+        print(f"[args] contract_ids={contract_ids}")
+    else:
+        print(f"[args] contract_ids=ALL")
+
     print(f"[args] cost_cap_usd={args.cost_cap_usd}")
     print(f"[args] dry_run={bool(args.dry_run)}")
-    print(f"[args] reset_local={bool(args.reset_local)}")
+    print(f"[args] force_reset={bool(args.force_reset)}")
     print(f"[args] root={root}")
     print(f"[db]   sqlite={layout.sqlite_db_path()}")
 
@@ -97,8 +114,9 @@ def main() -> None:
         cost_cap_usd=float(args.cost_cap_usd),
         client=client,
         max_contracts=(None if args.max_contracts is None else int(args.max_contracts)),
+        contract_ids=contract_ids,
         dry_run=bool(args.dry_run),
-        reset_local=bool(args.reset_local),
+        force_reset=bool(args.force_reset),
     )
 
     payload = {

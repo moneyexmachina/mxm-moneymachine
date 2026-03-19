@@ -188,6 +188,38 @@ def _as_date(x: Any) -> date:
     raise TypeError(f"expected date or ISO date string, got {type(x).__name__}: {x!r}")
 
 
+def _filter_contracts_by_id(
+    *,
+    contracts: list[FuturesContract],
+    product_id: str,
+    contract_ids: set[str] | None,
+) -> list[FuturesContract]:
+    """
+    Optional deterministic filter by explicit contract_id.
+
+    Semantics:
+      - None => no filtering
+      - otherwise require exact contract_id match
+      - raise if any requested contract_id is not present in the enumerated set
+    """
+    if contract_ids is None:
+        return contracts
+
+    wanted = {str(x) for x in contract_ids}
+    present = {str(c.contract_id) for c in contracts}
+
+    missing = sorted(wanted - present)
+    if missing:
+        raise ValueError(
+            "Requested contract_id(s) not available for product_id="
+            f"{product_id!r}: {missing}"
+        )
+
+    out = [c for c in contracts if str(c.contract_id) in wanted]
+    out.sort(key=lambda c: (*contract_year_month(c), str(c.contract_id)))
+    return out
+
+
 def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
     api = RefDataAPI()
     contracts = list(api.get_contracts_for_product(product_id))
@@ -240,8 +272,9 @@ def ingest_statistics_1d_for_product(
     cost_cap_usd: float,
     client: Any,  # databento.Historical; untyped to avoid hard dependency
     max_contracts: int | None = None,
+    contract_ids: set[str] | None = None,
     dry_run: bool = False,
-    reset_local: bool = False,
+    force_reset: bool = False,
 ) -> Statistics1DOrchestratorReport:
     """
     Orchestrate statistics-1d persistence for a product_id.
@@ -323,11 +356,14 @@ def ingest_statistics_1d_for_product(
         dataset_start=avail_start_ts,
         dataset_end=avail_end_ts,
     )
+    contracts = _filter_contracts_by_id(
+        contracts=eligible,
+        product_id=product_id,
+        contract_ids=contract_ids,
+    )
 
     report.contracts_excluded_unavailable = excluded
-    report.contracts_considered = len(eligible)
-
-    contracts = eligible
+    report.contracts_considered = len(contracts)
     report.contracts_total = len(contracts)
 
     if max_contracts is not None:
@@ -453,7 +489,7 @@ def ingest_statistics_1d_for_product(
 
             # 5) Optional local reset for this identity (parquet only)
             # Note: this remains a run-level knob for now.
-            if reset_local and not dry_run:
+            if force_reset and not dry_run:
                 store.delete(
                     dataset=ident.dataset,
                     publisher_id=ident.publisher_id,
@@ -461,7 +497,7 @@ def ingest_statistics_1d_for_product(
                 )
 
             # 6) Coverage now (pre-decision surface)
-            if reset_local and dry_run:
+            if force_reset and dry_run:
                 # simulate reset without deleting on disk
                 cov_before = AttemptsCoverageSnapshot(
                     min_ts=None,
@@ -492,7 +528,7 @@ def ingest_statistics_1d_for_product(
                 ew=ew,
                 coverage_now=cov_before,
                 is_mapped=True,
-                reset_local=reset_local,
+                force_reset=force_reset,
             )
             decision = decide_action(
                 state=derived_state,
@@ -597,6 +633,7 @@ def ingest_statistics_1d_for_product(
                 start=exp_start_s,
                 end=exp_end_s,
                 source="databento",
+                force_refresh=force_reset,
             )
             df = normalize_statistics_1d(
                 df_raw, dataset=ident.dataset, raw_symbol=ident.raw_symbol
@@ -674,7 +711,8 @@ def ingest_statistics_1d_for_product(
                 run_ts_utc=report.ts_utc,
                 mode=mode,
                 dry_run=bool(dry_run),
-                reset_local=bool(reset_local),
+                # Persist into legacy attempts column name for now; operator-facing name is force_reset.
+                reset_local=bool(force_reset),
                 cost_cap_usd=float(cost_cap_usd),
                 product_id=product_id,
                 contract_id=str(c.contract_id),

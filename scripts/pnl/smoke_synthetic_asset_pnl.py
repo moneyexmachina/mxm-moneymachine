@@ -584,17 +584,6 @@ def main(argv: Sequence[str]) -> int:
     )
     backtester = Backtester(session_engine=session_engine)
 
-    _print_contract_daily_stats_debug(
-        product_id="cme_emini_snp500_futures",
-        contract_id="cme_emini_snp500_futures.Mar-2025",
-        around_session=start,
-        price_field=args.price_field,
-    )
-    _print_contract_all_rows_debug(
-        product_id="cme_emini_snp500_futures",
-        contract_id="cme_emini_snp500_futures.Mar-2025",
-        price_field=args.price_field,
-    )
     # --- Run historical backtest ---
     backtest_result = backtester.run_target_holdings(
         target_holdings=asset.target_holdings
