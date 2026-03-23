@@ -1,4 +1,4 @@
-# tests/unittests/mxm/v1/synthetic_assets/rolling/test_bdays_to_ltd_series.py
+# tests/unittests/mxm/v1/synthetic_assets/rolling/test_trading_days_to_ltd_series.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,9 +10,9 @@ import pytest
 
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import ContractSeries
-from mxm.v1.synthetic_assets.rolling.bdays_to_ltd_series import (
+from mxm.v1.synthetic_assets.rolling.trading_days_to_ltd_series import (
     UnknownContractId,
-    build_bdays_to_ltd_series,
+    build_trading_days_to_ltd_series,
 )
 
 # -----------------------------------------------------------------------------
@@ -27,7 +27,7 @@ class _FakeContract:
 
 class _FakeRefDataAPI:
     """
-    Minimal surface used by build_bdays_to_ltd_series.
+    Minimal surface used by build_trading_days_to_ltd_series.
 
     Only method required:
       - get_contract_by_id(contract_id) -> contract or None
@@ -49,7 +49,7 @@ class _DeterministicCalendar:
     """
     Tiny deterministic calendar implementing the definition:
 
-        bdays_to_ltd = idx(ltd) - idx(asof)
+        trading_days_to_ltd = idx(ltd) - idx(asof)
 
     This is not a production calendar double; it is an oracle for unit testing
     that our function wires inputs correctly and preserves alignment.
@@ -93,8 +93,9 @@ class _SpyCalendar:
     """
     Spy that records the call inputs and returns a deterministic sentinel.
 
-    Used to verify that build_bdays_to_ltd_series calls bdays_to_ltd with the
-    correct arrays and keyword arguments, without depending on calendar math.
+    Used to verify that build_trading_days_to_ltd_series calls bdays_to_ltd
+    with the correct arrays and keyword arguments, without depending on
+    calendar math.
     """
 
     def __init__(self) -> None:
@@ -143,7 +144,7 @@ def _mk_service_and_patch_calendar(
 # -----------------------------------------------------------------------------
 
 
-def test_build_bdays_to_ltd_series_functional_oracle(monkeypatch) -> None:
+def test_build_trading_days_to_ltd_series_functional_oracle(monkeypatch) -> None:
     """
     Input-output (functional) test under fully controlled inputs.
 
@@ -178,26 +179,28 @@ def test_build_bdays_to_ltd_series_functional_oracle(monkeypatch) -> None:
         contract_ids=["C1", "C1", "C2", "C2", "C2"],  # switch at index 2
     )
 
-    out = build_bdays_to_ltd_series(
-        series=series, calendar_service=cal_svc, refdata_api=ref
+    out = build_trading_days_to_ltd_series(
+        series=series,
+        calendar_service=cal_svc,
+        refdata_api=ref,
     )
 
     assert out.sessions.tolist() == series.sessions.tolist()
     assert out.contract_ids == series.contract_ids
-    assert out.bdays_to_ltd.dtype == np.dtype("int64")
+    assert out.trading_days_to_ltd.dtype == np.dtype("int64")
 
     # Expected distances in our tiny grid:
     # idx(03-20)=2, idx(06-19)=5, idx(03-18)=0, idx(03-19)=1, idx(03-20)=2, idx(03-23)=3, idx(03-24)=4
     # C1 ltd=03-20: 03-18 -> 2-0=2, 03-19 -> 2-1=1
     # C2 ltd=06-19: 03-20 -> 5-2=3, 03-23 -> 5-3=2, 03-24 -> 5-4=1
-    assert out.bdays_to_ltd.tolist() == [2, 1, 3, 2, 1]
+    assert out.trading_days_to_ltd.tolist() == [2, 1, 3, 2, 1]
 
 
-def test_build_bdays_to_ltd_series_interaction_calls_calendar_correctly(
+def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     monkeypatch,
 ) -> None:
     """
-    Interaction test: verifies correct usage of the calendar API.
+    Interaction test: verifies correct usage of the trading calendar API.
 
     We assert only the public contract:
       - asof array equals series.sessions
@@ -220,8 +223,10 @@ def test_build_bdays_to_ltd_series_interaction_calls_calendar_correctly(
         contract_ids=["C1", "C1", "C2"],
     )
 
-    out = build_bdays_to_ltd_series(
-        series=series, calendar_service=cal_svc, refdata_api=ref
+    out = build_trading_days_to_ltd_series(
+        series=series,
+        calendar_service=cal_svc,
+        refdata_api=ref,
     )
 
     # Calendar called exactly once
@@ -240,10 +245,12 @@ def test_build_bdays_to_ltd_series_interaction_calls_calendar_correctly(
     assert kwargs.get("return_projected_flag") is False
 
     # Output is the spy sentinel (cast to int64 inside the function)
-    assert out.bdays_to_ltd.tolist() == [0, 1, 2]
+    assert out.trading_days_to_ltd.tolist() == [0, 1, 2]
 
 
-def test_build_bdays_to_ltd_series_raises_on_unknown_contract_id(monkeypatch) -> None:
+def test_build_trading_days_to_ltd_series_raises_on_unknown_contract_id(
+    monkeypatch,
+) -> None:
     ref = _FakeRefDataAPI(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
@@ -262,16 +269,20 @@ def test_build_bdays_to_ltd_series_raises_on_unknown_contract_id(monkeypatch) ->
     )
 
     with pytest.raises(UnknownContractId):
-        build_bdays_to_ltd_series(
-            series=series, calendar_service=cal_svc, refdata_api=ref
+        build_trading_days_to_ltd_series(
+            series=series,
+            calendar_service=cal_svc,
+            refdata_api=ref,
         )
 
 
 def test_contract_series_constructor_raises_on_length_mismatch() -> None:
     """
-    Your ContractSeries appears to validate alignment itself.
-    If so, the correct test is that ContractSeries cannot be constructed with
-    mismatched lengths (not that build_bdays_to_ltd_series raises).
+    ContractSeries validates alignment itself.
+
+    So the correct test is that ContractSeries cannot be constructed with
+    mismatched lengths, rather than expecting the days-to-LTD builder to
+    receive an invalid series.
     """
     with pytest.raises(ValueError):
         _make_series(

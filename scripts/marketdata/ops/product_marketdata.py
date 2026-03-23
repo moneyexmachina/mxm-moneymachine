@@ -67,7 +67,11 @@ def _parse_args() -> argparse.Namespace:
     # Flags
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--reset", action="store_true")
-    p.add_argument("--reset-local", action="store_true")
+    p.add_argument(
+        "--force-reset",
+        action="store_true",
+        help="Delete local parquet+meta for identities touched before rebuilding.",
+    )
 
     # Storage root
     p.add_argument("--root", type=str, default=None)
@@ -117,7 +121,7 @@ def main() -> None:
     print(f"[args] max_windows={args.max_windows}")
     print(f"[args] dry_run={bool(args.dry_run)}")
     print(f"[args] reset={bool(args.reset)}")
-    print(f"[args] reset_local={bool(args.reset_local)}")
+    print(f"[args] force_reset={bool(args.force_reset)}")
     print(f"[args] root={root}")
     print(f"[db]   sqlite={layout.sqlite_db_path()}")
 
@@ -129,7 +133,7 @@ def main() -> None:
         client=client,
         dry_run=bool(args.dry_run),
         reset=bool(args.reset),
-        reset_local=bool(args.reset_local),
+        force_reset=bool(args.force_reset),
         max_windows=(None if args.max_windows is None else int(args.max_windows)),
         max_contracts=(None if args.max_contracts is None else int(args.max_contracts)),
         run_ts_utc=now_iso,

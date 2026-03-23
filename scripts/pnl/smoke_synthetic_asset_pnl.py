@@ -11,8 +11,18 @@ Usage:
         --start 2025-01-02 \
         --end 2025-01-16
 
+Optional overrides:
+
+    poetry run python scripts/pnl/smoke_synthetic_asset_pnl.py \
+        --asset-id cme_emini_snp500_futures_cont_hmuz1_wr_lr_3_1 \
+        --start 2025-01-02 \
+        --end 2025-01-16 \
+        --mxm-business-base-calendar-id cmes \
+        --mxm-business-calendar-id mxm_v1_business
+
 This is a human inspection tool, not a regression test.
 """
+
 import json
 from dataclasses import asdict, dataclass
 
@@ -31,6 +41,7 @@ from mxm_refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
 
+from mxm.v1.calendars.mxm_business_calendar_service import MxMBusinessCalendarService
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.execution.backtester import Backtester, BacktestResult
@@ -53,6 +64,13 @@ from mxm.v1.synthetic_assets.spec_registry_layout import (
 )
 from mxm.v1.synthetic_assets.unit_conversion import build_default_unit_converter
 from mxm.v1.utils.date_utils import coerce_np_day
+
+# ---------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------
+
+DEFAULT_MXM_BUSINESS_CALENDAR_ID = "mxm_v1_business"
+DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID = "cmes"
 
 # ---------------------------------------------------------------------
 # Plotting helpers
@@ -102,7 +120,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p.add_argument(
         "--price-field",
         default="settle_px",
-        help="daily_stats field used for execution and mark prices (default: settle)",
+        help="daily_stats field used for execution and mark prices (default: settle_px)",
     )
     p.add_argument(
         "--max-head",
@@ -127,6 +145,22 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default="dev_plots/pnl/synthetic_asset",
         help="output directory for saved plots (default: dev_plots/pnl/synthetic_asset)",
     )
+    p.add_argument(
+        "--mxm-business-base-calendar-id",
+        default=DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID,
+        help=(
+            "Base TradingCalendar id used to construct the MXM business calendar "
+            f"(default: {DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID})"
+        ),
+    )
+    p.add_argument(
+        "--mxm-business-calendar-id",
+        default=DEFAULT_MXM_BUSINESS_CALENDAR_ID,
+        help=(
+            "Runtime id assigned to the MXM business calendar "
+            f"(default: {DEFAULT_MXM_BUSINESS_CALENDAR_ID})"
+        ),
+    )
 
     return p.parse_args(argv)
 
@@ -134,6 +168,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 # ---------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------
+
+
 def _print_contract_daily_stats_debug(
     *,
     product_id: str,
@@ -501,6 +537,12 @@ def main(argv: Sequence[str]) -> int:
     engine = ContractSelectorEngine.build(refdata=refdata, calendars=calendars)
     unit_converter = build_default_unit_converter()
 
+    mxm_business_calendar_service = MxMBusinessCalendarService(
+        base_trading_calendar_id=args.mxm_business_base_calendar_id,
+        business_calendar_id=args.mxm_business_calendar_id,
+    )
+    mxm_business_calendar = mxm_business_calendar_service.get_calendar()
+
     # --- Load real synthetic asset spec ---
     if args.registry_root is not None:
         layout = SyntheticAssetSpecRegistryLayout(root=Path(args.registry_root))
@@ -517,6 +559,12 @@ def main(argv: Sequence[str]) -> int:
     print(f"  end:   {end}")
     print()
 
+    print("MXM business calendar")
+    print(f"  calendar_id:      {mxm_business_calendar.calendar_id}")
+    print(f"  base_calendar_id: {args.mxm_business_base_calendar_id}")
+    print(f"  observed_end:     {mxm_business_calendar.observed_end}")
+    print()
+
     # --- Build real synthetic asset ---
     asset = build_synthetic_asset(
         spec=spec,
@@ -524,6 +572,7 @@ def main(argv: Sequence[str]) -> int:
         end_session=end,
         engine=engine,
         calendar_service=calendars,
+        mxm_business_calendar=mxm_business_calendar,
         refdata_api=refdata,
         unit_converter=unit_converter,
     )
@@ -551,6 +600,7 @@ def main(argv: Sequence[str]) -> int:
 
     if asset.target_holdings.frame.empty:
         raise ValueError("SyntheticAsset.target_holdings is empty.")
+
     product_ids = sorted(
         {component.product_id for component in spec.components.values()}
     )
@@ -561,6 +611,7 @@ def main(argv: Sequence[str]) -> int:
             price_field=args.price_field,
             max_rows=args.max_head,
         )
+
     # --- Build real execution / backtest infrastructure ---
     order_policy = OrderGenerationPolicy(default_min_block_size=1)
     order_generator = OrderGenerator(

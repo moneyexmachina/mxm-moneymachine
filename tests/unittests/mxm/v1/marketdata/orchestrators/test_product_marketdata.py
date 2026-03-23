@@ -114,7 +114,7 @@ def test_product_marketdata_success_path_stage_order_and_budget(
         client=object(),
         dry_run=False,
         reset=False,
-        reset_local=False,
+        force_reset=False,
         max_windows=None,
         max_contracts=None,
         run_ts_utc="2020-01-01T00:00:00Z",
@@ -191,7 +191,7 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
         client=object(),
         dry_run=False,
         reset=False,
-        reset_local=False,
+        force_reset=False,
         run_ts_utc="2020-01-01T00:00:00Z",
     )
 
@@ -255,7 +255,7 @@ def test_product_marketdata_mappings_gate_blocks_downstream(
         client=object(),
         dry_run=False,
         reset=False,
-        reset_local=False,
+        force_reset=False,
         run_ts_utc="2020-01-01T00:00:00Z",
     )
 
@@ -306,7 +306,7 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
             client=object(),
             dry_run=False,
             reset=False,
-            reset_local=False,
+            force_reset=False,
             run_ts_utc="2020-01-01T00:00:00Z",
         )
 

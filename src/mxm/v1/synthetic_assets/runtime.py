@@ -21,6 +21,17 @@ Instead it orchestrates the specialised builders from:
 - component_contracts.py
 - component_weights.py
 - target_holdings.py
+
+Session-grid semantics
+----------------------
+The realised synthetic asset is now expressed on the MXM business-calendar
+session surface.
+
+Concretely:
+- ComponentContracts is built on MXM business-day support
+- ComponentWeights inherits that same support
+- TargetHoldings is derived from those aligned realised surfaces and therefore
+  also inherits the same support
 """
 
 from dataclasses import dataclass
@@ -30,6 +41,7 @@ from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
     RefDataAPI,
 )
 
+from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.synthetic_assets.component_contracts import (
@@ -164,17 +176,18 @@ def build_synthetic_asset(
     end_session: np.datetime64,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
+    mxm_business_calendar: MxMBusinessCalendar,
     refdata_api: RefDataAPI,
     unit_converter: UnitConverter,
 ) -> SyntheticAsset:
     """
-    Build a fully realised SyntheticAsset over [start_session, end_session].
+    Build a fully realised SyntheticAsset over the requested session interval.
 
     Pipeline:
         SyntheticAssetSpec
-            -> ComponentContracts
-            -> ComponentWeights
-            -> TargetHoldings
+            -> ComponentContracts        (MXM business-session support)
+            -> ComponentWeights          (inherits same support)
+            -> TargetHoldings            (inherits same support)
             -> SyntheticAsset
     """
     component_contracts = build_component_contracts(
@@ -183,6 +196,7 @@ def build_synthetic_asset(
         end_session=end_session,
         engine=engine,
         calendar_service=calendar_service,
+        mxm_business_calendar=mxm_business_calendar,
     )
 
     component_weights = build_component_weights(
@@ -190,6 +204,7 @@ def build_synthetic_asset(
         component_contracts=component_contracts,
         engine=engine,
         calendar_service=calendar_service,
+        mxm_business_calendar=mxm_business_calendar,
         refdata_api=refdata_api,
     )
 

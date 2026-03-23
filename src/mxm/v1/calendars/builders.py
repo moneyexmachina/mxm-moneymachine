@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from mxm.v1.calendars.holiday_rules import us_full_closure_holidays_minimal
 from mxm.v1.calendars.loader import (
     calendar_dir,
     calendars_root,
@@ -48,117 +49,6 @@ from mxm.v1.calendars.registry import (
     write_calendar_registry,
 )
 from mxm.v1.utils.hashing import sha256_file
-
-# ----------------------------
-# holiday rules (minimal US set)
-# ----------------------------
-
-
-def _observed_fixed_date_holiday(d: dt.date) -> dt.date:
-    """
-    Apply simple US-style observance for fixed-date holidays:
-    - If holiday falls on Saturday -> observed Friday
-    - If holiday falls on Sunday   -> observed Monday
-    - Otherwise observed on the day
-    """
-    wd = d.weekday()  # Mon=0 ... Sun=6
-    if wd == 5:  # Saturday
-        return d - dt.timedelta(days=1)
-    if wd == 6:  # Sunday
-        return d + dt.timedelta(days=1)
-    return d
-
-
-def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> dt.date:
-    """
-    Return the n-th weekday in a month. weekday: Mon=0..Sun=6.
-    Example: third Monday in Jan => weekday=0, n=3
-    """
-    first = dt.date(year, month, 1)
-    offset = (weekday - first.weekday()) % 7
-    day = 1 + offset + (n - 1) * 7
-    return dt.date(year, month, day)
-
-
-def _last_weekday_of_month(year: int, month: int, weekday: int) -> dt.date:
-    """
-    Return the last weekday in a month. weekday: Mon=0..Sun=6.
-    Example: last Monday in May => weekday=0
-    """
-    # go to first day of next month, step back
-    if month == 12:
-        next_month = dt.date(year + 1, 1, 1)
-    else:
-        next_month = dt.date(year, month + 1, 1)
-    d = next_month - dt.timedelta(days=1)
-    while d.weekday() != weekday:
-        d -= dt.timedelta(days=1)
-    return d
-
-
-def _easter_sunday_gregorian(year: int) -> dt.date:
-    """
-    Compute Easter Sunday (Gregorian calendar) using Anonymous Gregorian algorithm.
-    Deterministic and dependency-free.
-    """
-    a = year % 19
-    b = year // 100
-    c = year % 100
-    d = b // 4
-    e = b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i = c // 4
-    k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    month = (h + l - 7 * m + 114) // 31
-    day = ((h + l - 7 * m + 114) % 31) + 1
-    return dt.date(year, month, day)
-
-
-def _us_full_closure_holidays_minimal(year: int) -> set[dt.date]:
-    """
-    Minimal full-closure holiday set per MXM V1 projection rule.
-    Produces *observed* dates for fixed-date holidays.
-
-    Includes:
-    - New Year's Day
-    - MLK Day (3rd Mon Jan)
-    - Presidents’ Day (3rd Mon Feb)
-    - Good Friday
-    - Memorial Day (last Mon May)
-    - Juneteenth
-    - Independence Day
-    - Labor Day (1st Mon Sep)
-    - Thanksgiving (4th Thu Nov)
-    - Christmas Day
-    """
-    out: set[dt.date] = set()
-
-    # Fixed-date (observed)
-    out.add(_observed_fixed_date_holiday(dt.date(year, 1, 1)))  # New Year's
-    out.add(_observed_fixed_date_holiday(dt.date(year, 6, 19)))  # Juneteenth
-    out.add(_observed_fixed_date_holiday(dt.date(year, 7, 4)))  # Independence Day
-    out.add(_observed_fixed_date_holiday(dt.date(year, 12, 25)))  # Christmas
-
-    # Nth/last weekday holidays
-    out.add(_nth_weekday_of_month(year, 1, weekday=0, n=3))  # MLK: 3rd Monday Jan
-    out.add(
-        _nth_weekday_of_month(year, 2, weekday=0, n=3)
-    )  # Presidents: 3rd Monday Feb
-    out.add(_last_weekday_of_month(year, 5, weekday=0))  # Memorial: last Monday May
-    out.add(_nth_weekday_of_month(year, 9, weekday=0, n=1))  # Labor: 1st Monday Sep
-    out.add(
-        _nth_weekday_of_month(year, 11, weekday=3, n=4)
-    )  # Thanksgiving: 4th Thursday Nov
-
-    # Good Friday
-    easter = _easter_sunday_gregorian(year)
-    out.add(easter - dt.timedelta(days=2))
-
-    return out
 
 
 def _project_trading_days_minimal_us(
@@ -181,7 +71,7 @@ def _project_trading_days_minimal_us(
     years = range(start_day.year, end_day.year + 1)
     holidays: set[dt.date] = set()
     for y in years:
-        holidays |= _us_full_closure_holidays_minimal(y)
+        holidays |= us_full_closure_holidays_minimal(y)
 
     keep = [d for d in bdays if d.date() not in holidays]
     if not keep:

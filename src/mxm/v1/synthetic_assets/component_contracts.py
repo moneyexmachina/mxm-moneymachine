@@ -8,18 +8,19 @@ SyntheticAssetSpec.
 
 Conceptually:
 
-    index   = session
+    index   = MXM business session
     columns = component
     values  = contract_id
 
-Each column represents the realised contract identity selected for one
-synthetic-asset component across the session grid.
+Each column represents the realised contract identity state for one
+synthetic-asset component across the MXM business-day session grid.
 
 Scope
 -----
-- realise one ContractSeries per component
-- assemble them into one validated DataFrame
-- enforce identical session support across all components
+- realise one raw product ContractSeries per component on trading-session support
+- map MXM business sessions onto each component's product trading calendar
+- project contract identity onto the business-session surface
+- assemble all components into one validated DataFrame
 - return a canonical ComponentContracts object
 
 Out of scope
@@ -32,23 +33,32 @@ Out of scope
 
 V1 session-grid policy
 ----------------------
-All component ContractSeries in one synthetic asset must have identical
-sessions.
+ComponentContracts is an MXM machine-time surface.
 
-This is expected to hold for current V1 assets:
-- CONT
-- TS
-- PS
+For each component:
+- raw contract identity is realised on product trading-session support
+- MXM business sessions are mapped onto that trading-session support
+- the resulting contract identity state is expressed on the common
+  MXM business-day session grid
 
-If realised component sessions differ, this module raises.
-Cross-calendar alignment is out of scope for v1.
+V1 alignment policy
+-------------------
+Business-session to trading-session mapping uses:
+
+    how="prev"
+
+That is, each business session is mapped to the greatest trading session
+less than or equal to it for the component's product calendar.
 """
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 from numpy import datetime64
 
+from mxm.v1.calendars.mapping import map_business_to_trading_sessions
+from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import (
     ContractSeries,
@@ -58,7 +68,7 @@ from mxm.v1.contracts.contract_series import (
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.contracts.relative_ids import parse_canonical_relative_id
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
-from mxm.v1.utils.date_utils import coerce_np_day
+from mxm.v1.utils.date_utils import coerce_np_day, searchsorted_exact
 
 
 class MisalignedComponentSessions(ValueError):
@@ -72,8 +82,8 @@ class ComponentContracts:
     synthetic asset.
 
     frame:
-        pandas DataFrame indexed by session, with component ids as columns and
-        realised contract_id strings as values.
+        pandas DataFrame indexed by MXM business session, with component ids
+        as columns and realised contract_id strings as values.
     """
 
     asset_id: str
@@ -114,8 +124,6 @@ class ComponentContracts:
                 "ComponentContracts.frame contains null contract_id values"
             )
 
-        # All values should be strings / object-like contract ids.
-        # We keep this check light to avoid over-constraining pandas dtypes.
         for column in frame.columns:
             series = frame[column]
             if not series.map(lambda x: isinstance(x, str)).all():
@@ -125,7 +133,7 @@ class ComponentContracts:
 
     def sessions(self) -> pd.Index:
         """
-        Return the realised session index.
+        Return the realised MXM business-session index.
         """
         return self.frame.index
 
@@ -137,14 +145,14 @@ class ComponentContracts:
 
     def contracts_for_session(self, session: datetime64) -> pd.DataFrame:
         """
-        Return the realised component contracts for a specific session.
+        Return the realised component contracts for a specific MXM business session.
         """
         return self.frame.loc[[session]].copy()
 
     def contracts_for_component(self, component_id: str) -> pd.DataFrame:
         """
         Return the realised contract identity series for one component as a
-        single-column DataFrame indexed by session.
+        single-column DataFrame indexed by MXM business session.
         """
         return self.frame[[component_id]].copy()
 
@@ -156,28 +164,61 @@ def build_component_contracts(
     end_session: datetime64,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
+    mxm_business_calendar: MxMBusinessCalendar,
 ) -> ComponentContracts:
     """
-    Build realised ComponentContracts for one SyntheticAssetSpec over
-    [start_session, end_session].
+    Build realised ComponentContracts for one SyntheticAssetSpec over the
+    requested session interval, expressed on MXM business-day support.
     """
-    contract_series_by_component = _build_contract_series_by_component(
-        spec=spec,
+    business_sessions = _target_business_sessions(
+        mxm_business_calendar=mxm_business_calendar,
         start_session=start_session,
         end_session=end_session,
+    )
+
+    raw_contract_series_by_component = _build_contract_series_by_component(
+        spec=spec,
+        start_session=business_sessions[0],
+        end_session=business_sessions[-1],
         engine=engine,
         calendar_service=calendar_service,
     )
 
     frame = _assemble_component_contracts_frame(
-        component_ids=list(spec.components.keys()),
-        contract_series_by_component=contract_series_by_component,
+        spec=spec,
+        business_sessions=business_sessions,
+        contract_series_by_component=raw_contract_series_by_component,
     )
 
     return ComponentContracts(
         asset_id=spec.asset_id,
         canonical_id=spec.canonical_id,
         frame=frame,
+    )
+
+
+def _target_business_sessions(
+    *,
+    mxm_business_calendar: MxMBusinessCalendar,
+    start_session: datetime64,
+    end_session: datetime64,
+) -> np.ndarray:
+    """
+    Derive the target MXM business-session surface for this build call.
+
+    Policy
+    ------
+    - normalize start to next business day
+    - normalize end to previous business day
+    - require non-empty closed interval on business-day support
+    """
+    return mxm_business_calendar.business_days_between(
+        start_session,
+        end_session,
+        strict=False,
+        normalize_start="next",
+        normalize_end="prev",
+        inclusive="both",
     )
 
 
@@ -190,7 +231,8 @@ def _build_contract_series_by_component(
     calendar_service: TradingCalendarService,
 ) -> dict[str, ContractSeries]:
     """
-    Build one ContractSeries per synthetic-asset component.
+    Build one raw product ContractSeries per synthetic-asset component on
+    trading-session support.
     """
     out: dict[str, ContractSeries] = {}
 
@@ -215,49 +257,35 @@ def _build_contract_series_by_component(
 
 def _assemble_component_contracts_frame(
     *,
-    component_ids: list[str],
+    spec: SyntheticAssetSpec,
+    business_sessions: np.ndarray,
     contract_series_by_component: dict[str, ContractSeries],
 ) -> pd.DataFrame:
     """
-    Assemble a canonical session x component DataFrame from per-component
-    ContractSeries objects.
-
-    Raises
-    ------
-    MisalignedComponentSessions
-        If component ContractSeries do not share identical session support.
+    Assemble a canonical business-session x component DataFrame by projecting
+    each component's raw trading-session ContractSeries onto the shared MXM
+    business-session surface.
     """
+    component_ids = list(spec.components.keys())
 
     if set(component_ids) != set(contract_series_by_component.keys()):
         raise ValueError(
             "Component key mismatch between requested components and realised ContractSeries"
         )
 
-    first_component = component_ids[0]
-    first_series = contract_series_by_component[first_component]
-    sessions0 = first_series.sessions
-
     columns: dict[str, pd.Series] = {}
 
     for component_id in component_ids:
         cs = contract_series_by_component[component_id]
 
-        if sessions0.shape != cs.sessions.shape:
-            raise MisalignedComponentSessions(
-                "Synthetic-asset component ContractSeries sessions are not identical; "
-                "cross-calendar alignment is not supported in v1"
-            )
-
-        # numpy comparison kept explicit because sessions are np.datetime64 arrays
-        if not (cs.sessions == sessions0).all():
-            raise MisalignedComponentSessions(
-                "Synthetic-asset component ContractSeries sessions are not identical; "
-                "cross-calendar alignment is not supported in v1"
-            )
+        mapped_contract_ids = _map_contract_series_to_business_sessions(
+            series=cs,
+            business_sessions=business_sessions,
+        )
 
         columns[component_id] = pd.Series(
-            cs.contract_ids,
-            index=pd.Index(cs.sessions, name="session"),
+            mapped_contract_ids,
+            index=pd.Index(business_sessions, name="session"),
             name=component_id,
         )
 
@@ -265,7 +293,36 @@ def _assemble_component_contracts_frame(
     frame.index.name = "session"
     frame = frame.sort_index()
 
-    # Ensure canonical column order from spec.components iteration order
-    out = frame.loc[:, component_ids].copy()
+    return frame.loc[:, component_ids].copy()
+
+
+def _map_contract_series_to_business_sessions(
+    *,
+    series: ContractSeries,
+    business_sessions: np.ndarray,
+) -> list[str]:
+    """
+    Project raw trading-session contract identity onto MXM business sessions.
+
+    Policy
+    ------
+    Business-session to trading-session alignment uses how="prev".
+    """
+    mapping = map_business_to_trading_sessions(
+        business_sessions=business_sessions,
+        trading_sessions=series.sessions,
+        how="prev",
+    )
+
+    out: list[str] = []
+    for mapped_session in mapping.mapped_sessions:
+        i = searchsorted_exact(series.sessions, mapped_session)
+        if i is None:
+            raise RuntimeError(
+                "Mapped trading session not found in ContractSeries sessions: "
+                f"product_id={series.product_id!r} "
+                f"mapped_session={mapped_session}"
+            )
+        out.append(series.contract_ids[i])
 
     return out
