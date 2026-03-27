@@ -1,287 +1,273 @@
-# Session 33 — Performance Baseline and Profiling
+# session_33_plan.md
 
-## Objective
+## Session 33 — Handling Degraded Market Data & Ensuring Full-History Backtest Stability
 
-Establish a reliable performance baseline for the full synthetic-asset backtest
-pipeline over a realistic historical range, and identify the dominant cost
-centres for later optimisation.
+### Summary
 
-This session is about **measurement and understanding**, not optimisation.
+Following Session 32, the MXM system is now structurally sound:
 
----
+- MXM business calendar successfully separates **machine-time vs exchange-time**
+- Synthetic asset pipeline is stable and aligned
+- Multi-year backtests (5y) run successfully
 
-## Context
+However, extending to full-history (~15 years) reveals a new class of failure:
 
-Session 31 repaired the broken upstream marketdata surface and restored the full
-end-to-end pipeline:
+> **Vendor-level degraded data in `statistics_1d` and derived `daily_stats`**
 
-    statistics_1d → daily_stats → backtest → pnl → plot
+Session 33 focuses on:
+- formally defining this failure class
+- designing a robust handling strategy
+- implementing repair / mitigation mechanisms
+- validating via full-history synthetic asset PnL run
 
-The system is now functionally correct and deterministic on the smoke range.
-That makes this the right moment to test runtime behaviour on a realistic full
-history.
+## Problem Statement
 
----
+We are encountering failures such as:
 
-## Core Question
+```
+Missing mark price for contract_id=..., session=..., price_field='settle_px'
+```
 
-The purpose of Session 33 is to answer:
+Root cause analysis indicates:
 
-> How slow is the full pipeline over a realistic history, and where exactly is
-> the time going?
+- upstream data provider flags certain days as `degraded`
+- `statistics_1d` may have:
+  - missing records
+  - incomplete coverage
+- `daily_stats` derived dataset therefore:
+  - contains gaps or missing settlement prices
+- downstream systems (backtester, mark pricing):
+  - assume complete coverage
+  - fail hard when data is missing
 
-We want a clear answer before any optimisation work begins.
+## Key Insight
 
----
+We now distinguish three classes of data issues:
 
-## Starting Assumption
+### 1. Calendar mismatch (resolved in Session 32)
+- trading day exists but no settlement data expected
+- fixed via MXM business calendar
 
-Our starting assumption should be:
+### 2. Local ingestion / derivation gaps
+- incomplete or missing datasets due to pipeline issues
+- repairable via targeted rebuilds
 
-> The system is probably not yet "super fast", and the dominant cost is likely
-> to sit in Python-level computation or repeated DataFrame work rather than in
-> plotting.
+### 3. Vendor degraded data (Session 33 focus)
+- upstream data is explicitly marked degraded
+- may remain incomplete even after rebuild
+- requires **policy and system-level handling**
 
-More concretely, the most plausible bottlenecks are:
+## Objectives
 
-1. backtest session loop / per-session computation
-2. repeated price access / lookup work
-3. PnL construction over session and contract results
-4. DataFrame slicing, copying, and aggregation overhead
+### Primary objective
 
-Less likely, but still possible:
+> Enable full-history (~15-year) synthetic asset PnL run without hard failures
 
-5. local parquet read performance
-6. plotting / output formatting overhead
+### Secondary objectives
 
-This is only a hypothesis. The session is designed to test it.
+- define a clear **data-quality policy** for degraded days
+- preserve **determinism and auditability**
+- avoid silent corruption of economic results
 
----
+## Workstreams
 
-## Test Scope
+### 1. Diagnostics & Classification
 
-We define the pipeline under measurement as:
+#### Goal
 
-1. daily_stats access
-2. backtest simulation
-3. PnL construction
-4. output / plotting
+Build a clear classification of all failing sessions.
 
-The initial target workload should be:
+#### Tasks
 
-- asset:
-  
-      cme_emini_snp500_futures_cont_hmuz1_wr_lr_3_1
+- For each failure:
+  - identify `(contract_id, session)`
+  - check:
+    - presence in `statistics_1d`
+    - presence in `daily_stats`
+    - Databento dataset condition (`available` vs `degraded`)
+- Build a simple diagnostic output:
 
-- price field:
-  
-      settle_px
+```
+session | contract_id | stats_present | daily_stats_present | dataset_condition
+```
 
-- date range:
-  
-      2010-07-01 → 2025-12-31
+#### Outcome
 
-This range is long enough to expose any genuine performance problem.
+- full list of problematic sessions
+- separation into:
+  - pipeline gaps
+  - vendor degraded data
 
----
+### 2. statistics_1d Policy
 
-## Execution Conditions
+#### Question
 
-To keep the measurement interpretable, we should use:
+What is the expected behaviour when upstream data is degraded?
 
-- single-threaded baseline run
-- warm local storage
-- no forced resets
-- no ingestion
-- same code path as the normal smoke script, only with the wider date range
+#### Options
 
-This gives us a clean first operational baseline.
+1. **Strict (current)**
+   - accept missing data
+   - downstream must handle gaps
 
----
+2. **Augmented ingestion**
+   - attempt alternative fetch strategies (if possible)
+   - likely limited impact (vendor-side issue)
 
-## Measurement Strategy
+3. **Annotate quality**
+   - store dataset condition alongside data
+   - propagate downstream
 
-## Phase 1 — Coarse Top-Level Timing
+#### Proposed direction (v1)
 
-First, instrument the major pipeline phases with explicit wall-clock timing via
-`time.perf_counter()`.
+- keep `statistics_1d` as **raw, faithful representation**
+- do not attempt to "fix" degraded data here
+- optionally:
+  - enrich metadata with dataset condition
 
-At minimum, time:
+### 3. daily_stats Repair Strategy
 
-- total runtime
-- backtest runtime
-- pnl construction runtime
-- plotting / output runtime
+#### Core decision point
 
-If daily_stats loading is a separate visible phase, time that too.
+How should `daily_stats` behave when settlement data is missing?
 
-Example shape:
+#### Candidate strategies
 
-~~~python
-t0 = time.perf_counter()
-# whole run
-...
-print(f"[timing] total={time.perf_counter() - t0:.3f}s")
-~~~
+##### A. Hard fail (current)
+- simple
+- blocks full-history runs
 
-Goal:
+##### B. Drop affected sessions
+- breaks time continuity
+- problematic for backtesting
 
-> determine which major phase dominates total runtime
+##### C. Forward-fill (previous settle)
+- preserves continuity
+- introduces controlled approximation
 
-If one phase clearly dominates, that will guide the profiler interpretation.
+##### D. Hybrid (recommended)
 
----
+- If missing settlement:
+  - forward-fill from last valid session
+- Mark the row as:
+  - `is_imputed = True`
+- Preserve original fields where available
 
-## Phase 2 — Backtest Internal Timing
+#### Design principle
 
-Inside the backtest path, add one further layer of timing if needed:
+> **Prefer continuity with explicit annotation over silent failure**
 
-- total session-loop runtime
-- optional timing of price-access path
-- optional timing of holdings / execution update path
+### 4. Downstream Behaviour
 
-This should remain light-touch. The goal is not to fully instrument every
-function yet, only to split the dominant backtest region into a few meaningful
-subregions.
+#### Backtester / mark price accessor
 
-Goal:
+Currently:
+- assumes price must exist
+- raises error if missing
 
-> determine whether the main cost is data access, loop mechanics, or contract/session computation
+#### Required changes
 
----
+- allow:
+  - imputed prices from `daily_stats`
+- optionally:
+  - log when imputed values are used
+- ensure:
+  - no silent inconsistencies
 
-## Phase 3 — Deterministic Profiler Run
+### 5. Implementation Plan
 
-Once coarse timing is in place, run a full deterministic profiler.
+#### Step 1 — Diagnostics
+- build temporary inspection tool or logging
+- enumerate all failing sessions
 
-Recommended first tool:
+#### Step 2 — daily_stats enhancement
+- implement forward-fill for missing settlement
+- add explicit flag (e.g. `is_imputed_settle_px`)
 
-- `cProfile`
+#### Step 3 — price accessor update
+- allow use of imputed prices
+- optionally log / count usage
 
-Reason:
+#### Step 4 — validation tests
+- ensure:
+  - no NaNs in required fields
+  - monotonic session continuity preserved
 
-- built-in
-- stable
-- low setup friction
-- good enough for first bottleneck identification
+#### Step 5 — rerun ingestion (if needed)
+- rebuild affected contracts
 
-Example command shape:
+#### Step 6 — full-history smoke test
 
-~~~bash
-python -m cProfile -o dev_perf/session_33_full_backtest.prof \
-  scripts/pnl/smoke_synthetic_asset_pnl.py \
-  --asset-id cme_emini_snp500_futures_cont_hmuz1_wr_lr_3_1 \
-  --start 2010-07-01 \
-  --end 2025-12-31 \
-  --price-field settle_px
-~~~
+Run:
 
-And then inspect with:
-
-~~~python
-import pstats
-
-p = pstats.Stats("dev_perf/session_33_full_backtest.prof")
-p.sort_stats("cumulative").print_stats(50)
-~~~
-
-Focus on:
-
-- highest cumulative time
-- highest total call counts
-- repeated inner functions
-- expensive DataFrame utilities
-- price access or PnL-construction hotspots
-
-Goal:
-
-> identify the concrete hot functions, not just hot phases
-
----
-
-## Phase 4 — Escalation Only If Needed
-
-If `cProfile` identifies a clear hotspot, that is enough for Session 33.
-
-Only if the result is ambiguous should we consider deeper tools such as:
-
-- line-level profiling for one hot function
-- sampling profiler
-- allocation / copy inspection
-
-This is explicitly optional.
-
----
-
-## Interpretation Rules
-
-We should distinguish carefully between:
-
-### Acceptable baseline
-A full run takes some time, but the dominant cost is obvious and not yet urgent.
-
-### Borderline baseline
-A full run is slow enough to matter, but still operationally usable for current work.
-
-### Unacceptable baseline
-A full run is clearly too slow for iteration, signalling that optimisation must become the next priority.
-
-The session is successful once we can place the current system into one of these categories with evidence.
-
----
-
-## What We Expect to Learn
-
-By the end of Session 33, we should know:
-
-1. total runtime for a full realistic run
-2. time split by major pipeline phase
-3. dominant internal hotspot(s)
-4. whether performance work is urgent
-5. what the most likely high-leverage optimisation path is
-
----
-
-## Non-Goals
-
-This session will not:
-
-- optimise code
-- redesign architecture
-- introduce vectorisation
-- add parallelism
-- refactor the full backtest pipeline
-
-All of that comes later, and only after measurement.
-
----
+```
+smoke_synthetic_asset_pnl.py
+    start=2010-07-01
+    end=2025-12-30
+```
 
 ## Success Criteria
 
-Session 33 is complete when we can answer all three questions:
+Session 33 is complete when:
 
-1. How long does the full realistic run take?
-2. Which phase dominates runtime?
-3. Which function(s) dominate within that phase?
+- synthetic asset PnL smoke script runs over full 15-year history
+- no hard failures due to missing mark prices
+- imputed data is:
+  - explicitly identifiable
+  - limited in scope
+- system behaviour remains deterministic
 
----
+## Non-Goals
 
-## Likely Follow-On
+- perfect reconstruction of degraded vendor data
+- cross-vendor reconciliation
+- advanced statistical interpolation
 
-Depending on results, Session 33 may focus on one of:
+These may be addressed in later sessions.
 
-- price-access performance
-- backtest loop optimisation
-- DataFrame copy / allocation reduction
-- PnL constructor optimisation
+## Risks & Considerations
 
-That decision should be evidence-driven.
+### Risk: silent data distortion
 
----
+Mitigation:
+- explicit imputation flags
+- diagnostic reporting
 
-## Summary
+### Risk: over-reliance on forward-fill
 
-Session 31 restored correctness and control.
+Mitigation:
+- track frequency and distribution of imputed days
+- later analysis of impact
 
-Session 33 will establish the first real performance baseline for the full
-pipeline and identify the dominant bottleneck before any optimisation begins.
+### Risk: hidden structural issues
+
+Mitigation:
+- maintain strict separation:
+  - raw data layer
+  - derived data layer
+  - execution layer
+
+## Next Session (Session 34)
+
+Once data robustness is achieved:
+
+- resume performance work:
+  - profiling backtests
+  - scaling to longer horizons / larger universes
+  - identifying bottlenecks
+
+## Conclusion
+
+Session 33 shifts focus from:
+
+> **calendar correctness (Session 32)**
+
+to:
+
+> **data robustness under imperfect real-world conditions**
+
+This is the final step required to make MXM v1 capable of:
+
+- full-history backtesting
+- stable research iteration
+- production-grade data handling
