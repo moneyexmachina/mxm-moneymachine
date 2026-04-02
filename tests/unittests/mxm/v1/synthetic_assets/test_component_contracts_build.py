@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import mxm.v1.synthetic_assets.component_contracts as ccmod
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.contracts.contract_series import ContractSeries
 
 
@@ -16,9 +16,9 @@ def _days(*xs: str) -> np.ndarray:
     return np.array(xs, dtype="datetime64[D]")
 
 
-def _make_mxm_business_calendar() -> MxMBusinessCalendar:
+def _make_mxm_business_calendar() -> MXMBusinessCalendar:
     """
-    Business-day surface with a weekend-like gap:
+    Business-session surface with a weekend-like gap:
 
         2025-01-02
         2025-01-03
@@ -26,16 +26,22 @@ def _make_mxm_business_calendar() -> MxMBusinessCalendar:
         2025-01-07
         2025-01-08
     """
-    return MxMBusinessCalendar(
+    labels = _days(
+        "2025-01-02",
+        "2025-01-03",
+        "2025-01-06",
+        "2025-01-07",
+        "2025-01-08",
+    )
+    start_ts = labels.astype("datetime64[ns]")
+    end_ts = (start_ts + np.timedelta64(1, "D")).astype("datetime64[ns]")
+
+    return MXMBusinessCalendar(
         calendar_id="mxm_v1_business",
-        business_days=_days(
-            "2025-01-02",
-            "2025-01-03",
-            "2025-01-06",
-            "2025-01-07",
-            "2025-01-08",
-        ),
-        observed_end=np.datetime64("2025-01-08", "D"),
+        session_ids=np.arange(labels.size, dtype=np.int64),
+        labels=labels,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
 
@@ -328,8 +334,10 @@ def test_build_component_contracts_raises_when_normalized_business_interval_is_i
         "_build_contract_series_by_component",
         fake_build_contract_series_by_component,
     )
-
-    with pytest.raises(ValueError, match=r"start .* is after end .*"):
+    with pytest.raises(
+        ValueError,
+        match=r"Requested interval contains no MXM business sessions after boundary normalization",
+    ):
         ccmod.build_component_contracts(
             spec=spec,
             start_session=np.datetime64("2025-01-04", "D"),

@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import mxm.v1.synthetic_assets.runtime as rtmod
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.runtime import SyntheticAsset
@@ -34,11 +34,17 @@ def _make_spec() -> SimpleNamespace:
     )
 
 
-def _make_mxm_business_calendar() -> MxMBusinessCalendar:
-    return MxMBusinessCalendar(
+def _make_mxm_business_calendar() -> MXMBusinessCalendar:
+    labels = _days("2026-03-18", "2026-03-19", "2026-03-20")
+    start_ts = labels.astype("datetime64[ns]")
+    end_ts = (start_ts + np.timedelta64(1, "D")).astype("datetime64[ns]")
+
+    return MXMBusinessCalendar(
         calendar_id="mxm_v1_business",
-        business_days=_days("2026-03-18", "2026-03-19", "2026-03-20"),
-        observed_end=np.datetime64("2026-03-20", "D"),
+        session_ids=np.arange(labels.size, dtype=np.int64),
+        labels=labels,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
 

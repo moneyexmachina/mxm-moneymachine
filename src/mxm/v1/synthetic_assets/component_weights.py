@@ -18,7 +18,7 @@ Scope
 - instantiate roll model from spec.weights_rule_id
 - build raw front-anchor contract identity on trading-session support
 - map anchor contract identity onto MXM business-session support
-- compute MXM business-days-to-LTD for cur/nxt component pairs
+- compute trading-days-to-LTD for cur/nxt component pairs on that support
 - apply static multipliers for supported spread structures
 - return a canonical ComponentWeights object
 
@@ -32,11 +32,10 @@ Out of scope
 V1 session-grid policy
 ----------------------
 ComponentWeights inherits its session grid from ComponentContracts.
-
 For each supported component pair:
 - the front-anchor contract identity is first realised on product trading-session support
 - that anchor identity is then projected onto the common MXM business-session grid
-- roll timing is computed in MXM business-day space
+- roll timing is computed in trading-calendar space, evaluated on MXM business-session support
 """
 
 from dataclasses import dataclass
@@ -49,7 +48,7 @@ from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
 )
 
 from mxm.v1.calendars.mapping import map_business_to_trading_sessions
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import (
     ContractSeries,
@@ -64,8 +63,8 @@ from mxm.v1.synthetic_assets.component_contracts import (
 )
 from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec
 from mxm.v1.synthetic_assets.rolling.linear_roll import LinearRoll
-from mxm.v1.synthetic_assets.rolling.mxm_business_days_to_ltd_series import (
-    build_mxm_business_days_to_ltd_series,
+from mxm.v1.synthetic_assets.rolling.trading_days_to_ltd_on_business_sessions import (
+    build_trading_days_to_ltd_on_business_sessions,
 )
 from mxm.v1.synthetic_assets.weights_rules import parse_weights_rule_id
 from mxm.v1.utils.date_utils import coerce_np_day, searchsorted_exact
@@ -171,16 +170,18 @@ def build_component_weights(
     component_contracts: ComponentContracts,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
-    mxm_business_calendar: MxMBusinessCalendar,
+    mxm_business_calendar: MXMBusinessCalendar,
     refdata_api: RefDataAPI,
 ) -> ComponentWeights:
     """
     Realise ComponentWeights from SyntheticAssetSpec on the MXM business-session
     grid inherited from ComponentContracts.
-
     Roll timing is anchored to the front (N=1) series of the same selector
     family as each pair's cur component, not to the selected cur contract's
     own LTD.
+
+    Trading-days-to-LTD is counted in product trading-calendar space, but
+    evaluated on the MXM business-session grid inherited from ComponentContracts.
     """
     roll_model = _build_roll_model(spec.weights_rule_id)
 
@@ -205,17 +206,16 @@ def build_component_weights(
             series=raw_anchor_series,
             business_sessions=sessions,
         )
-
-        bdays = build_mxm_business_days_to_ltd_series(
+        tdays = build_trading_days_to_ltd_on_business_sessions(
             product_id=raw_anchor_series.product_id,
             sessions=sessions,
             contract_ids=anchor_contract_ids,
-            mxm_business_calendar=mxm_business_calendar,
+            calendar_service=calendar_service,
             refdata_api=refdata_api,
         )
 
-        if len(bdays.sessions) != len(sessions) or not np.array_equal(
-            bdays.sessions,
+        if len(tdays.sessions) != len(sessions) or not np.array_equal(
+            tdays.sessions,
             sessions,
         ):
             raise MisalignedAnchorSessions(
@@ -224,9 +224,8 @@ def build_component_weights(
             )
 
         w_cur, w_nxt = roll_model.compute_weights_from_bdays_to_ltd(
-            bdays_to_ltd=bdays.mxm_business_days_to_ltd
+            bdays_to_ltd=tdays.trading_days_to_ltd
         )
-
         m = float(multiplier)
         component_weight_columns[cur_component] = m * w_cur
         component_weight_columns[nxt_component] = m * w_nxt
@@ -296,6 +295,9 @@ def _map_anchor_contract_ids_to_business_sessions(
     """
     Project raw trading-session anchor contract identity onto MXM business
     sessions using business->trading mapping with how='prev'.
+
+    The resulting contract identity is aligned to MXM business-session support,
+    while downstream roll timing is still counted in trading-calendar space.
     """
     mapping = map_business_to_trading_sessions(
         business_sessions=business_sessions,
@@ -387,7 +389,7 @@ def realise_component_weights(
     end_session: np.datetime64,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
-    mxm_business_calendar: MxMBusinessCalendar,
+    mxm_business_calendar: MXMBusinessCalendar,
     refdata_api: RefDataAPI,
 ) -> ComponentWeights:
     component_contracts = build_component_contracts(

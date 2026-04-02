@@ -52,13 +52,14 @@ less than or equal to it for the component's product calendar.
 """
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
 from numpy import datetime64
 
 from mxm.v1.calendars.mapping import map_business_to_trading_sessions
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import (
     ContractSeries,
@@ -164,7 +165,7 @@ def build_component_contracts(
     end_session: datetime64,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
-    mxm_business_calendar: MxMBusinessCalendar,
+    mxm_business_calendar: MXMBusinessCalendar,
 ) -> ComponentContracts:
     """
     Build realised ComponentContracts for one SyntheticAssetSpec over the
@@ -199,27 +200,50 @@ def build_component_contracts(
 
 def _target_business_sessions(
     *,
-    mxm_business_calendar: MxMBusinessCalendar,
+    mxm_business_calendar: MXMBusinessCalendar,
     start_session: datetime64,
     end_session: datetime64,
 ) -> np.ndarray:
     """
-    Derive the target MXM business-session surface for this build call.
+    Derive the target MXM business-session labels for this build call.
 
     Policy
     ------
-    - normalize start to next business day
-    - normalize end to previous business day
-    - require non-empty closed interval on business-day support
+    - normalize start to next available business-session label
+    - normalize end to previous available business-session label
+    - require non-empty closed interval on MXM business-session support
     """
-    return mxm_business_calendar.business_days_between(
-        start_session,
-        end_session,
-        strict=False,
-        normalize_start="next",
-        normalize_end="prev",
-        inclusive="both",
-    )
+    start_day = start_session.astype("datetime64[D]")
+    end_day = end_session.astype("datetime64[D]")
+
+    if np.isnat(start_day):
+        raise ValueError("start_session must not be NaT")
+    if np.isnat(end_day):
+        raise ValueError("end_session must not be NaT")
+    labels = mxm_business_calendar.labels
+    start_day = cast(np.datetime64, start_session.astype("datetime64[D]"))
+    end_day = cast(np.datetime64, end_session.astype("datetime64[D]"))
+
+    start_idx = int(np.searchsorted(labels, start_day, side="left"))
+    end_idx = int(np.searchsorted(labels, end_day, side="right")) - 1
+
+    if start_idx >= labels.size:
+        raise ValueError(
+            f"start_session {start_day} is after last MXM business session {labels[-1]}"
+        )
+
+    if end_idx < 0:
+        raise ValueError(
+            f"end_session {end_day} is before first MXM business session {labels[0]}"
+        )
+
+    if start_idx > end_idx:
+        raise ValueError(
+            "Requested interval contains no MXM business sessions after "
+            "boundary normalization"
+        )
+
+    return labels[start_idx : end_idx + 1].copy()
 
 
 def _build_contract_series_by_component(

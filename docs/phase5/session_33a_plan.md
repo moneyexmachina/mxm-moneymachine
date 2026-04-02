@@ -1,46 +1,60 @@
 # session_33a_plan.md
 
-## Session 33a — MXM Business Session Abstraction & Calendar System
+## Session 33a — MXM Business Session Abstraction & Calendar System (Revised after Session 33b)
 
 ## Summary
 
-Session 33 revealed that the observed issues (e.g. degraded market data, missing marks) are not primarily **data problems**, but **time-domain modelling problems**.
+Session 33 revealed that the core issues encountered (e.g. degraded market data, missing marks, inconsistent backtests) are not primarily **data problems**, but **time-domain modelling problems**.
 
-We have implicitly treated:
+Session 33b has now established a **canonical timestamp substrate** and removed ambiguity around:
 
-> session ≈ date label
+- timestamp representation
+- UTC semantics
+- pandas vs NumPy handling
+- boundary vs kernel separation
 
-This is only a special case.
+We can now proceed with Session 33a on a **clean temporal foundation**.
 
-We now formalize:
+We formalize:
 
-> **A session is a coordinate in an ordered decision-time domain defined by a calendar**
+> **A session is a coordinate in an ordered decision-time domain defined by a calendar, with explicit timestamp boundaries.**
 
 This session establishes:
 
 - a **canonical session abstraction**
-- a **calendar as first-class data object**
-- a **clean separation between identity and representation**
+- a **calendar as a first-class data object**
+- a **clean separation between identity (session_id) and representation (labels, timestamps)**
 - a **foundation for deterministic, performant, and extensible time handling**
 
 ## Core Insight
 
 ### Previous implicit model (v1 so far)
 
-- Session = date label (`np.datetime64[D]`)
+- Session ≈ date label (`np.datetime64[D]`)
 - Used as:
   - identity
   - join key
   - index
 
-### Revised model
+This conflates:
+- identity
+- representation
+- time semantics
 
-> **Session = integer ordinal (`session_id`) within a specific calendar (`calendar_id`)**
+### Revised model (post 33b)
+
+> **Session = integer ordinal (`session_id`) within a calendar, with explicit timestamp boundaries defined in canonical time**
 
 Formally:
 
 ```
 (session_id, calendar_id) ∈ CalendarDomain
+```
+
+With:
+
+```
+start_ts, end_ts ∈ TSNSScalar (np.datetime64[ns], UTC)
 ```
 
 ## Canonical Representation
@@ -58,7 +72,10 @@ calendar: MXMBusinessCalendar
   - monotonic
   - local to a calendar
 
-- `calendar` defines interpretation
+- `calendar` defines:
+  - mapping
+  - ordering
+  - timestamp boundaries
 
 ### External (storage / interchange)
 
@@ -68,8 +85,9 @@ session_id: int
 ```
 
 Optional:
+
 ```python
-session_label: date  # for readability only
+session_label: date  # informational only
 ```
 
 ## Fundamental Invariant
@@ -84,64 +102,74 @@ Implications:
 
 ## Conceptual Model
 
-> **Calendar = ordered domain + coordinate system**
+> **Calendar = ordered domain + coordinate system + time embedding**
 
-- `calendar` defines the domain
-- `session_id` is a coordinate
-- data is a function over that domain:
+- calendar defines:
+  - ordered sessions
+  - mapping to labels
+  - mapping to timestamps
 
-```
-PnL(session_id, contract_id) → value
-```
+- session_id is:
+  - coordinate in that domain
+
+- timestamps provide:
+  - embedding into real-world time
 
 ## Design Principles
 
 ### 1. Calendar is authoritative
 
-- Defines:
-  - ordered sessions
-  - valid domain
-  - mappings
+Defines:
+
+- ordered sessions
+- valid domain
+- mappings:
+  - session_id ↔ label
+  - session_id → (start_ts, end_ts)
 
 ### 2. Session identity is integer-based
 
-- Enables:
-  - fast joins
-  - vectorisation
-  - slicing
-  - memory efficiency
+Enables:
 
-### 3. Labels are representations
+- fast joins
+- vectorisation
+- slicing
+- memory efficiency
 
-- Never used for:
+### 3. Timestamps are canonical and explicit
+
+- `start_ts`, `end_ts` are:
+  - `TSNSScalar`
+  - validated via `timestamps.py`
+
+- no pandas objects in kernel
+
+### 4. Labels are representations
+
+- never used for:
   - joins
   - identity
   - logic
 
-- Only for:
+- only for:
   - debugging
   - inspection
   - plotting
 
-### 4. Separation of concerns
+### 5. Separation of concerns
 
-| Concept         | Responsibility                        |
-|-----------------|--------------------------------------|
-| Calendar        | domain definition + ordering          |
-| Session ID      | coordinate within domain              |
-| Label           | human-readable representation         |
-| Timestamp       | real-world boundary definition        |
+| Concept         | Responsibility                                |
+|-----------------|-----------------------------------------------|
+| Calendar        | domain + ordering + timestamp boundaries       |
+| Session ID      | coordinate within domain                       |
+| Label           | human-readable representation                  |
+| Timestamp       | canonical real-world time embedding            |
 
 ## Calendar as First-Class Data Artifact
 
 Calendars are now:
 
-> **immutable, versioned reference-data objects**
-
-Similar in status to:
-- futures metadata
-- contract specifications
-- instrument master data
+> **immutable, versioned reference-data objects with canonical timestamps**
 
 ### Calendar Artifact Properties
 
@@ -160,26 +188,29 @@ Similar in status to:
    ```
    session_id ↔ label
    ```
-5. timestamps are deterministic
-6. construction policy is documented
+5. timestamps are canonical:
+   - `TSNSScalar`
+   - non-NaT
+   - UTC-consistent
+6. timestamp arrays are:
+   - monotonic increasing
+   - non-overlapping
+7. construction policy is documented
 
-## Calendar Construction
+## Time Semantics
 
-### Explicit Construction Policy
+Each session defines a half-open interval:
 
-Calendars must be constructed from a defined policy:
-
-```python
-MXMBusinessCalendar.from_business_days(dates: np.ndarray)
+```
+[start_ts, end_ts)
 ```
 
-Where:
-- `dates` are pre-filtered valid business sessions
+Properties:
 
-Future extension:
-- rule-based construction
-- product-specific calendars
-- multi-frequency calendars
+- no overlap
+- full ordering
+- composable
+- aligned with canonical timestamp model (Session 33b)
 
 ## MXMBusinessCalendar Interface (v1)
 
@@ -192,11 +223,11 @@ class MXMBusinessCalendar:
     def session_ids(self) -> np.ndarray
     def labels(self) -> np.ndarray
 
+    def start_ts(self, session_id: int) -> TSNSScalar
+    def end_ts(self, session_id: int) -> TSNSScalar
+
     def session_id_from_label(self, label) -> int
     def label_from_session_id(self, session_id: int)
-
-    def start_ts(self, session_id: int) -> np.datetime64
-    def end_ts(self, session_id: int) -> np.datetime64
 
     def next(self, session_id: int) -> int
     def prev(self, session_id: int) -> int
@@ -209,96 +240,82 @@ class MXMBusinessCalendar:
     def validate_session_id(self, session_id: int) -> None
 ```
 
-## Time Semantics
+## Integration with Session 33b
 
-Session intervals are defined as:
+Session 33a now explicitly depends on:
 
+- `TSNSScalar`
+- `TSNSArray`
+- `assert_ts_ns`
+- `assert_not_nat`
+- `assert_ts_ns_array`
+- `assert_no_nat`
+- `assert_monotonic_increasing_ts_ns_array`
+
+These are used to enforce:
+
+- timestamp validity
+- monotonicity
+- boundary correctness
+
+## Calendar Construction
+
+### Input
+
+```python
+dates: ndarray[datetime64[D]]
 ```
-[start_ts, end_ts)
-```
 
-- half-open interval
-- no overlap
-- composable
+These are:
+
+- pre-filtered business days
+- derived from trading calendar / policy
+
+### Construction Steps
+
+1. assign dense `session_id`
+2. map `label = date`
+3. derive:
+   - `start_ts = date @ 00:00:00 UTC`
+   - `end_ts = next date @ 00:00:00 UTC`
+4. validate:
+   - canonical dtype
+   - no NaT
+   - monotonicity
+   - interval consistency
 
 ## Calendar Stability Requirement
 
 > **session_id assignment must be stable within a given calendar_id**
 
 Implications:
-- rebuilding the same calendar must produce identical mappings
-- otherwise persisted data becomes invalid
 
-Versioning handles changes:
-
-```
-mxm_business_day_v1
-mxm_business_day_v2
-```
-
-## Calendar Registry & Service
-
-### Calendar Registry (persistent)
-
-Responsibilities:
-- catalog available calendars
-- store metadata
-- enforce uniqueness
-- track versions and families
-
-Example metadata:
-
-```yaml
-calendar_id: mxm_business_day_v1
-family: mxm_business_day
-version: 1
-frequency: daily
-label_type: date
-timezone: UTC
-valid_from: 2010-01-01
-valid_to: 2035-12-31
-construction_policy: ...
-checksum: ...
-```
-
-### Calendar Service (runtime)
-
-Responsibilities:
-- resolve `calendar_id → calendar`
-- load from storage
-- cache instances
-- return immutable objects
-
-Example:
-
-```python
-calendar = calendar_service.get(calendar_id)
-```
+- deterministic construction
+- identical inputs → identical calendar
+- required for persisted data consistency
 
 ## Storage Strategy
 
-### Persisted data
+Persist:
 
-Must include:
 ```
 calendar_id
 session_id
 ```
 
 Optional:
+
 ```
 session_label
 ```
 
-### Rules
+Rules:
 
-- `session_id` is authoritative
-- `session_label` is informational only
+- session_id is authoritative
+- labels are informational only
 - never join on labels
 
 ## Runtime Usage Pattern
-
-### In-memory objects
 
 ```python
 class TargetHoldings:
@@ -306,209 +323,118 @@ class TargetHoldings:
     data: DataFrame  # indexed by session_id
 ```
 
-- calendar is held by reference (not duplicated)
+- calendar is held by reference
 - session_id interpreted relative to calendar
 
 ## Compatibility Rule
 
 > Two session-indexed objects are compatible iff they share the same calendar_id
 
-Enforced via:
-
-```python
-assert a.calendar.calendar_id == b.calendar.calendar_id
-```
-
-## API Design Rules
-
-### Internal APIs
-
-Must use:
-```python
-session_id: int
-```
-
-Must NOT use:
-```python
-label: datetime
-```
-
-### Boundary APIs (CLI / plotting)
-
-May accept labels:
-
-```python
-session_id = calendar.session_id_from_label(label)
-```
-
-Then operate exclusively in session_id space.
-
 ## Impact on Existing Components
 
 ### TargetHoldings
-
-- move from `(date, contract_id)` to `(session_id, contract_id)`
-- bind calendar object
+- `(date, contract_id)` → `(session_id, contract_id)`
 
 ### daily_mark
-
-Redefined as:
-
-```
-(session_id, contract_id) → mark
-```
+- `(session_id, contract_id) → mark`
 
 ### Backtester
-
 - iterate over `session_id`
-- use labels only for reporting
 
-### Price Accessors (critical)
-
-Must operate in session space:
-
-```python
-get_mark_price(contract_id, session_id)
-```
-
-NOT:
-```python
-get_mark_price(contract_id, date)
-```
+### Price Accessors
+- must accept `session_id`
 
 ### Market Data Mapping
+- `date → session_id` mapping layer required
 
-- source data remains date-based (`daily_stats`)
-- mapping step:
-  ```
-  date → session_id
-  ```
+## Implementation Plan (Revised)
 
-## Data Availability (Future Hook)
-
-Recognize:
-
-> calendar domain ≠ data availability
-
-Introduce (later):
-
-```python
-is_data_available(session_id, contract_id)
-```
-
-Enables:
-- imputation
-- quality flags
-- diagnostics
-
-## Implementation Plan
-
-### Step 1 — Calendar Core
-
-- module:
-  ```
-  mxm.v1.time.mxm_business_calendar
-  ```
+### Step 1 — Calendar Core (with canonical timestamps)
 
 - implement:
   - session_id construction
   - label mapping
-  - timestamp mapping
+  - start_ts / end_ts (TSNSScalar)
+  - invariant checks using timestamps module
 
-### Step 2 — Calendar Artifact & Storage
-
-- define artifact format
-- persist calendar
-- define metadata
-
-### Step 3 — Calendar Registry
-
-- minimal registry:
-  - list of calendars
-  - metadata file
-  - lookup by calendar_id
-
-### Step 4 — Calendar Service
-
-- implement:
-  - loader
-  - cache
-  - retrieval API
-
-### Step 5 — Unit Tests
+### Step 2 — Unit Tests
 
 Test:
 
-- monotonic ordering
 - bijection:
-  ```
-  session_id ↔ label
-  ```
-- boundary correctness
-- interval correctness
-- stability across reload
-- validation errors
+  - session_id ↔ label
+- timestamp validity:
+  - correct dtype
+  - non-NaT
+- monotonicity:
+  - start_ts increasing
+  - end_ts increasing
+- interval correctness:
+  - no overlap
+  - start < end
+- stability:
+  - rebuild identical
 
-### Step 6 — Adapters (Temporary)
+### Step 3 — Minimal Integration
+
+- use calendar in one consumer:
+  - e.g. `daily_mark` or synthetic asset pipeline
+
+### Step 4 — Adapter Layer (Temporary)
 
 - label → session_id conversion
-- used only at boundaries
-
-### Step 7 — First Consumer
-
-- implement `daily_mark` on session_id basis
+- boundary only
 
 ## Success Criteria
 
 Session 33a is complete when:
 
 - MXMBusinessCalendar implemented
-- calendar_id + session_id model enforced
-- calendar artifact + registry exist
-- calendar service resolves correctly
-- session_id used as canonical coordinate
-- mapping is stable and tested
+- canonical timestamps used for boundaries
+- invariants enforced via timestamps module
+- session_id becomes canonical coordinate
+- calendar is deterministic and tested
 
 ## Non-Goals
 
-- multi-frequency calendars (hourly, intraday)
-- event-based scheduling
-- distributed registry system
+- multi-frequency calendars
+- intraday sessions
+- distributed registry
 - full pipeline refactor
 
 ## Risks & Mitigations
 
 ### Over-engineering
-- keep v1 minimal
-- single calendar sufficient
+- keep single calendar
+- minimal API
 
 ### Migration complexity
-- adapter layer
-- incremental refactor
-
-### Readability loss
-- persist labels
-- use labels in CLI
+- incremental adoption
 
 ### Calendar/data mismatch
-- explicitly model availability later
+- handle later via availability model
 
 ## Conclusion
 
-Session 33a establishes the **temporal backbone** of MXM.
+Session 33a builds directly on Session 33b.
 
-We move from:
+We now move from:
 
-> session as implicit date label
+> implicit date-based sessions
 
 to:
 
-> session as explicit coordinate in a calendar-defined domain
+> explicit session coordinates with canonical timestamp boundaries
 
 This enables:
 
-- correctness of time semantics
-- deterministic behaviour
-- efficient computation
-- extensibility to intraday systems
-- clean downstream architecture
+- correct time semantics
+- deterministic backtests
+- clean system architecture
+- future extensibility
+
+## Next Step
+
+Proceed with:
+
+> **Implementation of MXMBusinessCalendar using canonical timestamps**

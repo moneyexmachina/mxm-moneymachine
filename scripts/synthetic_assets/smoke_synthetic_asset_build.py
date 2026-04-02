@@ -16,7 +16,6 @@ Optional overrides:
         --asset-id <asset_id> \
         --start 2025-01-02 \
         --end 2025-02-28 \
-        --mxm-business-base-calendar-id cmes \
         --mxm-business-calendar-id mxm_v1_business
 
 This is a human inspection tool, not a regression test.
@@ -33,7 +32,7 @@ from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
     RefDataAPI,
 )
 
-from mxm.v1.calendars.mxm_business_calendar_service import MxMBusinessCalendarService
+from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
@@ -52,7 +51,6 @@ from mxm.v1.synthetic_assets.unit_conversion import build_default_unit_converter
 # ---------------------------------------------------------------------
 
 DEFAULT_MXM_BUSINESS_CALENDAR_ID = "mxm_v1_business"
-DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID = "cmes"
 
 # ---------------------------------------------------------------------
 # CLI
@@ -81,14 +79,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=int,
         default=50,
         help="Maximum number of active holdings rows to print (default: 50)",
-    )
-    p.add_argument(
-        "--mxm-business-base-calendar-id",
-        default=DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID,
-        help=(
-            "Base TradingCalendar id used to construct the MXM business calendar "
-            f"(default: {DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID})"
-        ),
     )
     p.add_argument(
         "--mxm-business-calendar-id",
@@ -211,9 +201,10 @@ def main(argv: Sequence[str]) -> int:
     engine = ContractSelectorEngine.build(refdata=refdata, calendars=calendars)
     unit_converter = build_default_unit_converter()
 
-    mxm_business_calendar_service = MxMBusinessCalendarService(
-        base_trading_calendar_id=args.mxm_business_base_calendar_id,
-        business_calendar_id=args.mxm_business_calendar_id,
+    mxm_business_calendar_service = MXMBusinessCalendarService(
+        calendar_id=args.mxm_business_calendar_id,
+        start_label=start,
+        end_label=end,
     )
     mxm_business_calendar = mxm_business_calendar_service.get_calendar()
 
@@ -234,9 +225,10 @@ def main(argv: Sequence[str]) -> int:
     print()
 
     print("MXM business calendar")
-    print(f"  calendar_id:      {mxm_business_calendar.calendar_id}")
-    print(f"  base_calendar_id: {args.mxm_business_base_calendar_id}")
-    print(f"  observed_end:     {mxm_business_calendar.observed_end}")
+    print(f"  calendar_id: {mxm_business_calendar.calendar_id}")
+    print(f"  first_label: {mxm_business_calendar.labels[0]}")
+    print(f"  last_label:  {mxm_business_calendar.labels[-1]}")
+    print(f"  sessions:    {len(mxm_business_calendar)}")
     print()
 
     asset = build_synthetic_asset(

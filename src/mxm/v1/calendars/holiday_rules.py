@@ -7,9 +7,8 @@ MXM calendar system.
 Scope:
 - Provides a minimal, dependency-free implementation of US federal-style
   market closure holidays.
-- Supports both:
+- Supports:
     - TradingCalendar projection (builder layer)
-    - MxMBusinessCalendar construction (runtime layer)
 
 Design principles:
 - Pure functions: no IO, no external dependencies, no hidden state.

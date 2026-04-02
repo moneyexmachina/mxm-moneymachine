@@ -2,60 +2,77 @@
 
 ## Session 33 — Handling Degraded Market Data & Ensuring Full-History Backtest Stability
 
-### Summary
+## Summary
 
-Following Session 32, the MXM system is now structurally sound:
+Following Sessions 33a and 33b, the MXM system now has:
 
-- MXM business calendar successfully separates **machine-time vs exchange-time**
-- Synthetic asset pipeline is stable and aligned
-- Multi-year backtests (5y) run successfully
+- a canonical timestamp model (`np.datetime64[ns]`, UTC, kernel/boundary separation)
+- a first-class MXM business calendar defining the operating session domain
+- a synthetic asset pipeline fully aligned to MXM business-session support
 
 However, extending to full-history (~15 years) reveals a new class of failure:
 
-> **Vendor-level degraded data in `statistics_1d` and derived `daily_stats`**
+> **Missing or degraded market data when projected onto MXM business-session support**
+
+This is no longer a calendar problem, but a **data availability and valuation problem**.
 
 Session 33 focuses on:
-- formally defining this failure class
-- designing a robust handling strategy
-- implementing repair / mitigation mechanisms
-- validating via full-history synthetic asset PnL run
+
+- defining how market data is projected onto MXM business sessions
+- designing curated datasets (`daily_mark`, `daily_volume`)
+- implementing explicit policies for degraded or missing data
+- validating via full-history synthetic asset PnL runs
 
 ## Problem Statement
 
-We are encountering failures such as:
+Failures occur when evaluating synthetic assets on MXM business-session support:
 
 ```
 Missing mark price for contract_id=..., session=..., price_field='settle_px'
 ```
 
-Root cause analysis indicates:
+### Root cause
 
-- upstream data provider flags certain days as `degraded`
-- `statistics_1d` may have:
-  - missing records
-  - incomplete coverage
-- `daily_stats` derived dataset therefore:
-  - contains gaps or missing settlement prices
-- downstream systems (backtester, mark pricing):
-  - assume complete coverage
-  - fail hard when data is missing
+- MXM business sessions exist independently of trading-session availability
+- `daily_stats` is:
+  - trading-session aligned
+  - incomplete on certain days (vendor degraded data)
+- mapping from trading sessions → business sessions introduces gaps
+
+Therefore:
+
+> **MXM requires explicit policy for valuing assets on sessions where market data is missing or degraded**
 
 ## Key Insight
 
-We now distinguish three classes of data issues:
+We now distinguish three distinct layers:
 
-### 1. Calendar mismatch (resolved in Session 32)
-- trading day exists but no settlement data expected
-- fixed via MXM business calendar
+### 1. TradingCalendar (market-time reality)
+- exchange trading sessions
+- used for:
+  - contract selection
+  - LTD offsets
+  - roll timing
 
-### 2. Local ingestion / derivation gaps
-- incomplete or missing datasets due to pipeline issues
-- repairable via targeted rebuilds
+### 2. MXMBusinessCalendar (machine-time reality)
+- MXM operating / valuation sessions
+- defines:
+  - support of synthetic assets
+  - support of target holdings
+  - support of daily valuation
 
-### 3. Vendor degraded data (Session 33 focus)
-- upstream data is explicitly marked degraded
-- may remain incomplete even after rebuild
-- requires **policy and system-level handling**
+### 3. Curated daily datasets (Session 33 focus)
+- `daily_mark`
+- `daily_volume`
+
+These datasets:
+
+- live on MXM business-session support
+- encode:
+  - observed values
+  - fallback logic
+  - carry policy
+  - data quality
 
 ## Objectives
 
@@ -68,6 +85,10 @@ We now distinguish three classes of data issues:
 - define a clear **data-quality policy** for degraded days
 - preserve **determinism and auditability**
 - avoid silent corruption of economic results
+- separate:
+  - support definition
+  - data availability
+  - valuation policy
 
 ## Workstreams
 
@@ -75,28 +96,36 @@ We now distinguish three classes of data issues:
 
 #### Goal
 
-Build a clear classification of all failing sessions.
+Build a clear classification of all failing `(contract_id, session)` pairs.
 
 #### Tasks
 
-- For each failure:
-  - identify `(contract_id, session)`
-  - check:
-    - presence in `statistics_1d`
-    - presence in `daily_stats`
-    - Databento dataset condition (`available` vs `degraded`)
-- Build a simple diagnostic output:
+For each failure:
+
+- identify:
+  - `contract_id`
+  - `session` (MXM business session)
+
+- check:
+  - mapping to trading session (via `how="prev"`)
+  - presence in `statistics_1d`
+  - presence in `daily_stats`
+  - vendor dataset condition (`available`, `degraded`, etc.)
+
+#### Output
+
+Diagnostic table:
 
 ```
-session | contract_id | stats_present | daily_stats_present | dataset_condition
+session | contract_id | trading_session | stats_present | daily_stats_present | dataset_condition
 ```
 
 #### Outcome
 
-- full list of problematic sessions
-- separation into:
-  - pipeline gaps
-  - vendor degraded data
+Clear separation into:
+
+- pipeline gaps (fixable)
+- vendor degraded data (policy-driven)
 
 ### 2. statistics_1d Policy
 
@@ -104,99 +133,158 @@ session | contract_id | stats_present | daily_stats_present | dataset_condition
 
 What is the expected behaviour when upstream data is degraded?
 
-#### Options
+#### Decision (v1)
 
-1. **Strict (current)**
-   - accept missing data
-   - downstream must handle gaps
+- `statistics_1d` remains:
+  - **raw**
+  - **faithful**
+  - **unaltered**
 
-2. **Augmented ingestion**
-   - attempt alternative fetch strategies (if possible)
-   - likely limited impact (vendor-side issue)
+- no attempt to "repair" vendor data here
 
-3. **Annotate quality**
-   - store dataset condition alongside data
-   - propagate downstream
+Optional:
 
-#### Proposed direction (v1)
+- propagate dataset condition metadata downstream
 
-- keep `statistics_1d` as **raw, faithful representation**
-- do not attempt to "fix" degraded data here
-- optionally:
-  - enrich metadata with dataset condition
+#### Principle
 
-### 3. daily_stats Repair Strategy
+> Raw data layer is descriptive, not corrective
+
+### 3. daily_mark Dataset Design (replaces daily_stats repair)
 
 #### Core decision point
 
-How should `daily_stats` behave when settlement data is missing?
+How should MXM assign a mark price for each:
 
-#### Candidate strategies
+```
+(session, contract_id)
+```
 
-##### A. Hard fail (current)
-- simple
-- blocks full-history runs
+on MXM business-session support?
 
-##### B. Drop affected sessions
-- breaks time continuity
-- problematic for backtesting
+#### Proposed dataset: `daily_mark`
 
-##### C. Forward-fill (previous settle)
-- preserves continuity
-- introduces controlled approximation
+Conceptual schema:
 
-##### D. Hybrid (recommended)
+```
+session
+contract_id
+instrument_id (optional)
+mark_px
+mark_source
+mark_quality
+is_markable
+is_carried
+carry_streak
+source_session
+source_dataset
+```
 
-- If missing settlement:
-  - forward-fill from last valid session
-- Mark the row as:
-  - `is_imputed = True`
-- Preserve original fields where available
+#### Policy hierarchy (v1)
+
+For each `(session, contract_id)`:
+
+1. **Primary (preferred)**
+   - use `settle_px` from `daily_stats`
+   - `mark_source = "settle"`
+   - `mark_quality = "final"`
+
+2. **Fallback (observed)**
+   - use alternative price (e.g. `close_px`)
+   - `mark_source = "close"`
+   - `mark_quality = "observed_fallback"`
+
+3. **Carry-forward**
+   - use previous valid mark
+   - `mark_source = "carry"`
+   - `mark_quality = "carried"`
+   - track `carry_streak`
+
+4. **Unavailable**
+   - no valid source exists
+   - `is_markable = False`
+   - `mark_quality = "unavailable"`
 
 #### Design principle
 
-> **Prefer continuity with explicit annotation over silent failure**
+> **Separate support (session exists) from data availability (mark may be observed, fallback, carried, or unavailable)**
 
-### 4. Downstream Behaviour
+### 4. daily_volume Dataset (parallel)
+
+#### Motivation
+
+Execution and liquidity analysis require volume.
+
+#### Proposed dataset: `daily_volume`
+
+- same MXM business-session support
+- similar projection and fallback logic
+- explicit handling of:
+  - zero volume (valid)
+  - missing volume (data issue)
+
+#### Policy (v1)
+
+- prefer observed volume
+- do not forward-fill volume by default
+- allow explicit `is_missing` flag
+
+### 5. Downstream Behaviour
 
 #### Backtester / mark price accessor
 
-Currently:
-- assumes price must exist
-- raises error if missing
+Must:
 
-#### Required changes
-
+- consume `daily_mark`, not raw `daily_stats`
 - allow:
-  - imputed prices from `daily_stats`
+  - carried marks
+  - fallback marks
 - optionally:
-  - log when imputed values are used
-- ensure:
-  - no silent inconsistencies
+  - log or count non-final marks
 
-### 5. Implementation Plan
+Must ensure:
+
+- no NaNs for markable assets
+- deterministic behaviour
+
+#### Key principle
+
+> Downstream systems consume curated data, not raw vendor data
+
+### 6. Implementation Plan
 
 #### Step 1 — Diagnostics
-- build temporary inspection tool or logging
-- enumerate all failing sessions
 
-#### Step 2 — daily_stats enhancement
-- implement forward-fill for missing settlement
-- add explicit flag (e.g. `is_imputed_settle_px`)
+- enumerate all failing `(contract_id, session)` pairs
+- classify failures
 
-#### Step 3 — price accessor update
-- allow use of imputed prices
-- optionally log / count usage
+#### Step 2 — daily_mark builder
 
-#### Step 4 — validation tests
-- ensure:
-  - no NaNs in required fields
-  - monotonic session continuity preserved
+- implement:
+  - business → trading session mapping (`how="prev"`)
+  - mark selection hierarchy
+  - carry-forward logic
+  - quality flags
 
-#### Step 5 — rerun ingestion (if needed)
-- rebuild affected contracts
+#### Step 3 — daily_volume builder (optional, parallel)
 
-#### Step 6 — full-history smoke test
+- similar projection logic
+- explicit missing/zero distinction
+
+#### Step 4 — price accessor refactor
+
+- switch valuation to `daily_mark`
+- remove direct dependency on `daily_stats`
+
+#### Step 5 — validation
+
+- assert:
+  - no NaNs in markable rows
+  - correct carry behaviour
+  - correct quality labeling
+  - stable deterministic output
+
+#### Step 6 — full-history run
 
 Run:
 
@@ -210,11 +298,11 @@ smoke_synthetic_asset_pnl.py
 
 Session 33 is complete when:
 
-- synthetic asset PnL smoke script runs over full 15-year history
-- no hard failures due to missing mark prices
-- imputed data is:
-  - explicitly identifiable
-  - limited in scope
+- `daily_mark` dataset exists and is used for valuation
+- synthetic asset PnL runs over full 15-year history without failure
+- all non-final marks are:
+  - explicitly labeled
+  - auditable
 - system behaviour remains deterministic
 
 ## Non-Goals
@@ -222,6 +310,7 @@ Session 33 is complete when:
 - perfect reconstruction of degraded vendor data
 - cross-vendor reconciliation
 - advanced statistical interpolation
+- intraday modelling
 
 These may be addressed in later sessions.
 
@@ -230,21 +319,28 @@ These may be addressed in later sessions.
 ### Risk: silent data distortion
 
 Mitigation:
-- explicit imputation flags
-- diagnostic reporting
 
-### Risk: over-reliance on forward-fill
+- explicit quality flags
+- diagnostic reporting
+- auditability of mark source
+
+### Risk: over-reliance on carry-forward
 
 Mitigation:
-- track frequency and distribution of imputed days
-- later analysis of impact
+
+- track:
+  - frequency
+  - duration (`carry_streak`)
+- analyze impact later
 
 ### Risk: hidden structural issues
 
 Mitigation:
-- maintain strict separation:
-  - raw data layer
-  - derived data layer
+
+- strict separation:
+  - raw data layer (`statistics_1d`)
+  - derived trading-session layer (`daily_stats`)
+  - curated business-session layer (`daily_mark`)
   - execution layer
 
 ## Next Session (Session 34)
@@ -258,13 +354,21 @@ Once data robustness is achieved:
 
 ## Conclusion
 
-Session 33 shifts focus from:
+Session 33 completes the transition from:
 
-> **calendar correctness (Session 32)**
+> **calendar correctness (Sessions 32–33a)**
 
 to:
 
-> **data robustness under imperfect real-world conditions**
+> **robust valuation under imperfect real-world data conditions**
+
+The system evolves from:
+
+> reacting to missing data
+
+to:
+
+> explicitly defining how MXM values the world when data is incomplete
 
 This is the final step required to make MXM v1 capable of:
 

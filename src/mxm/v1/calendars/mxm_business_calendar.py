@@ -1,261 +1,416 @@
 from __future__ import annotations
 
 """
-MXM V1 — MxMBusinessCalendar model: authoritative MXM business-day surface.
+MXM V1 — MXMBusinessCalendar core model.
 
-This module defines the runtime business calendar used by MXM V1 strategy and
-backtest components.
+This module defines the canonical MXM business calendar artifact for MXM V1.
 
-Calendar surface
-----------------
-MxMBusinessCalendar is a label-only calendar surface:
+Core concept
+------------
+An MXM business calendar defines an ordered session domain for MXM operating
+time. A session is identified by:
 
-1) Business-day labels (required)
-   - `business_days`: numpy datetime64[D]
-   - These are the session identifiers on which MXM may:
-       - evaluate the system
-       - form target holdings
-       - change holdings
-       - mark positions
-       - construct daily PnL
+    (calendar_id, session_id)
 
-Authority & scope
+where:
+
+- `calendar_id` identifies the calendar artifact
+- `session_id` is a dense integer coordinate within that calendar
+
+The calendar also provides two attached representations for each session:
+
+1. `label`
+   A human-readable session label, represented in V1 as `np.datetime64[D]`
+
+2. `(start_ts, end_ts)`
+   A canonical timestamp embedding of the session as a half-open interval
+   `[start_ts, end_ts)`, represented in canonical MXM timestamp form
+   `np.datetime64[ns]`
+
+V1 scope
+--------
+In V1, MXM business sessions are daily UTC-aligned operating sessions:
+
+- session ids are dense integers
+- labels are UTC civil dates
+- start timestamps are UTC midnight for the label date
+- end timestamps are UTC midnight on the following civil date
+
+This calendar artifact is authoritative for the MXM business-session domain.
+It does not encode:
+
+- exchange microstructure
+- venue open / close schedules
+- product-specific settlement timing
+- execution feasibility
+- data availability
+- mark fallback policy
+
+Those belong to downstream layers.
+
+Design principles
 -----------------
-- This calendar is authoritative for MXM runtime operation.
-- It may be derived from lower-layer calendar/reference inputs, but downstream
-  runtime logic should treat it as the operative calendar.
-- In V1 this is a label-only surface: no intraday schedule is stored here.
-
-Non-goals
----------
-- Venue open/close timestamp mapping
-- Product-specific settlement calendars
-- Execution-session microstructure
-- Intraday routing or partial-session handling
+- session identity is `(calendar_id, session_id)`
+- labels are representations, not identity
+- timestamps are explicit and canonical
+- the calendar artifact is immutable
+- construction validates strictly and eagerly
+- no convenience session arithmetic is embedded here; dense integer arithmetic
+  and slicing are left to client code
 """
 
 from dataclasses import dataclass
-from typing import Literal, Union
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
 
-from mxm.v1.utils.date_utils import (
-    coerce_np_day,
-    ensure_1d_day_array,
-    searchsorted_exact,
+from mxm.v1.utils.timestamps import (
+    TSNSArray,
+    assert_monotonic_increasing_ts_ns_array,
+    assert_no_nat,
+    assert_ts_ns_array,
 )
 
-NormalizeHow = Literal["raise", "next", "prev"]
+
+def canonical_calendar_id(value: str) -> str:
+    """
+    Canonicalise an MXM business calendar id.
+
+    Policy:
+    - strip surrounding whitespace
+    - lower-case
+
+    Parameters
+    ----------
+    value:
+        Raw calendar id.
+
+    Returns
+    -------
+    str
+        Canonical calendar id.
+
+    Raises
+    ------
+    ValueError
+        If the canonicalised id is empty.
+    """
+    out = value.strip().lower()
+    if out == "":
+        raise ValueError("calendar_id must not be empty")
+    return out
+
+
+def _assert_1d_array(value: NDArray[np.generic], *, name: str) -> None:
+    """
+    Assert that `value` is 1-dimensional.
+    """
+    if value.ndim != 1:
+        raise ValueError(f"{name} must be 1D, got ndim={value.ndim}")
+
+
+def _assert_dtype_exact(
+    value: NDArray[np.generic],
+    *,
+    name: str,
+    expected: str | np.dtype | type[np.generic],
+) -> None:
+    """
+    Assert that `value.dtype` matches `expected` exactly.
+    """
+    expected_dtype = np.dtype(expected)
+    if value.dtype != expected_dtype:
+        raise TypeError(f"{name} must have dtype {expected_dtype}, got {value.dtype}")
+
+
+def _assert_day_array(value: NDArray[np.generic], *, name: str) -> None:
+    """
+    Assert that `value` is a 1D datetime64[D] ndarray with no NaT.
+    """
+    _assert_1d_array(value, name=name)
+    _assert_dtype_exact(value, name=name, expected="datetime64[D]")
+
+    if np.any(np.isnat(value)):
+        raise ValueError(f"{name} must not contain NaT")
+
+
+def _assert_int64_array(value: NDArray[np.generic], *, name: str) -> None:
+    """
+    Assert that `value` is a 1D int64 ndarray.
+    """
+    _assert_1d_array(value, name=name)
+    _assert_dtype_exact(value, name=name, expected=np.int64)
+
+
+def _assert_ts_ns_array_strict(
+    value: NDArray[np.generic],
+    *,
+    name: str,
+) -> None:
+    """
+    Assert that `value` is a 1D datetime64[ns] ndarray in canonical TSNS form.
+    """
+    _assert_1d_array(value, name=name)
+    assert_ts_ns_array(value)
+    arr = cast(TSNSArray, value)
+    assert_no_nat(arr)
+
+
+def _coerce_day_scalar_strict(value: np.datetime64, *, name: str) -> np.datetime64:
+    """
+    Convert an np.datetime64 scalar to datetime64[D] for lookup.
+
+    Raises
+    ------
+    ValueError
+        If the result is NaT.
+    """
+    out = value.astype("datetime64[D]")
+
+    if np.isnat(out):
+        raise ValueError(f"{name} must not be NaT")
+
+    return out
+
+
+def _searchsorted_exact_day(
+    labels: NDArray[np.datetime64],
+    target: np.datetime64,
+) -> int | None:
+    """
+    Return the exact index of `target` in a sorted datetime64[D] label array,
+    or None if absent.
+    """
+    idx = int(np.searchsorted(labels, target, side="left"))
+    if idx >= labels.size:
+        return None
+    if labels[idx] != target:
+        return None
+    return idx
 
 
 @dataclass(frozen=True, slots=True)
-class MxMBusinessCalendar:
+class MXMBusinessCalendar:
     """
-    Immutable MXM business calendar.
+    Immutable MXM business calendar artifact.
 
     Parameters
     ----------
     calendar_id:
-        Stable identifier for the MXM business calendar.
-    business_days:
-        Strictly increasing ndarray of business-day labels, dtype datetime64[D].
-        This is the effective business-day surface consumed at runtime
-        (observed region plus any projected region beyond observed_end).
-    observed_end:
-        Last business-day label that is covered by the observed (authoritative)
-        region. All labels strictly after this boundary are treated as projected.
+        Stable identifier for the calendar artifact.
+    session_ids:
+        Dense integer session coordinates. Must be exactly `0, 1, ..., N-1`.
+    labels:
+        Session labels as `datetime64[D]`, strictly increasing and unique.
+    start_ts:
+        Session start timestamps as canonical `datetime64[ns]`.
+    end_ts:
+        Session end timestamps as canonical `datetime64[ns]`.
 
     Notes
     -----
-    - This is the authoritative runtime calendar for MXM strategy/backtest logic.
-    - It defines the session labels on which MXM may:
-        - make decisions
-        - change holdings
-        - mark positions
-        - construct daily PnL
-    - It may be derived from one or more lower-layer calendar/reference inputs,
-      but downstream runtime logic should treat this object as authoritative.
-    - This is a label-only surface in V1.
+    Session identity is:
+
+        (calendar_id, session_id)
+
+    Labels and timestamps are attached representations of that identity.
+
+    For the V1 daily business calendar, the required alignment is:
+
+    - `start_ts[i] == labels[i] cast to datetime64[ns]`
+    - `end_ts[i]   == start_ts[i] + 1 day`
     """
 
     calendar_id: str
-    business_days: NDArray[np.datetime64]
-    observed_end: np.datetime64
+    session_ids: NDArray[np.int64]
+    labels: NDArray[np.datetime64]
+    start_ts: NDArray[np.datetime64]
+    end_ts: NDArray[np.datetime64]
 
     def __post_init__(self) -> None:
-        bd = ensure_1d_day_array(self.business_days, "business_days")
-        object.__setattr__(self, "business_days", bd)
+        object.__setattr__(self, "calendar_id", canonical_calendar_id(self.calendar_id))
 
-        oe = coerce_np_day(self.observed_end)
-        object.__setattr__(self, "observed_end", oe)
+        _assert_int64_array(self.session_ids, name="session_ids")
+        _assert_day_array(self.labels, name="labels")
+        _assert_ts_ns_array_strict(self.start_ts, name="start_ts")
+        _assert_ts_ns_array_strict(self.end_ts, name="end_ts")
 
-        if oe < bd[0] or oe > bd[-1]:
-            raise ValueError(
-                f"observed_end {oe} is outside business_days range [{bd[0]}, {bd[-1]}]"
-            )
+        self._validate_lengths(
+            session_ids=self.session_ids,
+            labels=self.labels,
+            start_ts=self.start_ts,
+            end_ts=self.end_ts,
+        )
+        self._validate_non_empty(session_ids=self.session_ids)
+        self._validate_session_ids(session_ids=self.session_ids)
+        self._validate_labels(labels=self.labels)
+        self._validate_timestamps(start_ts=self.start_ts, end_ts=self.end_ts)
+        self._validate_v1_alignment(
+            labels=self.labels, start_ts=self.start_ts, end_ts=self.end_ts
+        )
 
-    def is_business_day(self, d: Union[str, np.datetime64]) -> bool:
-        dd = coerce_np_day(d)
-        return searchsorted_exact(self.business_days, dd) is not None
-
-    def is_projected_day(self, d: Union[str, np.datetime64]) -> bool:
-        """
-        Return True iff `d` is a business day and lies in the projected region.
-        """
-        dd = coerce_np_day(d)
-        if dd <= self.observed_end:
-            return False
-        return self.is_business_day(dd)
-
-    def normalize(
-        self,
-        d: Union[str, np.datetime64],
-        how: NormalizeHow = "raise",
-    ) -> np.datetime64:
-        """
-        Normalize an arbitrary date to a business day.
-
-        - how="raise": raise if not a business day.
-        - how="next": return the next business day on/after d.
-        - how="prev": return the previous business day on/before d.
-        """
-        if how not in ("raise", "next", "prev"):
-            raise ValueError(f"Unknown normalize policy: {how!r}")
-
-        dd = coerce_np_day(d)
-        idx = searchsorted_exact(self.business_days, dd)
-        if idx is not None:
-            return dd
-
-        if how == "raise":
-            raise ValueError(
-                f"{dd} is not a business day for calendar {self.calendar_id}"
-            )
-
-        if how == "next":
-            i = int(np.searchsorted(self.business_days, dd, side="left"))
-            if i >= self.business_days.size:
-                raise ValueError(
-                    f"{dd} is after last available business day {self.business_days[-1]}"
-                )
-            return self.business_days[i]
-
-        if how == "prev":
-            i = int(np.searchsorted(self.business_days, dd, side="right")) - 1
-            if i < 0:
-                raise ValueError(
-                    f"{dd} is before first available business day {self.business_days[0]}"
-                )
-            return self.business_days[i]
-
-    def next_business_day(
-        self,
-        d: Union[str, np.datetime64],
+    @staticmethod
+    def _validate_lengths(
         *,
-        strict: bool = True,
-    ) -> np.datetime64:
-        dd = coerce_np_day(d)
-        if strict:
-            i = searchsorted_exact(self.business_days, dd)
-            if i is None:
-                raise ValueError(f"{dd} is not a business day (strict=True)")
-            j = i + 1
-        else:
-            j = int(np.searchsorted(self.business_days, dd, side="right"))
+        session_ids: NDArray[np.int64],
+        labels: NDArray[np.datetime64],
+        start_ts: NDArray[np.datetime64],
+        end_ts: NDArray[np.datetime64],
+    ) -> None:
+        n = session_ids.size
+        if labels.size != n:
+            raise ValueError(f"labels size {labels.size} != session_ids size {n}")
+        if start_ts.size != n:
+            raise ValueError(f"start_ts size {start_ts.size} != session_ids size {n}")
+        if end_ts.size != n:
+            raise ValueError(f"end_ts size {end_ts.size} != session_ids size {n}")
 
-        if j >= self.business_days.size:
-            raise ValueError(
-                f"No next business day after {dd}; calendar ends at {self.business_days[-1]}"
-            )
-        return self.business_days[j]
-
-    def prev_business_day(
-        self,
-        d: Union[str, np.datetime64],
+    @staticmethod
+    def _validate_non_empty(
         *,
-        strict: bool = True,
-    ) -> np.datetime64:
-        dd = coerce_np_day(d)
-        if strict:
-            i = searchsorted_exact(self.business_days, dd)
-            if i is None:
-                raise ValueError(f"{dd} is not a business day (strict=True)")
-            j = i - 1
-        else:
-            j = int(np.searchsorted(self.business_days, dd, side="left")) - 1
+        session_ids: NDArray[np.int64],
+    ) -> None:
+        if session_ids.size == 0:
+            raise ValueError("calendar must contain at least one session")
 
-        if j < 0:
-            raise ValueError(
-                f"No previous business day before {dd}; calendar starts at {self.business_days[0]}"
-            )
-        return self.business_days[j]
-
-    def add_business_days(
-        self,
-        d: Union[str, np.datetime64],
-        n: int,
+    @staticmethod
+    def _validate_session_ids(
         *,
-        strict: bool = True,
-        normalize_how: NormalizeHow = "raise",
-    ) -> np.datetime64:
-        dd = coerce_np_day(d)
-        if strict:
-            i = searchsorted_exact(self.business_days, dd)
-            if i is None:
-                raise ValueError(f"{dd} is not a business day (strict=True)")
-        else:
-            dd = self.normalize(dd, how=normalize_how)
-            i = searchsorted_exact(self.business_days, dd)
-            assert i is not None
+        session_ids: NDArray[np.int64],
+    ) -> None:
+        expected = np.arange(session_ids.size, dtype=np.int64)
+        if not np.array_equal(session_ids, expected):
+            raise ValueError("session_ids must be exactly the dense sequence 0..N-1")
 
-        j = i + n
-        if j < 0 or j >= self.business_days.size:
-            raise ValueError(
-                f"Result out of range: idx {j} not in [0, {self.business_days.size - 1}] "
-                f"for calendar {self.calendar_id}"
-            )
-        return self.business_days[j]
-
-    def business_days_between(
-        self,
-        start: Union[str, np.datetime64],
-        end: Union[str, np.datetime64],
+    @staticmethod
+    def _validate_labels(
         *,
-        inclusive: Literal["both", "left", "right", "neither"] = "both",
-        strict: bool = True,
-        normalize_start: NormalizeHow = "raise",
-        normalize_end: NormalizeHow = "raise",
-    ) -> NDArray[np.datetime64]:
-        s = coerce_np_day(start)
-        e = coerce_np_day(end)
+        labels: NDArray[np.datetime64],
+    ) -> None:
+        if labels.size <= 1:
+            return
 
-        if not strict:
-            s = self.normalize(s, how=normalize_start)
-            e = self.normalize(e, how=normalize_end)
+        diffs = labels[1:] - labels[:-1]
+        if not np.all(diffs > np.timedelta64(0, "D")):
+            raise ValueError("labels must be strictly increasing and unique")
 
-        si = searchsorted_exact(self.business_days, s)
-        ei = searchsorted_exact(self.business_days, e)
-        if strict:
-            if si is None:
-                raise ValueError(f"start {s} is not a business day (strict=True)")
-            if ei is None:
-                raise ValueError(f"end {e} is not a business day (strict=True)")
-        else:
-            assert si is not None and ei is not None
+    @staticmethod
+    def _validate_timestamps(
+        *,
+        start_ts: NDArray[np.datetime64],
+        end_ts: NDArray[np.datetime64],
+    ) -> None:
+        assert_monotonic_increasing_ts_ns_array(start_ts)
+        assert_monotonic_increasing_ts_ns_array(end_ts)
 
-        if s > e:
-            raise ValueError(f"start {s} is after end {e}")
+        if not np.all(start_ts < end_ts):
+            raise ValueError("every session must satisfy start_ts < end_ts")
 
-        lo = si
-        hi = ei
+        if start_ts.size <= 1:
+            return
 
-        if inclusive in ("neither", "right"):
-            lo = lo + 1
-        if inclusive in ("neither", "left"):
-            hi = hi - 1
+        if not np.all(end_ts[:-1] <= start_ts[1:]):
+            raise ValueError("session intervals must be ordered and non-overlapping")
 
-        if lo > hi:
-            return np.array([], dtype="datetime64[D]")
+    @staticmethod
+    def _validate_v1_alignment(
+        *,
+        labels: NDArray[np.datetime64],
+        start_ts: NDArray[np.datetime64],
+        end_ts: NDArray[np.datetime64],
+    ) -> None:
+        expected_start_ts = labels.astype("datetime64[ns]")
+        if not np.array_equal(start_ts, expected_start_ts):
+            raise ValueError(
+                "start_ts must equal labels cast to datetime64[ns] "
+                "(UTC-midnight embedding)"
+            )
 
-        return self.business_days[lo : hi + 1].copy()
+        expected_end_ts = expected_start_ts + np.timedelta64(1, "D")
+        if not np.array_equal(end_ts, expected_end_ts):
+            raise ValueError("end_ts must equal start_ts + 1 day for every session")
+
+    def __len__(self) -> int:
+        """
+        Return the number of sessions in the calendar.
+        """
+        return int(self.session_ids.size)
+
+    def contains_session_id(self, session_id: int) -> bool:
+        """
+        Return True iff `session_id` is valid for this calendar.
+        """
+        return 0 <= session_id < len(self)
+
+    def validate_session_id(self, session_id: int) -> None:
+        """
+        Validate that `session_id` is a valid session coordinate for this
+        calendar.
+
+        Raises
+        ------
+        ValueError
+            If `session_id` lies outside the calendar domain.
+        """
+
+        if session_id < 0 or session_id >= len(self):
+            raise ValueError(
+                f"session_id {session_id} is outside valid range "
+                f"[0, {len(self) - 1}] for calendar {self.calendar_id!r}"
+            )
+
+    def contains_label(self, label: np.datetime64) -> bool:
+        """
+        Return True iff `label` exists in this calendar.
+        """
+        day = _coerce_day_scalar_strict(label, name="label")
+        return _searchsorted_exact_day(self.labels, day) is not None
+
+    def session_id_from_label(self, label: np.datetime64) -> int:
+        """
+        Return the session id corresponding to `label`.
+
+        Raises
+        ------
+        ValueError
+            If `label` is not present in this calendar.
+        """
+        day = _coerce_day_scalar_strict(label, name="label")
+        idx = _searchsorted_exact_day(self.labels, day)
+        if idx is None:
+            raise ValueError(
+                f"label {day} is not present in calendar {self.calendar_id!r}"
+            )
+        return int(self.session_ids[idx])
+
+    def label_from_session_id(self, session_id: int) -> np.datetime64:
+        """
+        Return the label attached to `session_id`.
+        """
+        self.validate_session_id(session_id)
+        return self.labels[session_id]
+
+    def start_ts_from_session_id(self, session_id: int) -> np.datetime64:
+        """
+        Return the start timestamp attached to `session_id`.
+        """
+        self.validate_session_id(session_id)
+        return self.start_ts[session_id]
+
+    def end_ts_from_session_id(self, session_id: int) -> np.datetime64:
+        """
+        Return the end timestamp attached to `session_id`.
+        """
+        self.validate_session_id(session_id)
+        return self.end_ts[session_id]
+
+    def bounds_from_session_id(
+        self,
+        session_id: int,
+    ) -> tuple[np.datetime64, np.datetime64]:
+        """
+        Return `(start_ts, end_ts)` attached to `session_id`.
+        """
+        self.validate_session_id(session_id)
+        return self.start_ts[session_id], self.end_ts[session_id]

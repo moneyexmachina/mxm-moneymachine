@@ -41,7 +41,7 @@ from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
     RefDataAPI,
 )
 
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.synthetic_assets.component_contracts import (
@@ -176,7 +176,7 @@ def build_synthetic_asset(
     end_session: np.datetime64,
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
-    mxm_business_calendar: MxMBusinessCalendar,
+    mxm_business_calendar: MXMBusinessCalendar,
     refdata_api: RefDataAPI,
     unit_converter: UnitConverter,
 ) -> SyntheticAsset:

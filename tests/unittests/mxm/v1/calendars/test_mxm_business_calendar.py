@@ -1,655 +1,587 @@
+from __future__ import annotations
+
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
-
-
-def _days(*xs: str) -> np.ndarray:
-    return np.array(xs, dtype="datetime64[D]")
-
-
-@pytest.fixture
-def compact_calendar() -> MxMBusinessCalendar:
-    """
-    Small mixed observed/projected calendar with gaps.
-
-    business_days:
-        2025-01-02
-        2025-01-03
-        2025-01-06
-        2025-01-07
-        2025-01-08
-
-    observed_end:
-        2025-01-06
-
-    So:
-    - observed:  2025-01-02, 2025-01-03, 2025-01-06
-    - projected: 2025-01-07, 2025-01-08
-    """
-    return MxMBusinessCalendar(
-        calendar_id="mxm_test",
-        business_days=_days(
-            "2025-01-02",
-            "2025-01-03",
-            "2025-01-06",
-            "2025-01-07",
-            "2025-01-08",
-        ),
-        observed_end=np.datetime64("2025-01-06", "D"),
-    )
+from mxm.v1.calendars.mxm_business_calendar import (
+    MXMBusinessCalendar,
+    canonical_calendar_id,
+)
 
 
-@pytest.fixture
-def two_day_calendar() -> MxMBusinessCalendar:
-    return MxMBusinessCalendar(
-        calendar_id="mxm_two_day",
-        business_days=_days("2025-01-02", "2025-01-03"),
-        observed_end=np.datetime64("2025-01-03", "D"),
-    )
+def _make_valid_session_ids() -> NDArray[np.int64]:
+    return np.array([0, 1, 2], dtype=np.int64)
 
 
-@pytest.fixture
-def singleton_calendar() -> MxMBusinessCalendar:
-    return MxMBusinessCalendar(
-        calendar_id="mxm_singleton",
-        business_days=_days("2025-01-06"),
-        observed_end=np.datetime64("2025-01-06", "D"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Constructor / invariants
-# ---------------------------------------------------------------------------
-
-
-def test_construct_valid_calendar_stores_expected_fields(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.calendar_id == "mxm_test"
-    assert compact_calendar.business_days.dtype == np.dtype("datetime64[D]")
-    assert compact_calendar.business_days.ndim == 1
-    assert np.array_equal(
-        compact_calendar.business_days,
-        _days(
-            "2025-01-02",
-            "2025-01-03",
-            "2025-01-06",
-            "2025-01-07",
-            "2025-01-08",
-        ),
-    )
-    assert compact_calendar.observed_end == np.datetime64("2025-01-06", "D")
-
-
-def test_construct_rejects_observed_end_before_first_business_day() -> None:
-    with pytest.raises(
-        ValueError, match="observed_end .* is outside business_days range"
-    ):
-        MxMBusinessCalendar(
-            calendar_id="bad",
-            business_days=_days("2025-01-02", "2025-01-03"),
-            observed_end=np.datetime64("2025-01-01", "D"),
-        )
-
-
-def test_construct_rejects_observed_end_after_last_business_day() -> None:
-    with pytest.raises(
-        ValueError, match="observed_end .* is outside business_days range"
-    ):
-        MxMBusinessCalendar(
-            calendar_id="bad",
-            business_days=_days("2025-01-02", "2025-01-03"),
-            observed_end=np.datetime64("2025-01-04", "D"),
-        )
-
-
-def test_construct_accepts_string_observed_end() -> None:
-    cal = MxMBusinessCalendar(
-        calendar_id="ok",
-        business_days=_days("2025-01-02", "2025-01-03"),
-        observed_end="2025-01-03",
-    )
-    assert cal.observed_end == np.datetime64("2025-01-03", "D")
-
-
-def test_construct_rejects_non_1d_business_days() -> None:
-    arr = np.array(
-        [["2025-01-02", "2025-01-03"], ["2025-01-06", "2025-01-07"]],
+def _make_valid_labels() -> NDArray[np.datetime64]:
+    return np.array(
+        [
+            np.datetime64("2024-01-02", "D"),
+            np.datetime64("2024-01-03", "D"),
+            np.datetime64("2024-01-04", "D"),
+        ],
         dtype="datetime64[D]",
     )
-    with pytest.raises(Exception):
-        MxMBusinessCalendar(
-            calendar_id="bad_shape",
-            business_days=arr,
-            observed_end=np.datetime64("2025-01-07", "D"),
+
+
+def _make_valid_start_ts() -> NDArray[np.datetime64]:
+    return np.array(
+        [
+            np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+            np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+            np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+        ],
+        dtype="datetime64[ns]",
+    )
+
+
+def _make_valid_end_ts() -> NDArray[np.datetime64]:
+    return np.array(
+        [
+            np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+            np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+        ],
+        dtype="datetime64[ns]",
+    )
+
+
+def make_valid_calendar(
+    *,
+    calendar_id: str = "  MXM_V1_Business  ",
+    session_ids: NDArray[np.int64] | None = None,
+    labels: NDArray[np.datetime64] | None = None,
+    start_ts: NDArray[np.datetime64] | None = None,
+    end_ts: NDArray[np.datetime64] | None = None,
+) -> MXMBusinessCalendar:
+    return MXMBusinessCalendar(
+        calendar_id=calendar_id,
+        session_ids=_make_valid_session_ids() if session_ids is None else session_ids,
+        labels=_make_valid_labels() if labels is None else labels,
+        start_ts=_make_valid_start_ts() if start_ts is None else start_ts,
+        end_ts=_make_valid_end_ts() if end_ts is None else end_ts,
+    )
+
+
+class TestCanonicalCalendarId:
+    def test_canonical_calendar_id_strips_and_lowercases(self) -> None:
+        assert canonical_calendar_id("  MXM_V1_Business  ") == "mxm_v1_business"
+
+    def test_canonical_calendar_id_rejects_empty_after_strip(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            canonical_calendar_id("   ")
+
+
+class TestMXMBusinessCalendarConstruction:
+    def test_constructs_valid_calendar(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.calendar_id == "mxm_v1_business"
+        assert len(cal) == 3
+        assert np.array_equal(cal.session_ids, _make_valid_session_ids())
+        assert np.array_equal(cal.labels, _make_valid_labels())
+        assert np.array_equal(cal.start_ts, _make_valid_start_ts())
+        assert np.array_equal(cal.end_ts, _make_valid_end_ts())
+
+    def test_constructs_single_session_calendar(self) -> None:
+        cal = make_valid_calendar(
+            session_ids=np.array([0], dtype=np.int64),
+            labels=np.array([np.datetime64("2024-01-02", "D")], dtype="datetime64[D]"),
+            start_ts=np.array(
+                [np.datetime64("2024-01-02T00:00:00.000000000", "ns")],
+                dtype="datetime64[ns]",
+            ),
+            end_ts=np.array(
+                [np.datetime64("2024-01-03T00:00:00.000000000", "ns")],
+                dtype="datetime64[ns]",
+            ),
         )
 
+        assert cal.calendar_id == "mxm_v1_business"
+        assert len(cal) == 1
+        assert cal.session_ids[0] == 0
+        assert cal.labels[0] == np.datetime64("2024-01-02", "D")
 
-def test_construct_rejects_empty_business_days() -> None:
-    with pytest.raises(Exception):
-        MxMBusinessCalendar(
-            calendar_id="empty",
-            business_days=np.array([], dtype="datetime64[D]"),
-            observed_end=np.datetime64("2025-01-01", "D"),
+
+class TestMXMBusinessCalendarValidationShapeAndDtype:
+    def test_rejects_non_1d_session_ids(self) -> None:
+        session_ids = np.array([[0, 1, 2]], dtype=np.int64)
+
+        with pytest.raises(ValueError, match="session_ids must be 1D"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_non_1d_labels(self) -> None:
+        labels = np.array(
+            [
+                [
+                    np.datetime64("2024-01-02", "D"),
+                    np.datetime64("2024-01-03", "D"),
+                    np.datetime64("2024-01-04", "D"),
+                ]
+            ],
+            dtype="datetime64[D]",
         )
 
+        with pytest.raises(ValueError, match="labels must be 1D"):
+            make_valid_calendar(labels=labels)
 
-def test_construct_rejects_duplicate_business_days() -> None:
-    # If ensure_1d_day_array normalizes instead of rejecting, update this test
-    # to assert the normalized contract instead.
-    with pytest.raises(Exception):
-        MxMBusinessCalendar(
-            calendar_id="dup",
-            business_days=_days("2025-01-02", "2025-01-02", "2025-01-03"),
-            observed_end=np.datetime64("2025-01-03", "D"),
+    def test_rejects_non_1d_start_ts(self) -> None:
+        start_ts = np.array(
+            [
+                [
+                    np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+                    np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                    np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+                ]
+            ],
+            dtype="datetime64[ns]",
         )
 
+        with pytest.raises(ValueError, match="start_ts must be 1D"):
+            make_valid_calendar(start_ts=start_ts)
 
-def test_construct_rejects_non_monotone_business_days() -> None:
-    # If ensure_1d_day_array sorts instead of rejecting, update this test
-    # to assert the normalized contract instead.
-    with pytest.raises(Exception):
-        MxMBusinessCalendar(
-            calendar_id="unsorted",
-            business_days=_days("2025-01-03", "2025-01-02", "2025-01-06"),
-            observed_end=np.datetime64("2025-01-06", "D"),
+    def test_rejects_non_1d_end_ts(self) -> None:
+        end_ts = np.array(
+            [
+                [
+                    np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                    np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+                    np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+                ]
+            ],
+            dtype="datetime64[ns]",
         )
 
-
-def test_calendar_is_frozen(compact_calendar: MxMBusinessCalendar) -> None:
-    with pytest.raises(Exception):
-        compact_calendar.calendar_id = "other"  # type: ignore[misc]
-
-
-# ---------------------------------------------------------------------------
-# Membership / observed-projected classification
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("2025-01-02", True),
-        ("2025-01-03", True),
-        ("2025-01-04", False),  # gap / weekend-like
-        ("2025-01-05", False),  # gap / weekend-like
-        ("2025-01-06", True),
-        ("2025-01-09", False),  # after last
-        ("2025-01-01", False),  # before first
-    ],
-)
-def test_is_business_day(
-    compact_calendar: MxMBusinessCalendar, value: str, expected: bool
-) -> None:
-    assert compact_calendar.is_business_day(value) is expected
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("2025-01-02", False),  # observed
-        ("2025-01-03", False),  # observed
-        ("2025-01-06", False),  # observed_end itself is observed, not projected
-        ("2025-01-07", True),  # projected
-        ("2025-01-08", True),  # projected
-        ("2025-01-09", False),  # non-business day
-        ("2025-01-05", False),  # non-business day
-    ],
-)
-def test_is_projected_day(
-    compact_calendar: MxMBusinessCalendar, value: str, expected: bool
-) -> None:
-    assert compact_calendar.is_projected_day(value) is expected
-
-
-def test_is_business_day_accepts_np_datetime64(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.is_business_day(np.datetime64("2025-01-06", "D")) is True
-    assert compact_calendar.is_business_day(np.datetime64("2025-01-05", "D")) is False
-
-
-# ---------------------------------------------------------------------------
-# normalize
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("how", ["raise", "next", "prev"])
-def test_normalize_exact_business_day_returns_same_day(
-    compact_calendar: MxMBusinessCalendar,
-    how: str,
-) -> None:
-    out = compact_calendar.normalize("2025-01-06", how=how)  # type: ignore[arg-type]
-    assert out == np.datetime64("2025-01-06", "D")
-
-
-def test_normalize_raise_rejects_non_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="is not a business day"):
-        compact_calendar.normalize("2025-01-05", how="raise")
-
-
-def test_normalize_next_returns_first_business_day_on_or_after_gap_date(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.normalize("2025-01-05", how="next") == np.datetime64(
-        "2025-01-06", "D"
-    )
-
-
-def test_normalize_prev_returns_last_business_day_on_or_before_gap_date(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.normalize("2025-01-05", how="prev") == np.datetime64(
-        "2025-01-03", "D"
-    )
-
-
-def test_normalize_next_before_first_returns_first_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.normalize("2025-01-01", how="next") == np.datetime64(
-        "2025-01-02", "D"
-    )
-
-
-def test_normalize_prev_before_first_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="before first available business day"):
-        compact_calendar.normalize("2025-01-01", how="prev")
-
-
-def test_normalize_prev_after_last_returns_last_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.normalize("2025-01-09", how="prev") == np.datetime64(
-        "2025-01-08", "D"
-    )
-
-
-def test_normalize_next_after_last_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="after last available business day"):
-        compact_calendar.normalize("2025-01-09", how="next")
-
-
-def test_normalize_unknown_policy_raises(compact_calendar: MxMBusinessCalendar) -> None:
-    with pytest.raises(ValueError, match="Unknown normalize policy"):
-        compact_calendar.normalize("2025-01-06", how="bad")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# next_business_day / prev_business_day
-# ---------------------------------------------------------------------------
-
-
-def test_next_business_day_strict_from_valid_business_day_returns_next(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.next_business_day("2025-01-03") == np.datetime64(
-        "2025-01-06", "D"
-    )
-
-
-def test_prev_business_day_strict_from_valid_business_day_returns_previous(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.prev_business_day("2025-01-06") == np.datetime64(
-        "2025-01-03", "D"
-    )
-
-
-def test_next_business_day_strict_raises_for_non_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="is not a business day"):
-        compact_calendar.next_business_day("2025-01-05", strict=True)
-
-
-def test_prev_business_day_strict_raises_for_non_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="is not a business day"):
-        compact_calendar.prev_business_day("2025-01-05", strict=True)
-
-
-def test_next_business_day_non_strict_from_gap_returns_first_business_day_after_date(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.next_business_day(
-        "2025-01-05", strict=False
-    ) == np.datetime64("2025-01-06", "D")
-
-
-def test_prev_business_day_non_strict_from_gap_returns_last_business_day_before_date(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.prev_business_day(
-        "2025-01-05", strict=False
-    ) == np.datetime64("2025-01-03", "D")
-
-
-def test_next_business_day_non_strict_exact_hit_returns_strictly_next_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.next_business_day(
-        "2025-01-06", strict=False
-    ) == np.datetime64("2025-01-07", "D")
-
-
-def test_prev_business_day_non_strict_exact_hit_returns_strictly_previous_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.prev_business_day(
-        "2025-01-06", strict=False
-    ) == np.datetime64("2025-01-03", "D")
-
-
-def test_next_business_day_at_last_business_day_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No next business day after"):
-        compact_calendar.next_business_day("2025-01-08")
-
-
-def test_prev_business_day_at_first_business_day_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No previous business day before"):
-        compact_calendar.prev_business_day("2025-01-02")
-
-
-def test_next_business_day_non_strict_after_last_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No next business day after"):
-        compact_calendar.next_business_day("2025-01-09", strict=False)
-
-
-def test_prev_business_day_non_strict_before_first_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No previous business day before"):
-        compact_calendar.prev_business_day("2025-01-01", strict=False)
-
-
-# ---------------------------------------------------------------------------
-# add_business_days
-# ---------------------------------------------------------------------------
-
-
-def test_add_business_days_zero_returns_same_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.add_business_days("2025-01-06", 0) == np.datetime64(
-        "2025-01-06", "D"
-    )
-
-
-def test_add_business_days_positive_offset_returns_later_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.add_business_days("2025-01-03", 2) == np.datetime64(
-        "2025-01-07", "D"
-    )
-
-
-def test_add_business_days_negative_offset_returns_earlier_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    assert compact_calendar.add_business_days("2025-01-07", -2) == np.datetime64(
-        "2025-01-03", "D"
-    )
-
-
-def test_add_business_days_can_cross_observed_projected_boundary(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    # observed_end is 2025-01-06; adding 1 crosses into projected region
-    assert compact_calendar.add_business_days("2025-01-06", 1) == np.datetime64(
-        "2025-01-07", "D"
-    )
-
-
-def test_add_business_days_strict_raises_for_non_business_start(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="is not a business day"):
-        compact_calendar.add_business_days("2025-01-05", 1, strict=True)
-
-
-def test_add_business_days_non_strict_normalize_next_then_offset(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    # 2025-01-05 normalizes to 2025-01-06, then +1 -> 2025-01-07
-    assert compact_calendar.add_business_days(
-        "2025-01-05",
-        1,
-        strict=False,
-        normalize_how="next",
-    ) == np.datetime64("2025-01-07", "D")
-
-
-def test_add_business_days_non_strict_normalize_prev_then_offset(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    # 2025-01-05 normalizes to 2025-01-03, then +1 -> 2025-01-06
-    assert compact_calendar.add_business_days(
-        "2025-01-05",
-        1,
-        strict=False,
-        normalize_how="prev",
-    ) == np.datetime64("2025-01-06", "D")
-
-
-def test_add_business_days_positive_overflow_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="Result out of range"):
-        compact_calendar.add_business_days("2025-01-08", 1)
-
-
-def test_add_business_days_negative_overflow_raises(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="Result out of range"):
-        compact_calendar.add_business_days("2025-01-02", -1)
-
-
-# ---------------------------------------------------------------------------
-# business_days_between
-# ---------------------------------------------------------------------------
-
-
-def test_business_days_between_both_includes_both_endpoints(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-03",
-        "2025-01-07",
-        inclusive="both",
-    )
-    assert np.array_equal(out, _days("2025-01-03", "2025-01-06", "2025-01-07"))
-
-
-def test_business_days_between_left_excludes_right_endpoint(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-03",
-        "2025-01-07",
-        inclusive="left",
-    )
-    assert np.array_equal(out, _days("2025-01-03", "2025-01-06"))
-
-
-def test_business_days_between_right_excludes_left_endpoint(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-03",
-        "2025-01-07",
-        inclusive="right",
-    )
-    assert np.array_equal(out, _days("2025-01-06", "2025-01-07"))
-
-
-def test_business_days_between_neither_excludes_both_endpoints(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-03",
-        "2025-01-07",
-        inclusive="neither",
-    )
-    assert np.array_equal(out, _days("2025-01-06"))
-
-
-def test_business_days_between_same_day_both_returns_singleton(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-06",
-        "2025-01-06",
-        inclusive="both",
-    )
-    assert np.array_equal(out, _days("2025-01-06"))
-
-
-@pytest.mark.parametrize("inclusive", ["left", "right", "neither"])
-def test_business_days_between_same_day_non_both_returns_empty(
-    compact_calendar: MxMBusinessCalendar,
-    inclusive: str,
-) -> None:
-    out = compact_calendar.business_days_between(
-        "2025-01-06",
-        "2025-01-06",
-        inclusive=inclusive,  # type: ignore[arg-type]
-    )
-    assert out.dtype == np.dtype("datetime64[D]")
-    assert out.size == 0
-
-
-def test_business_days_between_open_interval_over_adjacent_days_returns_empty(
-    two_day_calendar: MxMBusinessCalendar,
-) -> None:
-    out = two_day_calendar.business_days_between(
-        "2025-01-02",
-        "2025-01-03",
-        inclusive="neither",
-    )
-    assert out.dtype == np.dtype("datetime64[D]")
-    assert out.size == 0
-
-
-def test_business_days_between_raises_when_start_after_end(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="start .* is after end"):
-        compact_calendar.business_days_between("2025-01-07", "2025-01-03")
-
-
-def test_business_days_between_strict_raises_when_start_is_not_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="start .* is not a business day"):
-        compact_calendar.business_days_between(
-            "2025-01-05",
-            "2025-01-07",
-            strict=True,
+        with pytest.raises(ValueError, match="end_ts must be 1D"):
+            make_valid_calendar(end_ts=end_ts)
+
+    def test_rejects_wrong_dtype_session_ids(self) -> None:
+        session_ids = np.array([0, 1, 2], dtype=np.int32)
+
+        with pytest.raises(TypeError, match="session_ids must have dtype"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_wrong_dtype_labels(self) -> None:
+        labels = np.array(
+            [
+                np.datetime64("2024-01-02T00:00:00", "ns"),
+                np.datetime64("2024-01-03T00:00:00", "ns"),
+                np.datetime64("2024-01-04T00:00:00", "ns"),
+            ],
+            dtype="datetime64[ns]",
         )
 
+        with pytest.raises(TypeError, match="labels must have dtype"):
+            make_valid_calendar(labels=labels)
 
-def test_business_days_between_strict_raises_when_end_is_not_business_day(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="end .* is not a business day"):
-        compact_calendar.business_days_between(
-            "2025-01-03",
-            "2025-01-05",
-            strict=True,
+    def test_rejects_wrong_dtype_start_ts(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("2024-01-03", "D"),
+                np.datetime64("2024-01-04", "D"),
+            ],
+            dtype="datetime64[D]",
+        )
+        with pytest.raises(
+            TypeError,
+            match=(
+                r"Expected canonical MXM timestamp array "
+                r"\(np\.ndarray with dtype datetime64\[ns\]\)\."
+            ),
+        ):
+            make_valid_calendar(start_ts=start_ts)
+
+    def test_rejects_wrong_dtype_end_ts(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03", "D"),
+                np.datetime64("2024-01-04", "D"),
+                np.datetime64("2024-01-05", "D"),
+            ],
+            dtype="datetime64[D]",
+        )
+        with pytest.raises(
+            TypeError,
+            match=(
+                r"Expected canonical MXM timestamp array "
+                r"\(np\.ndarray with dtype datetime64\[ns\]\)\."
+            ),
+        ):
+            make_valid_calendar(end_ts=end_ts)
+
+
+class TestMXMBusinessCalendarValidationLengths:
+    def test_rejects_labels_length_mismatch(self) -> None:
+        labels = np.array(
+            [
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("2024-01-03", "D"),
+            ],
+            dtype="datetime64[D]",
         )
 
+        with pytest.raises(ValueError, match="labels size 2 != session_ids size 3"):
+            make_valid_calendar(labels=labels)
 
-def test_business_days_between_non_strict_normalizes_start_and_end(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    # start 2025-01-05 -> next => 2025-01-06
-    # end   2025-01-05 -> prev => 2025-01-03
-    # This would reverse the interval if used that way, so choose a coherent case:
-    out = compact_calendar.business_days_between(
-        "2025-01-05",  # -> 2025-01-06 via next
-        "2025-01-08",  # exact
-        strict=False,
-        normalize_start="next",
-        normalize_end="raise",
-        inclusive="both",
-    )
-    assert np.array_equal(out, _days("2025-01-06", "2025-01-07", "2025-01-08"))
+    def test_rejects_start_ts_length_mismatch(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
 
+        with pytest.raises(ValueError, match="start_ts size 2 != session_ids size 3"):
+            make_valid_calendar(start_ts=start_ts)
 
-def test_business_days_between_non_strict_can_return_empty_after_normalization(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    # start 2025-01-05 -> prev => 2025-01-03
-    # end   2025-01-06 -> exact
-    # open interval between adjacent retained dates => empty
-    out = compact_calendar.business_days_between(
-        "2025-01-05",
-        "2025-01-06",
-        strict=False,
-        normalize_start="prev",
-        normalize_end="raise",
-        inclusive="neither",
-    )
-    assert out.dtype == np.dtype("datetime64[D]")
-    assert out.size == 0
+    def test_rejects_end_ts_length_mismatch(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(ValueError, match="end_ts size 2 != session_ids size 3"):
+            make_valid_calendar(end_ts=end_ts)
 
 
-def test_business_days_between_returns_copy_not_view(
-    compact_calendar: MxMBusinessCalendar,
-) -> None:
-    out = compact_calendar.business_days_between("2025-01-03", "2025-01-07")
-    out[0] = np.datetime64("1999-01-01", "D")
+class TestMXMBusinessCalendarValidationCoreInvariants:
+    def test_rejects_empty_calendar(self) -> None:
+        with pytest.raises(
+            ValueError, match="calendar must contain at least one session"
+        ):
+            make_valid_calendar(
+                session_ids=np.array([], dtype=np.int64),
+                labels=np.array([], dtype="datetime64[D]"),
+                start_ts=np.array([], dtype="datetime64[ns]"),
+                end_ts=np.array([], dtype="datetime64[ns]"),
+            )
 
-    assert np.array_equal(
-        compact_calendar.business_days,
-        _days(
-            "2025-01-02",
-            "2025-01-03",
-            "2025-01-06",
-            "2025-01-07",
-            "2025-01-08",
-        ),
-    )
+    def test_rejects_session_ids_not_starting_at_zero(self) -> None:
+        session_ids = np.array([1, 2, 3], dtype=np.int64)
+
+        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_session_ids_with_gap(self) -> None:
+        session_ids = np.array([0, 2, 3], dtype=np.int64)
+
+        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_session_ids_with_duplicate(self) -> None:
+        session_ids = np.array([0, 1, 1], dtype=np.int64)
+
+        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_session_ids_out_of_order(self) -> None:
+        session_ids = np.array([0, 2, 1], dtype=np.int64)
+
+        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+            make_valid_calendar(session_ids=session_ids)
+
+    def test_rejects_labels_with_nat(self) -> None:
+        labels = np.array(
+            [
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("NaT", "D"),
+                np.datetime64("2024-01-04", "D"),
+            ],
+            dtype="datetime64[D]",
+        )
+
+        with pytest.raises(ValueError, match="labels must not contain NaT"):
+            make_valid_calendar(labels=labels)
+
+    def test_rejects_duplicate_labels(self) -> None:
+        labels = np.array(
+            [
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("2024-01-04", "D"),
+            ],
+            dtype="datetime64[D]",
+        )
+
+        with pytest.raises(
+            ValueError, match="labels must be strictly increasing and unique"
+        ):
+            make_valid_calendar(labels=labels)
+
+    def test_rejects_decreasing_labels(self) -> None:
+        labels = np.array(
+            [
+                np.datetime64("2024-01-02", "D"),
+                np.datetime64("2024-01-04", "D"),
+                np.datetime64("2024-01-03", "D"),
+            ],
+            dtype="datetime64[D]",
+        )
+
+        with pytest.raises(
+            ValueError, match="labels must be strictly increasing and unique"
+        ):
+            make_valid_calendar(labels=labels)
+
+    def test_rejects_start_ts_with_nat(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+                np.datetime64("NaT", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(ValueError):
+            make_valid_calendar(start_ts=start_ts)
+
+    def test_rejects_end_ts_with_nat(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("NaT", "ns"),
+                np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(ValueError):
+            make_valid_calendar(end_ts=end_ts)
+
+    def test_rejects_non_monotonic_start_ts(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+        with pytest.raises(
+            ValueError,
+            match=r"Canonical MXM timestamp array must be monotonic increasing\.",
+        ):
+            make_valid_calendar(start_ts=start_ts)
+
+    def test_rejects_non_monotonic_end_ts(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+        with pytest.raises(
+            ValueError,
+            match=r"Canonical MXM timestamp array must be monotonic increasing\.",
+        ):
+            make_valid_calendar(end_ts=end_ts)
+
+    def test_rejects_session_with_start_not_before_end(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(
+            ValueError, match="every session must satisfy start_ts < end_ts"
+        ):
+            make_valid_calendar(end_ts=end_ts)
+
+    def test_rejects_overlapping_intervals(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-02T12:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(ValueError, match="ordered and non-overlapping"):
+            make_valid_calendar(start_ts=start_ts, end_ts=end_ts)
 
 
-# ---------------------------------------------------------------------------
-# Singleton edge cases
-# ---------------------------------------------------------------------------
+class TestMXMBusinessCalendarValidationV1Alignment:
+    def test_rejects_start_ts_not_equal_to_label_midnight(self) -> None:
+        start_ts = np.array(
+            [
+                np.datetime64("2024-01-02T01:00:00.000000000", "ns"),
+                np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(
+            ValueError, match="start_ts must equal labels cast to datetime64\\[ns\\]"
+        ):
+            make_valid_calendar(start_ts=start_ts)
+
+    def test_rejects_end_ts_not_equal_to_start_ts_plus_one_day(self) -> None:
+        end_ts = np.array(
+            [
+                np.datetime64("2024-01-02T23:00:00.000000000", "ns"),
+                np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+                np.datetime64("2024-01-05T00:00:00.000000000", "ns"),
+            ],
+            dtype="datetime64[ns]",
+        )
+
+        with pytest.raises(ValueError, match="end_ts must equal start_ts \\+ 1 day"):
+            make_valid_calendar(end_ts=end_ts)
 
 
-def test_singleton_next_business_day_raises(
-    singleton_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No next business day after"):
-        singleton_calendar.next_business_day("2025-01-06")
+class TestMXMBusinessCalendarLookup:
+    def test_contains_session_id_for_valid_ids(self) -> None:
+        cal = make_valid_calendar()
 
+        assert cal.contains_session_id(0)
+        assert cal.contains_session_id(1)
+        assert cal.contains_session_id(2)
 
-def test_singleton_prev_business_day_raises(
-    singleton_calendar: MxMBusinessCalendar,
-) -> None:
-    with pytest.raises(ValueError, match="No previous business day before"):
-        singleton_calendar.prev_business_day("2025-01-06")
+    def test_contains_session_id_for_invalid_ids(self) -> None:
+        cal = make_valid_calendar()
 
+        assert not cal.contains_session_id(-1)
+        assert not cal.contains_session_id(3)
+        assert not cal.contains_session_id(100)
 
-def test_singleton_add_zero_returns_same_day(
-    singleton_calendar: MxMBusinessCalendar,
-) -> None:
-    assert singleton_calendar.add_business_days("2025-01-06", 0) == np.datetime64(
-        "2025-01-06", "D"
-    )
+    def test_validate_session_id_accepts_valid_ids(self) -> None:
+        cal = make_valid_calendar()
+
+        cal.validate_session_id(0)
+        cal.validate_session_id(1)
+        cal.validate_session_id(2)
+
+    def test_validate_session_id_rejects_negative(self) -> None:
+        cal = make_valid_calendar()
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.validate_session_id(-1)
+
+    def test_validate_session_id_rejects_too_large(self) -> None:
+        cal = make_valid_calendar()
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.validate_session_id(3)
+
+    def test_contains_label_true_for_existing_labels(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.contains_label(np.datetime64("2024-01-02", "D"))
+        assert cal.contains_label(np.datetime64("2024-01-03", "D"))
+        assert cal.contains_label(np.datetime64("2024-01-04", "D"))
+
+    def test_contains_label_false_for_missing_labels(self) -> None:
+        cal = make_valid_calendar()
+
+        assert not cal.contains_label(np.datetime64("2024-01-01", "D"))
+        assert not cal.contains_label(np.datetime64("2024-01-05", "D"))
+        assert not cal.contains_label(np.datetime64("2024-01-10", "D"))
+
+    def test_contains_label_accepts_non_day_resolution_scalar(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.contains_label(np.datetime64("2024-01-03T13:45:00.000000000", "ns"))
+
+    def test_session_id_from_label_returns_expected_ids(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.session_id_from_label(np.datetime64("2024-01-02", "D")) == 0
+        assert cal.session_id_from_label(np.datetime64("2024-01-03", "D")) == 1
+        assert cal.session_id_from_label(np.datetime64("2024-01-04", "D")) == 2
+
+    def test_session_id_from_label_accepts_non_day_resolution_scalar(self) -> None:
+        cal = make_valid_calendar()
+
+        assert (
+            cal.session_id_from_label(
+                np.datetime64("2024-01-03T23:59:59.999999999", "ns")
+            )
+            == 1
+        )
+
+    def test_session_id_from_label_rejects_missing_label(self) -> None:
+        cal = make_valid_calendar()
+
+        with pytest.raises(ValueError, match="is not present in calendar"):
+            cal.session_id_from_label(np.datetime64("2024-01-05", "D"))
+
+    def test_label_from_session_id_returns_expected_label(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.label_from_session_id(0) == np.datetime64("2024-01-02", "D")
+        assert cal.label_from_session_id(1) == np.datetime64("2024-01-03", "D")
+        assert cal.label_from_session_id(2) == np.datetime64("2024-01-04", "D")
+
+    def test_start_ts_from_session_id_returns_expected_timestamp(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.start_ts_from_session_id(0) == np.datetime64(
+            "2024-01-02T00:00:00.000000000", "ns"
+        )
+        assert cal.start_ts_from_session_id(1) == np.datetime64(
+            "2024-01-03T00:00:00.000000000", "ns"
+        )
+        assert cal.start_ts_from_session_id(2) == np.datetime64(
+            "2024-01-04T00:00:00.000000000", "ns"
+        )
+
+    def test_end_ts_from_session_id_returns_expected_timestamp(self) -> None:
+        cal = make_valid_calendar()
+
+        assert cal.end_ts_from_session_id(0) == np.datetime64(
+            "2024-01-03T00:00:00.000000000", "ns"
+        )
+        assert cal.end_ts_from_session_id(1) == np.datetime64(
+            "2024-01-04T00:00:00.000000000", "ns"
+        )
+        assert cal.end_ts_from_session_id(2) == np.datetime64(
+            "2024-01-05T00:00:00.000000000", "ns"
+        )
+
+    def test_bounds_from_session_id_returns_expected_pair(self) -> None:
+        cal = make_valid_calendar()
+
+        bounds = cal.bounds_from_session_id(1)
+
+        assert bounds == (
+            np.datetime64("2024-01-03T00:00:00.000000000", "ns"),
+            np.datetime64("2024-01-04T00:00:00.000000000", "ns"),
+        )
+
+    def test_lookup_methods_reject_invalid_session_id(self) -> None:
+        cal = make_valid_calendar()
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.label_from_session_id(3)
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.start_ts_from_session_id(3)
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.end_ts_from_session_id(3)
+
+        with pytest.raises(ValueError, match="outside valid range"):
+            cal.bounds_from_session_id(3)

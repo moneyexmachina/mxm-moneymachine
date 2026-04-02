@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import mxm.v1.synthetic_assets.component_weights as cwmod
-from mxm.v1.calendars.mxm_business_calendar import MxMBusinessCalendar
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.contracts.contract_series import ContractSeries
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import (
@@ -53,17 +53,23 @@ def _make_component_contracts() -> ComponentContracts:
     )
 
 
-def _make_mxm_business_calendar() -> MxMBusinessCalendar:
-    return MxMBusinessCalendar(
+def _make_mxm_business_calendar() -> MXMBusinessCalendar:
+    labels = _days(
+        "2026-03-18",
+        "2026-03-19",
+        "2026-03-20",
+        "2026-03-23",
+        "2026-03-24",
+    )
+    start_ts = labels.astype("datetime64[ns]")
+    end_ts = (start_ts + np.timedelta64(1, "D")).astype("datetime64[ns]")
+
+    return MXMBusinessCalendar(
         calendar_id="mxm_v1_business",
-        business_days=_days(
-            "2026-03-18",
-            "2026-03-19",
-            "2026-03-20",
-            "2026-03-23",
-            "2026-03-24",
-        ),
-        observed_end=np.datetime64("2026-03-24", "D"),
+        session_ids=np.arange(labels.size, dtype=np.int64),
+        labels=labels,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
 
@@ -309,6 +315,8 @@ def test_build_component_weights_returns_business_session_indexed_weights(
     component_contracts = _make_component_contracts()
     mxm_business_calendar = _make_mxm_business_calendar()
 
+    captured: dict[str, object] = {}
+
     def fake_build_raw_anchor_contract_series_for_component(
         *,
         component: object,
@@ -331,32 +339,30 @@ def test_build_component_weights_returns_business_session_indexed_weights(
         fake_build_raw_anchor_contract_series_for_component,
     )
 
-    captured: dict[str, object] = {}
-
-    class _FakeBDays:
+    class _FakeTradingDays:
         def __init__(self, sessions: np.ndarray, vals: list[int]) -> None:
             self.sessions = sessions
-            self.mxm_business_days_to_ltd = np.array(vals, dtype=np.int64)
+            self.trading_days_to_ltd = np.array(vals, dtype=np.int64)
 
-    def fake_build_mxm_business_days_to_ltd_series(
+    def fake_build_trading_days_to_ltd_on_business_sessions(
         *,
         product_id: str,
         sessions: np.ndarray,
         contract_ids: list[str],
-        mxm_business_calendar: object,
+        calendar_service: object,
         refdata_api: object,
-    ) -> _FakeBDays:
+    ) -> _FakeTradingDays:
         captured["product_id"] = product_id
         captured["sessions"] = sessions.copy()
         captured["contract_ids"] = list(contract_ids)
 
         # 4 sessions -> simple descending clock
-        return _FakeBDays(sessions, [3, 2, 1, 0])
+        return _FakeTradingDays(sessions, [3, 2, 1, 0])
 
     monkeypatch.setattr(
         cwmod,
-        "build_mxm_business_days_to_ltd_series",
-        fake_build_mxm_business_days_to_ltd_series,
+        "build_trading_days_to_ltd_on_business_sessions",
+        fake_build_trading_days_to_ltd_on_business_sessions,
     )
 
     class _FakeRollModel:
@@ -435,15 +441,15 @@ def test_build_component_weights_raises_when_bdays_sessions_do_not_match_compone
         fake_build_raw_anchor_contract_series_for_component,
     )
 
-    class _FakeBDays:
+    class _FakeTradingDays:
         def __init__(self) -> None:
             self.sessions = _days("2026-03-18", "2026-03-19")  # wrong length/support
-            self.mxm_business_days_to_ltd = np.array([1, 0], dtype=np.int64)
+            self.trading_days_to_ltd = np.array([1, 0], dtype=np.int64)
 
     monkeypatch.setattr(
         cwmod,
-        "build_mxm_business_days_to_ltd_series",
-        lambda **kwargs: _FakeBDays(),
+        "build_trading_days_to_ltd_on_business_sessions",
+        lambda **kwargs: _FakeTradingDays(),
     )
 
     class _FakeRollModel:
