@@ -73,6 +73,70 @@ def read_daily_stats_contract(
     return _canonicalise(df=df, product_id=product_id, contract_id=contract_id)
 
 
+def read_daily_stats_contract_meta(
+    *,
+    contract_id: str,
+    root: Path | None = None,
+) -> dict[str, object] | None:
+    """
+    Read daily_stats meta for a single contract.
+
+    This is the contract-level companion to `read_daily_stats_contract(...)`.
+
+    Returns
+    -------
+    dict[str, object] | None
+        Enriched meta dict if the underlying daily_stats artifact/meta exists,
+        else None.
+
+    Enriched fields
+    ---------------
+    Adds the following contract-centric fields on top of the stored meta:
+      - contract_id
+      - product_id
+      - dataset
+      - publisher_id
+      - instrument_id
+      - path
+    """
+    layout = MarketdataLayout(root=(root or (Path.home() / ".mxm")))
+    backend = _build_backend(layout)
+    store = DailyStatsStore(layout=layout)
+    api = RefDataAPI()
+
+    contract = api.get_contract_by_id(contract_id)
+    if contract is None:
+        raise ValueError(
+            f"unknown contract_id={contract_id!r} (no refdata contract found)"
+        )
+
+    product_id = contract.product_id
+    ident = resolve_databento_instrument(backend, contract)
+
+    meta = store.read_meta(
+        dataset=ident.dataset,
+        publisher_id=ident.publisher_id,
+        instrument_id=ident.instrument_id,
+    )
+    if meta is None:
+        return None
+
+    out = dict(meta)
+    out["contract_id"] = contract_id
+    out["product_id"] = product_id
+    out["dataset"] = ident.dataset
+    out["publisher_id"] = int(ident.publisher_id)
+    out["instrument_id"] = int(ident.instrument_id)
+    out["path"] = str(
+        store.stats_path(
+            dataset=ident.dataset,
+            publisher_id=ident.publisher_id,
+            instrument_id=ident.instrument_id,
+        )
+    )
+    return out
+
+
 def read_daily_stats_product(
     *,
     product_id: str,

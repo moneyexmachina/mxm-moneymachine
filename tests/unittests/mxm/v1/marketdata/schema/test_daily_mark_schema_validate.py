@@ -3,26 +3,26 @@ import pytest
 
 from mxm.v1.marketdata.schema.daily_mark import (
     coerce_daily_mark,
-    hash_daily_mark_content,
     validate_daily_mark,
-)
-
-pytest.skip(
-    "Temporarily disabled during timestamp model refactor (Session 33b)",
-    allow_module_level=True,
 )
 
 
 def _base_df() -> pd.DataFrame:
-    # Mimic builder output: session labels are object day labels, rows unsorted.
-    # Surface contains one valid example of each v1 state:
-    # - unavailable
-    # - observed_settle
-    # - observed_close
-    # - carry_forward
+    """
+    Mimic plausible builder output for a single-contract daily_mark surface.
+
+    Deliberate properties of this fixture:
+    - rows are unsorted by session_id
+    - source_trading_date is provided as string-like day labels
+    - surface contains one example of each v1 semantic state:
+        - unavailable
+        - observed_settle
+        - observed_close
+        - carry_forward
+    """
     return pd.DataFrame(
         {
-            "session": ["2025-01-04", "2025-01-02", "2025-01-01", "2025-01-03"],
+            "session_id": [3, 1, 0, 2],
             "contract_id": ["CME.ESM2025"] * 4,
             "instrument_id": [4916, 4916, 4916, 4916],
             "mark_px": [100.5, 100.0, None, 100.2],
@@ -41,7 +41,7 @@ def _base_df() -> pd.DataFrame:
             "is_markable": [True, True, False, True],
             "is_carried": [True, False, False, False],
             "carry_streak": [1, 0, 0, 0],
-            "source_session": ["2025-01-03", "2025-01-02", None, "2025-01-03"],
+            "source_trading_date": ["2025-01-03", "2025-01-02", None, "2025-01-03"],
             "source_dataset": ["GLBX.MDP3", "GLBX.MDP3", None, "GLBX.MDP3"],
             "source_publisher_id": [1, 1, None, 1],
             "source_raw_symbol": ["ESM5", "ESM5", None, "ESM5"],
@@ -49,43 +49,11 @@ def _base_df() -> pd.DataFrame:
     )
 
 
-def test_coerce_daily_mark_canonicalises_builder_output() -> None:
-    df = _base_df()
-    out = coerce_daily_mark(df)
-
-    assert pd.api.types.is_datetime64_any_dtype(out["session"])
-    assert not isinstance(out["session"].dtype, pd.DatetimeTZDtype)
-    assert (out["session"].dt.hour == 0).all()
-    assert (out["session"].dt.minute == 0).all()
-    assert (out["session"].dt.second == 0).all()
-    assert out["session"].is_monotonic_increasing
-
-    assert not out.duplicated(["contract_id", "session"]).any()
-    assert out["contract_id"].nunique() == 1
-
-    assert str(out["mark_source"].dtype) == "string"
-    assert str(out["mark_quality"].dtype) == "string"
-    assert str(out["is_markable"].dtype) == "boolean"
-    assert str(out["is_carried"].dtype) == "boolean"
-    assert pd.api.types.is_integer_dtype(out["carry_streak"])
-
-    assert "source_session" in out.columns
-    non_null_source_session = out["source_session"].dropna()
-    assert pd.api.types.is_datetime64_any_dtype(non_null_source_session)
-    assert not isinstance(non_null_source_session.dtype, pd.DatetimeTZDtype)
-    assert (non_null_source_session.dt.hour == 0).all()
-    assert (non_null_source_session.dt.minute == 0).all()
-    assert (non_null_source_session.dt.second == 0).all()
-
-    # Should validate cleanly
-    validate_daily_mark(out)
-
-
 def test_validate_daily_mark_rejects_duplicates() -> None:
     df = _base_df()
-    df.loc[1, "session"] = df.loc[0, "session"]  # duplicate day for same contract
+    df.loc[1, "session_id"] = df.loc[0, "session_id"]
 
-    with pytest.raises(ValueError, match=r"duplicate \(contract_id, session\)"):
+    with pytest.raises(ValueError, match=r"duplicate \(contract_id, session_id\)"):
         _ = coerce_daily_mark(df, ensure_column_order=True)
 
 
@@ -97,11 +65,11 @@ def test_validate_daily_mark_rejects_multi_contract_surface() -> None:
         _ = coerce_daily_mark(df)
 
 
-def test_validate_daily_mark_rejects_unsorted_session() -> None:
+def test_validate_daily_mark_rejects_unsorted_session_id() -> None:
     out = coerce_daily_mark(_base_df())
     bad = out.iloc[::-1].reset_index(drop=True)
 
-    with pytest.raises(ValueError, match=r"`session` must be sorted increasing"):
+    with pytest.raises(ValueError, match=r"`session_id` must be sorted increasing"):
         validate_daily_mark(bad)
 
 
@@ -109,6 +77,31 @@ def test_validate_daily_mark_rejects_missing_required_column() -> None:
     df = _base_df().drop(columns=["mark_quality"])
 
     with pytest.raises(ValueError, match=r"missing required columns"):
+        _ = coerce_daily_mark(df)
+
+
+def test_validate_daily_mark_rejects_null_session_id() -> None:
+    df = _base_df()
+    df.loc[0, "session_id"] = None
+
+    with pytest.raises(ValueError, match=r"`session_id` contains null values"):
+        _ = coerce_daily_mark(df)
+
+
+def test_validate_daily_mark_rejects_non_integer_session_id() -> None:
+    df = _base_df()
+    df["session_id"] = df["session_id"].astype("float64")
+    df.loc[0, "session_id"] = 1.5
+
+    with pytest.raises(ValueError, match=r"`session_id` must be integer dtype"):
+        validate_daily_mark(df)
+
+
+def test_validate_daily_mark_rejects_negative_session_id() -> None:
+    df = _base_df()
+    df.loc[0, "session_id"] = -1
+
+    with pytest.raises(ValueError, match=r"`session_id` must be non-negative"):
         _ = coerce_daily_mark(df)
 
 
@@ -158,6 +151,17 @@ def test_validate_daily_mark_unavailable_rows_require_is_markable_false() -> Non
 
     with pytest.raises(
         ValueError, match=r"unavailable rows must have `is_markable=False`"
+    ):
+        _ = coerce_daily_mark(df)
+
+
+def test_validate_daily_mark_unavailable_rows_require_is_carried_false() -> None:
+    df = _base_df()
+    unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
+    df.loc[unavailable_idx, "is_carried"] = True
+
+    with pytest.raises(
+        ValueError, match=r"unavailable rows must have `is_carried=False`"
     ):
         _ = coerce_daily_mark(df)
 
@@ -221,6 +225,18 @@ def test_validate_daily_mark_available_rows_require_non_null_mark() -> None:
         _ = coerce_daily_mark(df)
 
 
+def test_validate_daily_mark_available_rows_require_is_markable_true() -> None:
+    df = _base_df()
+    avail_idx = df.index[df["mark_source"] == "observed_close"][0]
+    df.loc[avail_idx, "is_markable"] = False
+
+    with pytest.raises(
+        ValueError,
+        match=r"available rows must have `is_markable=True`",
+    ):
+        _ = coerce_daily_mark(df)
+
+
 def test_validate_daily_mark_non_carried_available_rows_require_zero_carry_streak() -> (
     None
 ):
@@ -235,28 +251,82 @@ def test_validate_daily_mark_non_carried_available_rows_require_zero_carry_strea
         _ = coerce_daily_mark(df)
 
 
-def test_validate_daily_mark_rejects_tz_aware_session_labels() -> None:
+def test_validate_daily_mark_rejects_tz_aware_source_trading_date() -> None:
     out = coerce_daily_mark(_base_df())
     bad = out.copy()
-    bad["session"] = bad["session"].dt.tz_localize("UTC")
+    bad["source_trading_date"] = bad["source_trading_date"].dt.tz_localize("UTC")
 
     with pytest.raises(
         ValueError,
-        match=r"`session` must be timezone-naive day labels",
+        match=r"`source_trading_date` must be timezone-naive day labels",
     ):
         validate_daily_mark(bad)
 
 
-def test_hash_is_stable_under_row_and_col_permutation() -> None:
+def test_validate_daily_mark_accepts_null_source_trading_date() -> None:
+    out = coerce_daily_mark(_base_df())
+    out["source_trading_date"] = pd.NaT
+
+    validate_daily_mark(out)
+
+
+def test_validate_daily_mark_rejects_invalid_source_trading_date() -> None:
     df = _base_df()
-    h1 = hash_daily_mark_content(df)
+    df.loc[1, "source_trading_date"] = "not-a-date"
 
-    # Row order permuted
-    h2 = hash_daily_mark_content(df.sample(frac=1.0, random_state=0))
+    with pytest.raises(ValueError, match=r"failed to coerce `source_trading_date`"):
+        _ = coerce_daily_mark(df)
 
-    # Column order permuted
-    cols = list(df.columns)
-    cols = cols[::-1]
-    h3 = hash_daily_mark_content(df[cols])
 
-    assert h1 == h2 == h3
+def test_validate_daily_mark_rejects_non_string_source_dataset() -> None:
+    out = coerce_daily_mark(_base_df())
+    bad = out.copy()
+    bad["source_dataset"] = pd.Series([1, 2, None, 4], dtype="Int64")
+
+    with pytest.raises(
+        ValueError,
+        match=r"`source_dataset` must be pandas string dtype if present",
+    ):
+        validate_daily_mark(bad)
+
+
+def test_validate_daily_mark_rejects_non_integer_source_publisher_id() -> None:
+    out = coerce_daily_mark(_base_df())
+    bad = out.copy()
+    bad["source_publisher_id"] = pd.Series(
+        [1.0, 1.0, None, 1.0],
+        dtype="Float64",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"`source_publisher_id` must be integer dtype if present",
+    ):
+        validate_daily_mark(bad)
+
+
+def test_validate_daily_mark_rejects_non_string_source_raw_symbol() -> None:
+    out = coerce_daily_mark(_base_df())
+    bad = out.copy()
+    bad["source_raw_symbol"] = pd.Series([1, 2, None, 4], dtype="Int64")
+
+    with pytest.raises(
+        ValueError,
+        match=r"`source_raw_symbol` must be pandas string dtype if present",
+    ):
+        validate_daily_mark(bad)
+
+
+def test_validate_daily_mark_rejects_non_integer_instrument_id() -> None:
+    out = coerce_daily_mark(_base_df())
+    bad = out.copy()
+    bad["instrument_id"] = pd.Series(
+        [4916.0, 4916.0, None, 4916.0],
+        dtype="Float64",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"`instrument_id` must be integer dtype if present",
+    ):
+        validate_daily_mark(bad)

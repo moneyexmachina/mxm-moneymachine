@@ -1,22 +1,27 @@
 """
 MXM V1 Marketdata — Canonical schema and validation for curated `daily_mark`.
 
-Intent (Session 33):
+Intent (Session 33)
+-------------------
 - Freeze a minimal, opinionated schema for `daily_mark`.
-- Represent one authoritative daily valuation mark per (contract_id, session),
-  where `session` is an MXM business-session label.
-- Keep source/quality/provenance explicit without overcommitting to a single
-  upstream raw field layout.
+- Represent one authoritative daily valuation mark per
+  (contract_id, session_id), where `session_id` is an MXM business-session
+  coordinate in a specific MXM business calendar.
+- Keep source / quality / provenance explicit without overcommitting to a
+  single upstream raw field layout.
 - Validate loudly and early to prevent silent semantic drift.
 
-Notes:
+Notes
+-----
 - `daily_mark` is a curated daily valuation surface keyed by
-  (contract_id, session).
-- `session` is an MXM business-session day label with day precision.
-- Rows should exist for all sessions in the constructed business-session range.
+  (contract_id, session_id).
+- `session_id` is the primary business-time coordinate in MXM.
+- `calendar_id` is part of dataset identity and is expected to be carried in
+  path / metadata, not as a parquet row column in v1.
+- Rows should exist for all session_ids in the constructed business-session range.
 - `mark_px` may be missing before the first valid markable observation.
 - This schema is for storage / persisted columnar surfaces.
-  Downstream API usage may expose a MultiIndex form on (session, contract_id).
+  Downstream API usage may expose alternative indexed views as needed.
 """
 
 from __future__ import annotations
@@ -39,17 +44,17 @@ class DailyMarkSchema:
     Contract between:
     - policy/build logic (`mxm.v1.marketdata.datasets.daily_mark.*`)
     - storage (parquet writer/reader for daily_mark)
-    - dataset-level serving/inspection utilities
+    - dataset-level serving / inspection utilities
 
     Semantic intent:
-    - one authoritative daily valuation mark per (contract_id, session)
-    - `session` lives on the MXM business calendar
-    - `mark_px` is the value downstream valuation/PnL systems should consume
+    - one authoritative daily valuation mark per (contract_id, session_id)
+    - `session_id` is the primary MXM business-time coordinate
+    - `mark_px` is the value downstream valuation / PnL systems should consume
     """
 
-    # Canonical column order for persisted/served frames.
+    # Canonical column order for persisted / served frames.
     columns: tuple[str, ...] = (
-        "session",
+        "session_id",
         "contract_id",
         "instrument_id",
         "mark_px",
@@ -58,7 +63,7 @@ class DailyMarkSchema:
         "is_markable",
         "is_carried",
         "carry_streak",
-        "source_session",
+        "source_trading_date",
         "source_dataset",
         "source_publisher_id",
         "source_raw_symbol",
@@ -66,7 +71,7 @@ class DailyMarkSchema:
 
     # Required columns for a valid v1 daily_mark surface.
     required: tuple[str, ...] = (
-        "session",
+        "session_id",
         "contract_id",
         "mark_px",
         "mark_source",
@@ -76,10 +81,10 @@ class DailyMarkSchema:
         "carry_streak",
     )
 
-    # Optional provenance/debug fields.
+    # Optional provenance / debug fields.
     optional: tuple[str, ...] = (
         "instrument_id",
-        "source_session",
+        "source_trading_date",
         "source_dataset",
         "source_publisher_id",
         "source_raw_symbol",
@@ -106,6 +111,7 @@ class DailyMarkSchema:
             self,
             "dtype_targets",
             {
+                "session_id": "int32",
                 "contract_id": "string",
                 "instrument_id": "Int64",
                 "mark_source": "string",
@@ -130,25 +136,33 @@ def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
 
 def _coerce_day_label_series(s: pd.Series) -> pd.Series:
     """
-    Coerce session-like values into canonical MXM day-label semantics.
+    Coerce date-like values into canonical day-label storage form.
 
     Contract:
       - dtype: pandas datetime64[ns] (timezone-naive)
       - invariant: all values are normalized to day precision (00:00:00)
-      - semantic meaning: session day labels, equivalent to np.datetime64[D]
+      - semantic meaning: a day-label field equivalent to np.datetime64[D]
+
+    This helper is intended for source-side provenance fields such as
+    `source_trading_date`. It is not used for MXM business-session identity,
+    which is carried by `session_id`.
     """
     if s.empty:
-        return pd.Series([], dtype="datetime64[ns]")
+        return pd.Series([], index=s.index, dtype="datetime64[ns]", name=s.name)
 
-    values = [coerce_np_day(v) for v in s.to_list()]
-    out = pd.to_datetime(pd.Series(values), errors="raise")
+    values = np.array([coerce_np_day(v) for v in s.to_list()], dtype="datetime64[D]")
+    out = pd.Series(
+        pd.to_datetime(values, errors="raise"),
+        index=s.index,
+        name=s.name,
+    )
     out = out.dt.normalize()
     return out
 
 
 def _validate_day_label_series(s: pd.Series, *, column_name: str) -> None:
     """
-    Validate a pandas Series as an MXM day-label series.
+    Validate a pandas Series as a canonical day-label series.
 
     We store day labels in pandas datetime64[ns] form for practical dataframe /
     parquet interoperability, but semantically they must correspond to
@@ -180,11 +194,10 @@ def _validate_day_label_series(s: pd.Series, *, column_name: str) -> None:
             f"daily_mark `{column_name}` must be normalized to day labels (00:00:00)"
         )
 
-    # Enforce day-label semantics by roundtripping through coerce_np_day.
-    # This also protects against weird non-normalized object coercions sneaking in.
     try:
         roundtrip = np.array(
-            [coerce_np_day(v) for v in s.to_numpy()], dtype="datetime64[D]"
+            [coerce_np_day(v) for v in s.to_numpy()],
+            dtype="datetime64[D]",
         )
     except Exception as e:  # noqa: BLE001
         raise ValueError(
@@ -192,8 +205,16 @@ def _validate_day_label_series(s: pd.Series, *, column_name: str) -> None:
             f"np.datetime64[D]: {e}"
         ) from e
 
-    back = pd.to_datetime(pd.Series(roundtrip)).dt.normalize()
-    if not s.reset_index(drop=True).equals(back.reset_index(drop=True)):
+    back = pd.Series(
+        pd.to_datetime(roundtrip),
+        index=s.index,
+        name=s.name,
+    ).dt.normalize()
+
+    if not np.array_equal(
+        s.to_numpy(dtype="datetime64[ns]"),
+        back.to_numpy(dtype="datetime64[ns]"),
+    ):
         raise ValueError(
             f"daily_mark `{column_name}` must represent canonical day labels "
             f"equivalent to np.datetime64[D]"
@@ -206,9 +227,9 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
 
     Contract (MXM V1)
     -----------------
-    - `session` is an MXM business-session day label.
-    - One row per (contract_id, session).
-    - Surfaces are per-contract (contract_id constant within a file/surface).
+    - `session_id` is the primary MXM business-session coordinate.
+    - One row per (contract_id, session_id).
+    - Surfaces are per-contract (contract_id constant within a file / surface).
     - `mark_px` may be null only when:
         - `mark_source='unavailable'`
         - `mark_quality='unavailable'`
@@ -221,29 +242,36 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
     if missing:
         raise ValueError(f"daily_mark dataframe missing required columns: {missing}")
 
-    if "session" not in df.columns:
-        raise ValueError("daily_mark missing session")
-    _validate_day_label_series(df["session"], column_name="session")
+    if df["session_id"].isna().any():
+        raise ValueError("daily_mark `session_id` contains null values")
 
-    if "source_session" in df.columns:
-        non_null = df["source_session"].dropna()
-        if not non_null.empty:
-            _validate_day_label_series(
-                df.loc[non_null.index, "source_session"],
-                column_name="source_session",
-            )
+    if not pd.api.types.is_integer_dtype(df["session_id"]):
+        raise ValueError(
+            f"daily_mark `session_id` must be integer dtype, got {df['session_id'].dtype}"
+        )
+
+    if (df["session_id"] < 0).any():
+        raise ValueError("daily_mark `session_id` must be non-negative")
 
     if df["contract_id"].isna().any():
         raise ValueError("daily_mark `contract_id` contains null values")
 
-    if df.duplicated(subset=["contract_id", "session"]).any():
-        raise ValueError("daily_mark contains duplicate (contract_id, session) rows")
+    if df.duplicated(subset=["contract_id", "session_id"]).any():
+        raise ValueError("daily_mark contains duplicate (contract_id, session_id) rows")
 
     if df["contract_id"].nunique(dropna=False) != 1:
         raise ValueError("daily_mark surface must contain exactly one contract_id")
 
-    if not df["session"].is_monotonic_increasing:
-        raise ValueError("daily_mark `session` must be sorted increasing")
+    if not df["session_id"].is_monotonic_increasing:
+        raise ValueError("daily_mark `session_id` must be sorted increasing")
+
+    if "source_trading_date" in df.columns:
+        non_null = df["source_trading_date"].dropna()
+        if not non_null.empty:
+            _validate_day_label_series(
+                df.loc[non_null.index, "source_trading_date"],
+                column_name="source_trading_date",
+            )
 
     if str(df["mark_source"].dtype) != "string":
         raise ValueError(
@@ -372,37 +400,76 @@ def coerce_daily_mark(
 
     Intended use:
     - builder step constructs a per-contract business-session mark surface
-    - this function finalizes dtypes, day-label semantics, and column ordering
+    - this function finalizes dtypes, provenance day-label semantics,
+      and column ordering
 
     Returns:
         A new dataframe coerced into canonical form (copy).
     """
     out = df.copy()
 
-    out["session"] = _coerce_day_label_series(out["session"])
+    if "source_trading_date" in out.columns:
+        src = out["source_trading_date"].copy()
 
-    if "source_session" in out.columns:
-        non_null = out["source_session"].notna()
+        # Start from an empty target column with the canonical storage dtype.
+        out["source_trading_date"] = pd.Series(
+            pd.NaT,
+            index=out.index,
+            dtype="datetime64[ns]",
+        )
+
+        non_null = src.notna()
         if bool(non_null.any()):
-            out.loc[non_null, "source_session"] = _coerce_day_label_series(
-                out.loc[non_null, "source_session"]
-            )
-        out["source_session"] = pd.to_datetime(
-            out["source_session"], errors="coerce"
-        ).dt.normalize()
+            try:
+                coerced = _coerce_day_label_series(src.loc[non_null])
+            except Exception as e:  # noqa: BLE001
+                raise ValueError(f"failed to coerce `source_trading_date`: {e}") from e
 
-    for col, dtype in DAILY_MARK.dtype_targets.items():
-        if col not in out.columns:
-            continue
-        try:
-            out[col] = out[col].astype(dtype)
-        except Exception as e:  # noqa: BLE001
-            raise ValueError(f"failed to coerce `{col}` to {dtype}: {e}") from e
+            out.loc[non_null, "source_trading_date"] = coerced.to_numpy()
+
+        out["source_trading_date"] = pd.to_datetime(
+            out["source_trading_date"],
+            errors="coerce",
+        ).dt.normalize()
+    if "session_id" in out.columns:
+        if out["session_id"].isna().any():
+            raise ValueError("daily_mark `session_id` contains null values.")
+        out["session_id"] = out["session_id"].astype("int32")
+
+    if "contract_id" in out.columns:
+        out["contract_id"] = out["contract_id"].astype("string")
+
+    if "instrument_id" in out.columns:
+        out["instrument_id"] = out["instrument_id"].astype("Int64")
+
+    if "mark_source" in out.columns:
+        out["mark_source"] = out["mark_source"].astype("string")
+
+    if "mark_quality" in out.columns:
+        out["mark_quality"] = out["mark_quality"].astype("string")
+
+    if "is_markable" in out.columns:
+        out["is_markable"] = out["is_markable"].astype("boolean")
+
+    if "is_carried" in out.columns:
+        out["is_carried"] = out["is_carried"].astype("boolean")
+
+    if "carry_streak" in out.columns:
+        out["carry_streak"] = out["carry_streak"].astype("int32")
+
+    if "source_dataset" in out.columns:
+        out["source_dataset"] = out["source_dataset"].astype("string")
+
+    if "source_publisher_id" in out.columns:
+        out["source_publisher_id"] = out["source_publisher_id"].astype("Int32")
+
+    if "source_raw_symbol" in out.columns:
+        out["source_raw_symbol"] = out["source_raw_symbol"].astype("string")
 
     if "mark_px" in out.columns and not pd.api.types.is_numeric_dtype(out["mark_px"]):
         out["mark_px"] = pd.to_numeric(out["mark_px"], errors="raise")
 
-    out = out.sort_values(["session"], kind="mergesort").reset_index(drop=True)
+    out = out.sort_values(["session_id"], kind="mergesort").reset_index(drop=True)
 
     if ensure_column_order:
         missing = _missing_columns(out, DAILY_MARK.required)

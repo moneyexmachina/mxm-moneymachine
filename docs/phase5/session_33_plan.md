@@ -3,7 +3,7 @@
 ## Session 33 — Handling Degraded Market Data & Ensuring Full-History Backtest Stability
 
 ## Summary
-
+ 
 Following Sessions 33a and 33b, the MXM system now has:
 
 - a canonical timestamp model (`np.datetime64[ns]`, UTC, kernel/boundary separation)

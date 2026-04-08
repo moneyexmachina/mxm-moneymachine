@@ -129,6 +129,53 @@ class MarketdataLayout:
             / "daily_stats.tmp.parquet"
         )
 
+    def curated_contract_dir(
+        self,
+        *,
+        schema_dir: str,
+        calendar_id: str,
+        contract_id: str,
+    ) -> Path:
+        """
+        Directory for MXM-curated contract-level datasets.
+
+        These datasets are not vendor-rooted and are defined on MXM semantic
+        domains such as business calendars rather than source vendor schemas.
+        """
+        return (
+            self.root
+            / "marketdata"
+            / "mxm"
+            / schema_dir
+            / "by_contract"
+            / f"calendar_id={calendar_id}"
+            / f"contract_id={contract_id}"
+        )
+
+    # -------------------------
+    # Daily-mark paths
+    # -------------------------
+
+    def daily_mark_path(self, *, calendar_id: str, contract_id: str) -> Path:
+        return (
+            self.curated_contract_dir(
+                schema_dir="daily-mark",
+                calendar_id=calendar_id,
+                contract_id=contract_id,
+            )
+            / "daily_mark.parquet"
+        )
+
+    def tmp_daily_mark_path(self, *, calendar_id: str, contract_id: str) -> Path:
+        return (
+            self.curated_contract_dir(
+                schema_dir="daily-mark",
+                calendar_id=calendar_id,
+                contract_id=contract_id,
+            )
+            / "daily_mark.tmp.parquet"
+        )
+
     # -------------------------
     # SQLite metadata DB
     # -------------------------
