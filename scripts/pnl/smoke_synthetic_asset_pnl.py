@@ -34,26 +34,25 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # type: ignore[reportUnknownVariableType]
 import numpy as np
 import pandas as pd
 from mxm_refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
 
-from mxm.v1.calendars.mxm_business_calendar_service import MxMBusinessCalendarService
+from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.execution.backtester import Backtester, BacktestResult
 from mxm.v1.execution.executor import PerfectBacktestExecutor
 from mxm.v1.execution.orders import OrderGenerationPolicy, OrderGenerator
 from mxm.v1.execution.price_accessors import (
-    DailyStatsExecutionPriceAccessor,
-    DailyStatsMarkPriceAccessor,
+    DailyMarkExecutionPriceAccessor,
+    DailyMarkPriceAccessor,
 )
 from mxm.v1.execution.session_engine import SessionEngine
 from mxm.v1.fx.spot_fx_converter import IdentitySpotFXConverter
-from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_product
 from mxm.v1.pnl.constructor import build_pnl_series
 from mxm.v1.pnl.models import PnLSeries
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
@@ -68,9 +67,9 @@ from mxm.v1.utils.date_utils import coerce_np_day
 # ---------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------
-
-DEFAULT_MXM_BUSINESS_CALENDAR_ID = "mxm_v1_business"
-DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID = "cmes"
+DEFAULT_CALENDAR_ID = "mxm_business_days_v1"
+DEFAULT_CALENDAR_START = "2010-01-01"
+DEFAULT_CALENDAR_END = "2050-12-31"
 
 # ---------------------------------------------------------------------
 # Plotting helpers
@@ -84,7 +83,7 @@ class PnLSmokeMeta:
     created_at_utc: str
     start: str
     end: str
-    price_field: str
+    price_surface: str
     target_currency: str
     session_count: int
     cumulative_total_pnl: float | None
@@ -118,11 +117,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="Synthetic asset registry root (default: ~/.mxm)",
     )
     p.add_argument(
-        "--price-field",
-        default="settle_px",
-        help="daily_stats field used for execution and mark prices (default: settle_px)",
-    )
-    p.add_argument(
         "--max-head",
         type=int,
         default=10,
@@ -146,20 +140,19 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="output directory for saved plots (default: dev_plots/pnl/synthetic_asset)",
     )
     p.add_argument(
-        "--mxm-business-base-calendar-id",
-        default=DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID,
-        help=(
-            "Base TradingCalendar id used to construct the MXM business calendar "
-            f"(default: {DEFAULT_MXM_BUSINESS_BASE_CALENDAR_ID})"
-        ),
+        "--calendar-id",
+        default=DEFAULT_CALENDAR_ID,
+        help="MXM business calendar base identifier.",
     )
     p.add_argument(
-        "--mxm-business-calendar-id",
-        default=DEFAULT_MXM_BUSINESS_CALENDAR_ID,
-        help=(
-            "Runtime id assigned to the MXM business calendar "
-            f"(default: {DEFAULT_MXM_BUSINESS_CALENDAR_ID})"
-        ),
+        "--calendar-start",
+        default=DEFAULT_CALENDAR_START,
+        help="Inclusive MXM business calendar start label (YYYY-MM-DD).",
+    )
+    p.add_argument(
+        "--calendar-end",
+        default=DEFAULT_CALENDAR_END,
+        help="Inclusive MXM business calendar end label (YYYY-MM-DD).",
     )
 
     return p.parse_args(argv)
@@ -168,199 +161,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 # ---------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------
-
-
-def _print_contract_daily_stats_debug(
-    *,
-    product_id: str,
-    contract_id: str,
-    around_session: np.datetime64,
-    price_field: str,
-    window_days: int = 5,
-    max_rows: int = 50,
-) -> None:
-    df = read_daily_stats_product(product_id=product_id)
-
-    session_ts = pd.Timestamp(coerce_np_day(around_session), tz="UTC")
-    lo = session_ts - pd.Timedelta(days=window_days)
-    hi = session_ts + pd.Timedelta(days=window_days)
-
-    print("=" * 72)
-    print("contract-level daily_stats debug")
-    print(f"  product_id:   {product_id!r}")
-    print(f"  contract_id:  {contract_id!r}")
-    print(f"  around:       {session_ts}")
-    print(f"  price_field:  {price_field!r}")
-    print("=" * 72)
-
-    df_contract = df.loc[df["contract_id"] == contract_id].copy()
-
-    print(f"rows for exact contract_id: {len(df_contract)}")
-    if df_contract.empty:
-        similar = df.loc[
-            df["contract_id"].astype(str).str.contains("Mar-2025", na=False)
-        ].copy()
-        print("No exact rows found. Similar contract_ids containing 'Mar-2025':")
-        if similar.empty:
-            print("  <none>")
-        else:
-            print(
-                similar["contract_id"]
-                .drop_duplicates()
-                .sort_values()
-                .to_string(index=False)
-            )
-        print()
-        return
-
-    df_window = df_contract.loc[
-        (df_contract["trading_date"] >= lo) & (df_contract["trading_date"] <= hi)
-    ].copy()
-
-    cols = [
-        c
-        for c in [
-            "trading_date",
-            "contract_id",
-            "product_id",
-            "raw_symbol",
-            price_field,
-            "settle_px_is_final",
-            "open_px",
-            "high_px",
-            "low_px",
-            "open_interest_qty",
-            "cleared_volume_qty",
-        ]
-        if c in df_window.columns
-    ]
-
-    print(f"rows in date window [{lo}, {hi}]: {len(df_window)}")
-    if df_window.empty:
-        print("  <none>")
-    else:
-        print(
-            df_window.loc[:, cols]
-            .sort_values("trading_date")
-            .head(max_rows)
-            .to_string(index=False)
-        )
-    print()
-
-    exact_day = df_contract.loc[df_contract["trading_date"] == session_ts].copy()
-    print(f"rows on exact trading_date {session_ts}: {len(exact_day)}")
-    if exact_day.empty:
-        print("  <none>")
-    else:
-        print(exact_day.loc[:, cols].to_string(index=False))
-    print()
-
-
-def _print_contract_all_rows_debug(
-    *,
-    product_id: str,
-    contract_id: str,
-    price_field: str,
-    max_rows: int = 50,
-) -> None:
-    df = read_daily_stats_product(product_id=product_id)
-    df_contract = df.loc[df["contract_id"] == contract_id].copy()
-
-    print("=" * 72)
-    print("full contract daily_stats rows")
-    print(f"  product_id:  {product_id!r}")
-    print(f"  contract_id: {contract_id!r}")
-    print("=" * 72)
-    print(f"total rows: {len(df_contract)}")
-
-    if df_contract.empty:
-        print("  <none>")
-        print()
-        return
-
-    cols = [
-        c
-        for c in [
-            "trading_date",
-            "contract_id",
-            "product_id",
-            "instrument_id",
-            "publisher_id",
-            "dataset",
-            "raw_symbol",
-            price_field,
-            "settle_px_is_final",
-            "open_px",
-            "high_px",
-            "low_px",
-            "open_interest_qty",
-            "cleared_volume_qty",
-        ]
-        if c in df_contract.columns
-    ]
-
-    print(df_contract.loc[:, cols].sort_values("trading_date").to_string(index=False))
-    print()
-
-
-def _print_daily_stats_debug(
-    *,
-    product_id: str,
-    price_field: str,
-    max_rows: int = 20,
-) -> None:
-    print("=" * 72)
-    print(f"daily_stats debug for product_id={product_id!r}")
-    print("=" * 72)
-
-    df = read_daily_stats_product(product_id=product_id)
-
-    print(f"rows:    {len(df)}")
-    print(f"columns: {list(df.columns)}")
-    print()
-    print("dtypes:")
-    print(df.dtypes.to_string())
-    print()
-
-    if df.empty:
-        print("<empty daily_stats frame>")
-        print()
-        return
-
-    print("null counts:")
-    print(df.isna().sum().to_string())
-    print()
-
-    print("head:")
-    print(df.head(max_rows).to_string())
-    print()
-
-    print("tail:")
-    print(df.tail(max_rows).to_string())
-    print()
-
-    if price_field in df.columns:
-        null_mask = df[price_field].isna()
-        null_rows = df.loc[null_mask].copy()
-
-        print(f"rows with null {price_field!r}: {len(null_rows)}")
-        if not null_rows.empty:
-            cols = [
-                c
-                for c in ["trading_date", "contract_id", "product_id", price_field]
-                if c in null_rows.columns
-            ]
-            print(null_rows.loc[:, cols].head(max_rows).to_string())
-            if len(null_rows) > max_rows:
-                print(f"... truncated after {max_rows} rows")
-            print()
-
-        non_null_rows = df.loc[~null_mask].copy()
-        print(f"rows with non-null {price_field!r}: {len(non_null_rows)}")
-        print()
-    else:
-        print(f"price_field {price_field!r} is not present in the frame.")
-        print()
 
 
 def _print_spec_summary(spec: SyntheticAssetSpec) -> None:
@@ -485,6 +285,10 @@ def _print_contract_pnl_head(
     print("Contract-level PnL (head)")
 
     df = pnl_series.to_contract_dataframe()
+    # check unique increments
+    increments = df["price_move_pnl"].dropna().unique()
+    print(sorted(set(increments[:100])))
+
     if df.empty:
         print("  <empty>")
         print()
@@ -506,17 +310,23 @@ def _save_cumulative_pnl_plot(
     if df.empty:
         raise ValueError("No PnL rows available to plot.")
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(df["session"], df["cumulative_total_pnl"], label="Total")
-    plt.plot(df["session"], df["cumulative_price_move_pnl"], label="Price move")
-    plt.plot(df["session"], df["cumulative_trade_pnl"], label="Trade")
-    plt.title(f"Cumulative PnL — {asset_id}")
-    plt.xlabel("Session")
-    plt.ylabel("PnL")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(outpath, dpi=150)
-    plt.close()
+    fig, ax = plt.subplots(figsize=(10, 6))  # pyright: ignore[reportUnknownMemberType]
+    ax.plot(  # pyright: ignore[reportUnknownMemberType]
+        df["session"], df["cumulative_total_pnl"], label="Total"
+    )
+    ax.plot(  # pyright: ignore[reportUnknownMemberType]
+        df["session"], df["cumulative_price_move_pnl"], label="Price move"
+    )
+    ax.plot(  # pyright: ignore[reportUnknownMemberType]
+        df["session"], df["cumulative_trade_pnl"], label="Trade"
+    )
+    ax.set_title(f"Cumulative PnL — {asset_id}")  # pyright: ignore[reportUnknownMemberType]
+    ax.set_xlabel("Session")  # pyright: ignore[reportUnknownMemberType]
+    ax.set_ylabel("PnL")  # pyright: ignore[reportUnknownMemberType]
+    ax.legend()  # pyright: ignore[reportUnknownMemberType]
+    fig.tight_layout()  # pyright: ignore[reportUnknownMemberType]
+    fig.savefig(outpath, dpi=150)  # pyright: ignore[reportUnknownMemberType]
+    plt.close(fig)  # pyright: ignore[reportUnknownMemberType]
 
 
 # ---------------------------------------------------------------------
@@ -536,10 +346,10 @@ def main(argv: Sequence[str]) -> int:
     calendars = TradingCalendarService(refdata_api=refdata)
     engine = ContractSelectorEngine.build(refdata=refdata, calendars=calendars)
     unit_converter = build_default_unit_converter()
-
-    mxm_business_calendar_service = MxMBusinessCalendarService(
-        base_trading_calendar_id=args.mxm_business_base_calendar_id,
-        business_calendar_id=args.mxm_business_calendar_id,
+    mxm_business_calendar_service = MXMBusinessCalendarService(
+        calendar_base_id=str(args.calendar_id),
+        start_label=coerce_np_day(args.calendar_start),
+        end_label=coerce_np_day(args.calendar_end),
     )
     mxm_business_calendar = mxm_business_calendar_service.get_calendar()
 
@@ -560,9 +370,10 @@ def main(argv: Sequence[str]) -> int:
     print()
 
     print("MXM business calendar")
+    print(f"  calendar_base_id: {args.calendar_id}")
+    print(f"  calendar_start:   {coerce_np_day(args.calendar_start)}")
+    print(f"  calendar_end:     {coerce_np_day(args.calendar_end)}")
     print(f"  calendar_id:      {mxm_business_calendar.calendar_id}")
-    print(f"  base_calendar_id: {args.mxm_business_base_calendar_id}")
-    print(f"  observed_end:     {mxm_business_calendar.observed_end}")
     print()
 
     # --- Build real synthetic asset ---
@@ -601,17 +412,6 @@ def main(argv: Sequence[str]) -> int:
     if asset.target_holdings.frame.empty:
         raise ValueError("SyntheticAsset.target_holdings is empty.")
 
-    product_ids = sorted(
-        {component.product_id for component in spec.components.values()}
-    )
-    print("daily_stats inspection")
-    for product_id in product_ids:
-        _print_daily_stats_debug(
-            product_id=product_id,
-            price_field=args.price_field,
-            max_rows=args.max_head,
-        )
-
     # --- Build real execution / backtest infrastructure ---
     order_policy = OrderGenerationPolicy(default_min_block_size=1)
     order_generator = OrderGenerator(
@@ -619,9 +419,8 @@ def main(argv: Sequence[str]) -> int:
         ref_data_api=refdata,
         calendar_service=calendars,
     )
-
-    execution_price_accessor = DailyStatsExecutionPriceAccessor(
-        price_field=args.price_field,
+    execution_price_accessor = DailyMarkExecutionPriceAccessor(
+        mxm_business_calendar=mxm_business_calendar,
         ref_data_api=refdata,
     )
     executor = PerfectBacktestExecutor(
@@ -645,10 +444,11 @@ def main(argv: Sequence[str]) -> int:
         raise ValueError("BacktestResult is empty.")
 
     # --- Build PnL ---
-    mark_price_accessor = DailyStatsMarkPriceAccessor(
-        price_field=args.price_field,
+    mark_price_accessor = DailyMarkPriceAccessor(
+        mxm_business_calendar=mxm_business_calendar,
         ref_data_api=refdata,
     )
+
     fx_converter = IdentitySpotFXConverter()
 
     pnl_series = build_pnl_series(
@@ -687,10 +487,7 @@ def main(argv: Sequence[str]) -> int:
 
     start_s = str(args.start)
     end_s = str(args.end)
-    stem = (
-        f"synthetic_asset_pnl__{_slug(asset_id)}__"
-        f"{start_s}__{end_s}__{_slug(args.price_field)}"
-    )
+    stem = f"synthetic_asset_pnl__{_slug(asset_id)}__{start_s}__{end_s}__daily_mark"
 
     plot_path = outdir / f"{stem}__cumulative_pnl.png"
     meta_path = outdir / f"{stem}__meta.json"
@@ -716,7 +513,7 @@ def main(argv: Sequence[str]) -> int:
         created_at_utc=pd.Timestamp.utcnow().isoformat(),
         start=str(args.start),
         end=str(args.end),
-        price_field=args.price_field,
+        price_surface="daily_mark",
         target_currency=spec.currency,
         session_count=int(len(session_df)),
         cumulative_total_pnl=cumulative_total,

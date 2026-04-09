@@ -84,6 +84,8 @@ import numpy as np
 import pandas as pd
 from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
+from mxm.v1.marketdata.datasets.daily_mark.api import read_daily_mark_product
 from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_product
 from mxm.v1.utils.date_utils import coerce_np_day
 
@@ -469,4 +471,340 @@ class DailyStatsMarkPriceAccessor(_DailyStatsPriceAccessorBase, MarkPriceAccesso
                 f"contract_id={contract_id!r}, "
                 f"session={session!r}, "
                 f"price_field={self.price_field!r}."
+            ) from exc
+
+
+class MissingDailyMarkPriceError(ValueError):
+    """Raised when no daily_mark price exists for a contract/session key."""
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductDailyMarkPriceLookup:
+    """
+    In-memory price lookup for one product under one MXM business calendar.
+
+    Parameters
+    ----------
+    product_id:
+        Product identifier whose contracts are represented in this
+        lookup.
+
+    calendar_id:
+        MXM business calendar identity under which the daily_mark surface
+        was read.
+
+    prices:
+        MultiIndex Series indexed by (contract_id, session_id) and
+        containing float mark prices.
+    """
+
+    product_id: str
+    calendar_id: str
+    prices: pd.Series
+
+    def __post_init__(self) -> None:
+        self._validate_prices()
+
+    def _validate_prices(self) -> None:
+        prices = self.prices
+
+        if not isinstance(prices.index, pd.MultiIndex):
+            raise ValueError(
+                "_ProductDailyMarkPriceLookup.prices must have a MultiIndex."
+            )
+
+        if prices.index.nlevels != 2:
+            raise ValueError(
+                "_ProductDailyMarkPriceLookup.prices must have exactly two index levels."
+            )
+
+        expected_names = ["contract_id", "session_id"]
+        if list(prices.index.names) != expected_names:
+            raise ValueError(
+                f"_ProductDailyMarkPriceLookup.prices index names must be "
+                f"{expected_names}, got {list(prices.index.names)!r}."
+            )
+
+        if prices.index.has_duplicates:
+            raise ValueError(
+                "_ProductDailyMarkPriceLookup.prices must not contain duplicate "
+                "(contract_id, session_id) keys."
+            )
+
+        if prices.isna().any():
+            raise ValueError(
+                "_ProductDailyMarkPriceLookup.prices must not contain missing values."
+            )
+
+        if not pd.api.types.is_numeric_dtype(prices):
+            raise TypeError(
+                "_ProductDailyMarkPriceLookup.prices must contain numeric values."
+            )
+
+    def get_price(
+        self,
+        contract_id: str,
+        session_id: int,
+    ) -> float:
+        """
+        Return the price for a contract on a given session_id key.
+
+        Parameters
+        ----------
+        contract_id:
+            Contract identifier.
+
+        session_id:
+            MXM business-session id.
+
+        Raises
+        ------
+        ValueError
+            If no price exists for the given (contract_id, session_id).
+        """
+        key = (contract_id, session_id)
+
+        try:
+            value = self.prices.loc[key]
+        except KeyError as exc:
+            raise MissingDailyMarkPriceError(
+                "Missing price in daily_mark lookup for "
+                f"calendar_id={self.calendar_id!r}, "
+                f"product_id={self.product_id!r}, "
+                f"contract_id={contract_id!r}, "
+                f"session_id={session_id!r}."
+            ) from exc
+
+        return float(value)
+
+
+def _empty_daily_mark_product_lookup_cache() -> dict[str, _ProductDailyMarkPriceLookup]:
+    return {}
+
+
+@dataclass(slots=True)
+class _DailyMarkPriceAccessorBase:
+    """
+    Shared lazy-loading daily_mark-backed price accessor base.
+
+    Parameters
+    ----------
+    mxm_business_calendar:
+        MXM business calendar used to resolve session labels to
+        session_ids and to supply the calendar_id used by daily_mark.
+
+    root:
+        Optional MXM root used by the market-data read surface.
+
+    ref_data_api:
+        Reference-data API used to resolve contract_id -> product_id.
+        If omitted, a default RefDataAPI() instance is constructed.
+
+    Notes
+    -----
+    This base class loads daily_mark product-by-product on first use and
+    caches each product's price lookup in memory.
+    """
+
+    mxm_business_calendar: MXMBusinessCalendar
+    root: Path | None = None
+    ref_data_api: RefDataAPI = field(default_factory=RefDataAPI)
+    _cache: dict[str, _ProductDailyMarkPriceLookup] = field(
+        default_factory=_empty_daily_mark_product_lookup_cache,
+        init=False,
+        repr=False,
+    )
+
+    def _get_price_for_session(
+        self,
+        *,
+        contract_id: str,
+        session: np.datetime64,
+    ) -> float:
+        """
+        Resolve a daily_mark price for a contract for a given session.
+
+        Semantics
+        ---------
+        The input `session` is a V1 session label (`np.datetime64[D]`).
+        It is converted to the MXM business-session identity used by
+        daily_mark:
+
+            session label -> session_id
+
+        Raises
+        ------
+        ValueError
+            If the contract cannot be resolved, the relevant product
+            cannot be loaded, the session label is not present in the
+            configured business calendar, or no price exists for the
+            given contract/session key.
+        """
+        contract = self.ref_data_api.get_contract_by_id(contract_id)
+        if contract is None:
+            raise ValueError(
+                f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
+            )
+
+        product_id = contract.product_id
+        session_day = coerce_np_day(session)
+        session_id = self.mxm_business_calendar.session_id_from_label(session_day)
+
+        lookup = self._get_or_load_product_lookup(product_id)
+        return lookup.get_price(contract_id=contract_id, session_id=session_id)
+
+    def _get_or_load_product_lookup(
+        self,
+        product_id: str,
+    ) -> _ProductDailyMarkPriceLookup:
+        """
+        Return cached per-product price lookup, loading it on first use.
+        """
+        if product_id in self._cache:
+            return self._cache[product_id]
+
+        lookup = self._load_product_lookup(product_id)
+        self._cache[product_id] = lookup
+        return lookup
+
+    def _load_product_lookup(
+        self,
+        product_id: str,
+    ) -> _ProductDailyMarkPriceLookup:
+        """
+        Load and normalise daily_mark prices for one product.
+        """
+        df = read_daily_mark_product(
+            calendar_id=self.mxm_business_calendar.calendar_id,
+            product_id=product_id,
+            root=self.root,
+        )
+
+        if df.empty:
+            raise ValueError(
+                "No daily_mark rows available for "
+                f"calendar_id={self.mxm_business_calendar.calendar_id!r}, "
+                f"product_id={product_id!r}."
+            )
+
+        required_columns = {"contract_id", "session_id", "mark_px", "is_markable"}
+        missing_columns = required_columns.difference(df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"daily_mark for calendar_id={self.mxm_business_calendar.calendar_id!r}, "
+                f"product_id={product_id!r} is missing required columns "
+                f"{sorted(missing_columns)!r}."
+            )
+
+        out = df.loc[:, ["contract_id", "session_id", "mark_px", "is_markable"]].copy()
+
+        if out["contract_id"].isna().any():
+            raise ValueError(
+                f"daily_mark for product_id={product_id!r} contains null contract_id."
+            )
+
+        if out["session_id"].isna().any():
+            raise ValueError(
+                f"daily_mark for product_id={product_id!r} contains null session_id."
+            )
+
+        if not pd.api.types.is_integer_dtype(out["session_id"]):
+            raise TypeError(
+                f"daily_mark for product_id={product_id!r} session_id must be integer-typed."
+            )
+
+        if not pd.api.types.is_bool_dtype(out["is_markable"]):
+            raise TypeError(
+                f"daily_mark for product_id={product_id!r} is_markable must be boolean-typed."
+            )
+
+        out = out.loc[out["is_markable"]].copy()
+
+        if out.empty:
+            raise ValueError(
+                "daily_mark for "
+                f"calendar_id={self.mxm_business_calendar.calendar_id!r}, "
+                f"product_id={product_id!r} has no markable rows."
+            )
+
+        if out["mark_px"].isna().any():
+            raise ValueError(
+                f"daily_mark for product_id={product_id!r} contains null mark_px in markable rows."
+            )
+
+        if not pd.api.types.is_numeric_dtype(out["mark_px"]):
+            raise TypeError(
+                f"daily_mark for product_id={product_id!r} has non-numeric values in mark_px."
+            )
+
+        prices = (
+            out.set_index(["contract_id", "session_id"])["mark_px"]
+            .astype("float64")
+            .sort_index()
+        )
+
+        return _ProductDailyMarkPriceLookup(
+            product_id=product_id,
+            calendar_id=self.mxm_business_calendar.calendar_id,
+            prices=prices,
+        )
+
+
+@dataclass(slots=True)
+class DailyMarkExecutionPriceAccessor(
+    _DailyMarkPriceAccessorBase, ExecutionPriceAccessor
+):
+    """
+    Lazy-loading execution-price accessor backed by daily_mark.
+
+    In current MXM V1 MVP semantics, this accessor resolves the execution
+    reference price for a contract for a given trading session from the
+    authoritative daily_mark surface.
+    """
+
+    def get_execution_price(
+        self,
+        contract_id: str,
+        session: np.datetime64,
+    ) -> float:
+        try:
+            return self._get_price_for_session(
+                contract_id=contract_id,
+                session=session,
+            )
+        except MissingDailyMarkPriceError as exc:
+            raise ValueError(
+                "Missing execution price for "
+                f"contract_id={contract_id!r}, "
+                f"session={session!r}, "
+                f"calendar_id={self.mxm_business_calendar.calendar_id!r}."
+            ) from exc
+
+
+@dataclass(slots=True)
+class DailyMarkPriceAccessor(_DailyMarkPriceAccessorBase, MarkPriceAccessor):
+    """
+    Lazy-loading mark-price accessor backed by daily_mark.
+
+    This accessor is intended for mark-to-market valuation and PnL
+    construction against the authoritative MXM business-session mark
+    surface.
+    """
+
+    def get_mark_price(
+        self,
+        contract_id: str,
+        session: np.datetime64,
+    ) -> float:
+        try:
+            return self._get_price_for_session(
+                contract_id=contract_id,
+                session=session,
+            )
+        except MissingDailyMarkPriceError as exc:
+            raise ValueError(
+                "Missing mark price for "
+                f"contract_id={contract_id!r}, "
+                f"session={session!r}, "
+                f"calendar_id={self.mxm_business_calendar.calendar_id!r}."
             ) from exc
