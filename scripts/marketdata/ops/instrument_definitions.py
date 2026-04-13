@@ -10,11 +10,11 @@ import databento as db
 from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.v1.marketdata.datasets.instrument_definitions.ingest import (
+    ingest_instrument_definitions,
+)
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
-)
-from mxm.v1.marketdata.orchestrators.instrument_definitions import (
-    ingest_instrument_definitions,
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend

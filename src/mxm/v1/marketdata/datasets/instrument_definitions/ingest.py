@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
+import databento as db
 import pandas as pd
 
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
@@ -16,13 +17,6 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
-from mxm.v1.utils.time_utils import (
-    fmt_run_ts,
-    parse_duration,
-    parse_ts,
-    to_utc_ts,
-    utc_now_run_ts,
-)
 from mxm.v1.marketdata.types import InstrumentDefinitionsClient
 from mxm.v1.marketdata.vendors.databento.cost import (
     enforce_cost_cap,
@@ -34,6 +28,13 @@ from mxm.v1.marketdata.vendors.databento.dataset_range import (
     get_dataset_range,
 )
 from mxm.v1.marketdata.vendors.databento.pull import pull_instrument_definitions
+from mxm.v1.utils.time_utils import (
+    fmt_run_ts,
+    parse_duration,
+    parse_ts,
+    to_utc_ts,
+    utc_now_run_ts,
+)
 
 Mode = Literal["bootstrap", "update"]
 
@@ -49,8 +50,24 @@ class WindowRun:
     watermark_after: str | None
 
 
+def _empty_window_runs() -> list[WindowRun]:
+    return []
+
+
+def _empty_counts() -> dict[str, object]:
+    return {}
+
+
 @dataclass()
-class InstrumentDefinitionsOrchestratorReport:
+class InstrumentDefinitionsIngestReport:
+    """
+    Report returned by `ingest_instrument_definitions`.
+
+    This includes:
+    - ingest-native control-plane details for the definition feed
+    - a lightweight job-reporting surface used by higher-level compound jobs
+    """
+
     product_id: str
     feed: str
     dataset: str
@@ -71,7 +88,7 @@ class InstrumentDefinitionsOrchestratorReport:
     requested_end_raw: str | None = None
     dataset_range_end: str | None = None
     dataset_range_start: str | None = None
-    windows: list[WindowRun] = field(default_factory=list)
+    windows: list[WindowRun] = field(default_factory=_empty_window_runs)
 
     cost_cap_usd: float = 0.0
     cost_usd_total: float = 0.0
@@ -83,7 +100,7 @@ class InstrumentDefinitionsOrchestratorReport:
     cost_used_usd: float = 0.0
     stage_status: str = ""
     stop_reason: str = ""
-    counts: dict[str, object] = field(default_factory=dict)
+    counts: dict[str, object] = field(default_factory=_empty_counts)
 
 
 def _is_vendor_final(
@@ -143,7 +160,7 @@ def ingest_instrument_definitions(
     max_windows: int = 3,
     reset: bool = False,
     end: str | None = None,
-) -> InstrumentDefinitionsOrchestratorReport:
+) -> InstrumentDefinitionsIngestReport:
     """
     Orchestrate ingestion of instrument definition events for a single product-root feed.
 
@@ -196,7 +213,7 @@ def ingest_instrument_definitions(
     requested_end = clamp_end(end=requested_end_raw, available=avail)
     remaining_cap = float(cost_cap_usd)
 
-    report = InstrumentDefinitionsOrchestratorReport(
+    report = InstrumentDefinitionsIngestReport(
         product_id=product_id,
         feed=feed,
         dataset=root.dataset,
@@ -250,9 +267,10 @@ def ingest_instrument_definitions(
         print(
             f"[defs][window {report.windows_attempted + 1}] start={start} end={end_i}"
         )
+        db_client = cast(db.Historical, client)
         # Estimate and gate cost
         est = estimate_cost_instrument_definition(
-            client=client,
+            client=db_client,
             dataset=root.dataset,
             symbols=root.parent,
             stype_in=root.stype_in,
@@ -359,7 +377,7 @@ def ingest_instrument_definitions(
         f"stopped_reason={report.stopped_reason}"
     )
 
-    # --- meta-orchestrator surface  ---
+    # --- job reporting surface  ---
     report.cost_used_usd = float(report.cost_usd_total)
     report.stop_reason = report.stopped_reason
     events_inserted_total = int(sum(w.events_inserted for w in report.windows))

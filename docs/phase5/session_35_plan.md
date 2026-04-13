@@ -1,208 +1,303 @@
 # session_35_plan.md
 
-## Session 35 — Articulating the Foundations: What It Takes to Produce a 15-Year Synthetic Asset Backtest
-
-## Status
-
-Planned
+## Session 35 — Establishing the MXM Marketdata Runtime System
 
 ## Summary
 
-Session 34 established a major architectural milestone:
+Session 35 transitions the marketdata subsystem from a collection of runnable scripts into a **living runtime system**.
 
-> A fully functioning end-to-end pipeline producing a stable 15-year PnL series for synthetic assets, based on:
->
-> - an internally defined business calendar
-> - a curated, continuous mark-to-market surface (`daily_mark`)
-> - explicit execution and PnL construction logic
+The goal is not to extend data logic, but to:
 
-Session 35 focuses on:
+- define a **clean execution model**
+- establish **stable job boundaries**
+- introduce a **canonical invocation layer**
+- and deploy a **scheduled runtime on monolith**
 
-> **Articulating this achievement as a conceptual system**, through a formal MXM article.
+This session formalizes the separation between:
 
-This is not documentation of implementation details.
+- **domain orchestration (Python)**
+- **invocation (CLI / run functions)**
+- **deployment/runtime (scheduler)**
 
-It is:
+## Core Objective
 
-> A precise explanation of what it actually takes to construct a valid long-horizon backtest.
+> Establish a clean execution model (`run` functions + CLI adapters + scheduler) and use it to run the full marketdata pipeline as a continuously operating system.
 
-## Motivation
+## Architectural Model
 
-The common industry narrative assumes:
+### Layer 1 — Domain (Canonical)
 
-- time is given
-- prices are complete
-- execution is implicit
+- Dataset orchestrators
+- Product/meta orchestrators
+- Dataset semantics and policies
+- Attempt ledgers
+- Structured reports and health logic
 
-This leads to:
+This layer is the **single source of truth**.
 
-> backtests that appear well-defined but are in fact structurally underspecified.
+### Layer 2 — Invocation (Adapters)
 
-The work of Session 33–34 demonstrates that:
+- `ops.<dataset>.run(...)` functions
+- CLI scripts (thin wrappers)
+- Future `mxm` CLI surface
 
-- these assumptions do not hold
-- and must be replaced with explicit system definitions
+This layer provides **stable entrypoints** into the domain logic.
 
-The article serves to:
+### Layer 3 — Deployment / Runtime
 
-- crystallise this insight
-- communicate the MXM approach
-- establish conceptual clarity for all subsequent system components
+- Scheduler (native; Dagster optional later)
+- Job sequencing
+- Scheduling and retries
+- Operational logging
 
-## Objective
+This layer keeps the system **alive over time**.
 
-Produce a first publication-quality article that:
+## Key Design Rule
 
-1. Uses a **15-year synthetic asset PnL plot** as anchor
-2. Demonstrates that such a plot is not trivial
-3. Explains the **conceptual requirements** for making it well-defined
-4. Introduces the MXM approach:
-   - business calendar
-   - mark surface
-   - execution separation
-5. Frames backtesting as a problem of:
-   - defining time
-   - defining valuation
-   - defining execution
+> Domain orchestration lives in Python.  
+> The scheduler composes only coarse job entrypoints.
 
-## Non-Goals
+## Execution Unit
 
-This session explicitly does **not** aim to:
+The canonical executable unit is:
 
-- explain code or implementation details
-- document dataset schemas
-- provide a beginner tutorial on backtesting
-- optimise performance or runtime
+```
+ops.<dataset>.run(...)
+```
 
-Those concerns are deferred to Session 36.
+Each such function:
 
-## Core Thesis (to refine during session)
+- encapsulates dataset orchestration
+- owns its attempt ledger
+- returns a structured report
+- is callable from:
+  - CLI
+  - scheduler
+  - Python
 
-> A long-term backtest is not primarily a statistical exercise, but an exercise in defining time, valuation, and execution consistently.
+## Scope of Session 35
 
-This thesis will be tested and sharpened during writing.
+### In Scope
 
-## Article Structure (Initial Draft)
+- Introduce `run(...)` functions for dataset ops
+- Refactor scripts into CLI adapters
+- Add `daily_mark` ops entrypoint
+- Define marketdata runtime job chain
+- Implement initial scheduling on `monolith`
+- Execute first full end-to-end runtime
 
-### 1. Opening — The Illusion of Simplicity
+### Out of Scope
 
-- Introduce the idea of a 15-year cumulative PnL plot
-- Highlight how trivial it appears
-- State that this perception is misleading
+- Containerisation
+- Advanced parallelisation across products
+- Distributed execution
+- Full DAG tooling integration (Dagster optional, not required)
+- Major refactors of dataset internals
 
-### 2. The Naive Backtest
+## Work Plan
 
-- Describe the implicit pipeline:
-  - vendor data → returns → cumulative PnL
-- Identify hidden assumptions
+### 1. Introduce `run(...)` Functions
 
-### 3. Where the Naive Model Breaks
+#### Objective
 
-#### 3.1 Time is not given
+Establish canonical callable entrypoints for each dataset.
 
-- calendars differ across venues
-- missing days exist
-- “what is a session?” is undefined
+#### Tasks
 
-#### 3.2 Prices are not continuous
+For each dataset:
 
-- missing settlements
-- inconsistent marks
-- vendor gaps
+- `statistics_1d`
+- `daily_stats`
+- `daily_mark` (new)
+- (optionally) `ohlcv_1d`
+- `instrument_definitions`
+- `instrument_definition_mappings`
 
-#### 3.3 Execution is implicit
+Implement:
 
-- assumed fills
-- no explicit execution model
+```
+mxm.v1.marketdata.ops.<dataset>.run(...)
+```
 
-### 4. Consequence
+#### Requirements
 
-- backtest is not wrong, but undefined
-- results depend on hidden assumptions
+- Calls existing orchestrator logic
+- Produces structured report
+- Owns attempt ledger
+- Idempotent behavior
 
-### 5. The MXM Approach
+### 2. Add `daily_mark` Ops Entry Point
 
-#### 5.1 Business Calendar
+#### Objective
 
-- defines decision-time domain
-- independent of trading venues
+Promote `daily_mark` to a first-class runtime dataset.
 
-#### 5.2 Mark Surface
+#### Tasks
 
-- continuous valuation
-- explicit gap handling
-- deterministic construction
+- Create `ops.daily_mark.run(...)`
+- Replace current smoke script with proper ops entrypoint
+- Ensure:
+  - full-history build support
+  - incremental update support
+  - correct mark policy application
 
-#### 5.3 Separation of Concerns
+#### Output
 
-- time vs valuation vs execution
-- explicit interfaces between layers
+- `daily_mark` becomes part of runtime job chain
 
-### 6. Result
+### 3. Refactor Scripts into CLI Adapters
 
-- present the 15-year PnL plot
-- optionally include:
-  - outright synthetic asset
-  - term-structure spread
+#### Objective
 
-Interpretation minimal.
+Turn scripts into thin invocation layers.
 
-### 7. Implications
+#### Tasks
 
-- system is now internally coherent
-- enables:
-  - signals
-  - risk models
-  - portfolio construction
+For each script in:
 
-### 8. Closing
+```
+scripts/marketdata/ops/
+```
 
-- restate thesis
-- emphasise that:
-  - the difficulty lies in defining the system, not computing the result
+Refactor to:
 
-## Inputs Required
+- parse arguments
+- call corresponding `run(...)`
+- print/log report
 
-- cumulative PnL plots (outright + spread)
-- basic metadata:
-  - asset_id
-  - date range
-  - currency
+#### Rule
 
-No additional data preparation required.
+No domain logic remains in scripts.
+
+### 4. Define Marketdata Job Chain
+
+#### Objective
+
+Make runtime sequencing explicit.
+
+#### Logical per-product chain
+
+1. instrument_definitions (idempotent update)
+2. instrument_definition_mappings (idempotent update)
+3. ohlcv_1d (optional)
+4. statistics_1d (vendor ingestion)
+5. daily_stats (derived)
+6. daily_mark (authoritative marks)
+7. inspect / validate
+
+#### Note
+
+Cadence distinction:
+
+- Core daily:
+  - statistics_1d
+  - daily_stats
+  - daily_mark
+
+- Maintenance:
+  - instrument_definitions
+  - mappings
+
+Initial implementation may run all sequentially.
+
+### 5. Establish Runtime Scheduling
+
+#### Objective
+
+Run the system continuously on `monolith`.
+
+#### Initial approach
+
+- Native scheduling (e.g. simple loop, cron, or systemd)
+- Sequential execution of job chain
+
+#### Requirements
+
+- Clear job ordering
+- Logging of each job invocation
+- Failure visibility
+- Manual rerun capability
+
+#### Optional (not required)
+
+- Introduce Dagster as thin orchestration layer
+
+### 6. First End-to-End Execution
+
+#### Objective
+
+Validate the runtime system.
+
+#### Tasks
+
+- Run full job chain for one product
+- Verify:
+  - datasets updated
+  - no missing coverage
+  - daily_mark produced correctly
+  - reports generated
+
+#### Then
+
+- Expand to multiple products (sequentially)
+
+### 7. Inspection and Health Surface
+
+#### Objective
+
+Ensure observability.
+
+#### Tasks
+
+- Use `marketdata_inspect.py` as base
+- Confirm:
+  - dataset completeness checks
+  - missing data detection
+  - reporting surface usable
+
+## Parallelisation (Deferred)
+
+- Future work: parallel execution across products
+- Constraint: filesystem + SQLite contention
+- Not required for Session 35 completion
+
+## Containerisation Policy
+
+- Not part of Session 35
+- System must be container-ready
+- Deployment remains native on `monolith`
 
 ## Deliverables
 
-- first full draft in Markdown (mxm-core/docs/writing/)
-- publication-ready `.qmd` version for Ghost pipeline
-- associated plot assets saved in repository
+### Code
 
-## Open Questions
+- `ops.<dataset>.run(...)` functions
+- Refactored CLI scripts
+- `daily_mark` ops entrypoint
 
-To be resolved during writing:
+### Runtime
 
-1. What is the exact framing of the central claim?
-2. How strongly should the article critique existing practices?
-3. How much system detail is necessary to establish credibility?
-4. Should a diagram be included to illustrate:
-   - vendor reality vs constructed reality?
+- Defined job chain
+- Working scheduler (native)
 
-## Success Criteria
+### Execution
 
-Session 35 is successful if:
+- Successful end-to-end run
+- Updated datasets
+- Generated reports
 
-- the article clearly explains why a 15-year backtest is non-trivial
-- the MXM approach is introduced at a conceptual level
-- the piece stands on its own without requiring code inspection
-- the result feels aligned with MXM writing style:
-  - precise
-  - minimal
-  - structurally clear
+## Acceptance Criteria
 
-## Next Session
+Session 35 is complete when:
 
-Session 36:
+1. Each dataset has a working `run(...)` entrypoint
+2. CLI scripts call only `run(...)`
+3. `daily_mark` is integrated into runtime
+4. A scheduled or repeatable job chain exists
+5. Full pipeline runs end-to-end without manual stitching
+6. Outputs are inspectable and consistent
 
-- performance profiling and optimisation of:
-  - synthetic asset construction
-  - backtesting pipeline
+## One-Sentence Definition
+
+> Session 35 establishes a clean execution model and uses it to make the marketdata subsystem continuously operational.
+
