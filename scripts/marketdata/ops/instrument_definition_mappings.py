@@ -26,14 +26,14 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from mxm.v1.marketdata.datasets.instrument_definition_mappings.build import (
+    rebuild_instrument_definition_mappings,
+)
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
-)
-from mxm.v1.marketdata.orchestrators.instrument_definition_mappings import (
-    rebuild_instrument_definition_mappings,
 )
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend

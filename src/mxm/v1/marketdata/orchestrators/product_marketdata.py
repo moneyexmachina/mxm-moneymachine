@@ -21,6 +21,9 @@ from enum import Enum
 from typing import Any, Literal
 
 from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
+from mxm.v1.marketdata.datasets.instrument_definition_mappings.build import (
+    rebuild_instrument_definition_mappings,
+)
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
@@ -33,9 +36,6 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
 from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
 from mxm.v1.marketdata.orchestrators.daily_stats import derive_daily_stats_for_product
-from mxm.v1.marketdata.orchestrators.instrument_definition_mappings import (
-    rebuild_instrument_definition_mappings,
-)
 from mxm.v1.marketdata.orchestrators.ohlcv_1d import ingest_ohlcv_1d_for_product
 from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
     ProductMarketdataAttemptsStore,

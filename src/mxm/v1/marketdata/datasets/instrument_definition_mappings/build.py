@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal, cast
 
 from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm_refdata.models.periods import Period  # type: ignore
 
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     BuildResult,
@@ -44,8 +45,16 @@ class GateCheck:
     detail: str
 
 
+def _empty_gates() -> list[GateCheck]:
+    return []
+
+
+def _empty_counts() -> dict[str, object]:
+    return {}
+
+
 @dataclass()
-class InstrumentDefinitionMappingsOrchestratorReport:
+class InstrumentDefinitionMappingsBuildReport:
     product_id: str
     mode: Mode
     ts_utc: str
@@ -61,7 +70,7 @@ class InstrumentDefinitionMappingsOrchestratorReport:
     reset_result: ResetProductResult | None
 
     # Gates (the orchestrator refuses to mutate other datasets)
-    gates: list[GateCheck] = field(default_factory=list)
+    gates: list[GateCheck] = field(default_factory=_empty_gates)
     definitions_watermark: str | None = None
     # Contract universe stats
     refdata_contracts_total: int = 0
@@ -78,7 +87,7 @@ class InstrumentDefinitionMappingsOrchestratorReport:
     stage_status: str = ""
     stop_reason: str = ""
     mapping_ready_for_ohlcv: bool = False
-    counts: dict[str, Any] = field(default_factory=dict)
+    counts: dict[str, object] = field(default_factory=_empty_counts)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +102,7 @@ def rebuild_instrument_definition_mappings(
     product_id: str,
     mode: Mode,
     reset: bool = False,
-) -> InstrumentDefinitionMappingsOrchestratorReport:
+) -> InstrumentDefinitionMappingsBuildReport:
     """
     Orchestrate instrument_definition_mappings rebuild/update for a single product_id.
 
@@ -120,7 +129,7 @@ def rebuild_instrument_definition_mappings(
         schema="definition",
     ).key()
 
-    report = InstrumentDefinitionMappingsOrchestratorReport(
+    report = InstrumentDefinitionMappingsBuildReport(
         product_id=product_id,
         mode=mode,
         ts_utc=utc_now_run_ts(),
@@ -257,8 +266,8 @@ def rebuild_instrument_definition_mappings(
 
 
 def _finalize_report(
-    report: InstrumentDefinitionMappingsOrchestratorReport,
-) -> InstrumentDefinitionMappingsOrchestratorReport:
+    report: InstrumentDefinitionMappingsBuildReport,
+) -> InstrumentDefinitionMappingsBuildReport:
     report.cost_used_usd = 0.0
     report.stop_reason = report.stopped_reason
     report.mapping_ready_for_ohlcv = report.stopped_reason == "ok"
@@ -285,7 +294,7 @@ def _finalize_report(
     return report
 
 
-def _print_gate_fail(report: InstrumentDefinitionMappingsOrchestratorReport) -> None:
+def _print_gate_fail(report: InstrumentDefinitionMappingsBuildReport) -> None:
     # Keep a stable operator-readable gate failure print.
     fails = [g for g in report.gates if not g.ok]
     if not fails:
@@ -320,6 +329,7 @@ def _load_refdata_maturities(*, product_id: str) -> list[tuple[int, int]]:
         if p is None:
             missing.append(str(c.period_id))
             continue
+        p = cast(Period, p)
         pairs.add((int(p.first_date.year), int(p.first_date.month)))
 
     if missing:

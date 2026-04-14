@@ -1,287 +1,390 @@
-# Session 33 — Performance Baseline and Profiling
+# session_36_plan.md
 
-## Objective
+## Session 36 — First Deployed Runtime: 5 Products × 2 Jobs DAG
 
-Establish a reliable performance baseline for the full synthetic-asset backtest
-pipeline over a realistic historical range, and identify the dominant cost
-centres for later optimisation.
+### Summary
 
-This session is about **measurement and understanding**, not optimisation.
+Session 35 resolved the execution semantics of MXM V1:
 
----
+- dataset logic now lives in dataset-local modules
+- named jobs exist above the dataset logic
+- a unified `mxm` CLI exists as the canonical invocation surface
+- the distinction between jobs, CLI, and orchestration is now clear
 
-## Context
+Session 36 moves to the next layer:
 
-Session 31 repaired the broken upstream marketdata surface and restored the full
-end-to-end pipeline:
+> **define and implement the first real deployed runtime for MXM V1**
 
-    statistics_1d → daily_stats → backtest → pnl → plot
+The scope is intentionally minimal but operationally meaningful:
 
-The system is now functionally correct and deterministic on the smoke range.
-That makes this the right moment to test runtime behaviour on a realistic full
-history.
+- 5 products
+- 2 atomic jobs per product
+- sequencing within each product
+- parallelism across products
+- deployed on `monolith`
+- producing logs, outputs, and run status
 
----
+This is the first runtime graph that turns MXM V1 from a manually invoked toolset into a **living system**.
 
-## Core Question
+## Core Objective
 
-The purpose of Session 33 is to answer:
+> Build and validate the first deployed runtime for MXM V1 using a 5-product × 2-job DAG, and use it to settle the deployment mechanism for V1.
 
-> How slow is the full pipeline over a realistic history, and where exactly is
-> the time going?
+## Runtime Scope
 
-We want a clear answer before any optimisation work begins.
+### Products
 
----
+A current universe of 5 products.
 
-## Starting Assumption
+### Jobs per product
 
-Our starting assumption should be:
+1. `instrument-definitions update`
+2. `instrument-definition-mappings rebuild`
 
-> The system is probably not yet "super fast", and the dominant cost is likely
-> to sit in Python-level computation or repeated DataFrame work rather than in
-> plotting.
+### Execution topology
 
-More concretely, the most plausible bottlenecks are:
+For each product:
 
-1. backtest session loop / per-session computation
-2. repeated price access / lookup work
-3. PnL construction over session and contract results
-4. DataFrame slicing, copying, and aggregation overhead
+```text
+instrument-definitions update
+    ↓
+instrument-definition-mappings rebuild
+```
 
-Less likely, but still possible:
+Across products:
 
-5. local parquet read performance
-6. plotting / output formatting overhead
+- products are independent
+- product lanes may be run in parallel
+- sequencing must hold within each lane
 
-This is only a hypothesis. The session is designed to test it.
+This yields:
 
----
+- 10 total job executions
+- 5 parallel lanes
+- 2 sequential jobs per lane
 
-## Test Scope
+## Why This Scope Is Correct
 
-We define the pipeline under measurement as:
+This runtime slice is rich enough to answer the important questions without dragging in the full marketdata stack.
 
-1. daily_stats access
-2. backtest simulation
-3. PnL construction
-4. output / plotting
+It already includes:
 
-The initial target workload should be:
+- a real vendor-facing job (`instrument_definitions`)
+- a downstream derived job (`instrument_definition_mappings`)
+- an explicit dependency edge
+- shared storage
+- meaningful opportunities for parallelism
+- vendor limits and operational concerns
 
-- asset:
-  
-      cme_emini_snp500_futures_cont_hmuz1_wr_lr_3_1
+It is therefore sufficient to decide:
 
-- price field:
-  
-      settle_px
+- whether MXM V1 should use `mxm-pipeline`
+- how deployment should actually work
+- how concurrency and retries should be handled
+- how runtime reporting should be captured
 
-- date range:
-  
-      2010-07-01 → 2025-12-31
+## Main Questions for Session 36
 
-This range is long enough to expose any genuine performance problem.
+### 1. Deployment Mechanism
 
----
+We must decide whether the first deployed runtime should be implemented via:
 
-## Execution Conditions
+#### Option A — direct Python runtime runner
+A custom deployment runner inside MXM V1.
 
-To keep the measurement interpretable, we should use:
+#### Option B — `mxm-pipeline`
+Reuse the existing task/pipeline framework, likely already close to what is needed.
 
-- single-threaded baseline run
-- warm local storage
-- no forced resets
-- no ingestion
-- same code path as the normal smoke script, only with the wider date range
+#### Option C — thin host-level scheduling only
+Use shell/systemd/cron chains without an explicit runtime graph framework.
 
-This gives us a clean first operational baseline.
+The working assumption is:
 
----
+> `mxm-pipeline` is likely the most promising candidate, but must be assessed explicitly against current Session 36 needs.
 
-## Measurement Strategy
+### 2. Parallelism
 
-## Phase 1 — Coarse Top-Level Timing
+We want parallelism across products.
 
-First, instrument the major pipeline phases with explicit wall-clock timing via
-`time.perf_counter()`.
+However, we must consider:
 
-At minimum, time:
+- SQLite concurrency
+- file write contention
+- Databento request limits
+- max concurrent streaming requests
+- whether back-pressure / worker-count control is needed
 
-- total runtime
-- backtest runtime
-- pnl construction runtime
-- plotting / output runtime
+We therefore need a clear initial policy for:
 
-If daily_stats loading is a separate visible phase, time that too.
+- concurrency width
+- failure isolation
+- retry handling
+- resource limits
 
-Example shape:
+### 3. Runtime Reporting
 
-~~~python
-t0 = time.perf_counter()
-# whole run
-...
-print(f"[timing] total={time.perf_counter() - t0:.3f}s")
-~~~
+The runtime must produce operationally useful outputs.
 
-Goal:
+At minimum:
 
-> determine which major phase dominates total runtime
+- per-task success/failure
+- logs
+- timing
+- overall run summary
 
-If one phase clearly dominates, that will guide the profiler interpretation.
+This is operational reporting, not semantic provenance.
 
----
+## Architectural Assumptions
 
-## Phase 2 — Backtest Internal Timing
+### Settled from Session 35
 
-Inside the backtest path, add one further layer of timing if needed:
+- jobs are the primary executable unit
+- CLI is the canonical invocation surface
+- orchestration is external to jobs
+- semantic provenance is future work
+- attempts/logs are operational provenance
 
-- total session-loop runtime
-- optional timing of price-access path
-- optional timing of holdings / execution update path
+### Applied in Session 36
 
-This should remain light-touch. The goal is not to fully instrument every
-function yet, only to split the dominant backtest region into a few meaningful
-subregions.
+The runtime must invoke the settled jobs/CLI surface, not bypass it.
 
-Goal:
+This means deployment should be built on top of:
 
-> determine whether the main cost is data access, loop mechanics, or contract/session computation
+```text
+mxm marketdata instrument-definitions update ...
+mxm marketdata instrument-definition-mappings rebuild ...
+```
 
----
+or the equivalent direct job call surface, if we explicitly decide to use Python invocation instead of CLI invocation.
 
-## Phase 3 — Deterministic Profiler Run
+This choice must be made consciously.
 
-Once coarse timing is in place, run a full deterministic profiler.
+## Work Plan
 
-Recommended first tool:
+### 1. Decide the Deployment Mechanism
 
-- `cProfile`
+#### Goal
 
-Reason:
+Determine how the runtime graph should actually be executed.
 
-- built-in
-- stable
-- low setup friction
-- good enough for first bottleneck identification
+#### Tasks
 
-Example command shape:
+- inspect current `mxm-pipeline` capabilities
+- compare it against the exact needs of:
+  - 5 product lanes
+  - 2-job sequence
+  - controlled parallelism
+  - run reporting
+- decide whether to:
+  - use `mxm-pipeline`
+  - build a thin custom runtime runner
+  - use an even thinner host-level chain
 
-~~~bash
-python -m cProfile -o dev_perf/session_33_full_backtest.prof \
-  scripts/pnl/smoke_synthetic_asset_pnl.py \
-  --asset-id cme_emini_snp500_futures_cont_hmuz1_wr_lr_3_1 \
-  --start 2010-07-01 \
-  --end 2025-12-31 \
-  --price-field settle_px
-~~~
+#### Success criterion
 
-And then inspect with:
+A clear decision:
 
-~~~python
-import pstats
+> what execution framework is being used for the first deployed runtime
 
-p = pstats.Stats("dev_perf/session_33_full_backtest.prof")
-p.sort_stats("cumulative").print_stats(50)
-~~~
+### 2. Define the Runtime Graph Explicitly
 
-Focus on:
+#### Goal
 
-- highest cumulative time
-- highest total call counts
-- repeated inner functions
-- expensive DataFrame utilities
-- price access or PnL-construction hotspots
+Formalize the first runtime DAG.
 
-Goal:
+#### Graph
 
-> identify the concrete hot functions, not just hot phases
+For each product `P`:
 
----
+```text
+update_instrument_definitions_for_product(P)
+    ↓
+rebuild_instrument_definition_mappings_for_product(P)
+```
 
-## Phase 4 — Escalation Only If Needed
+Across products:
 
-If `cProfile` identifies a clear hotspot, that is enough for Session 33.
+```text
+lane(P1) ∥ lane(P2) ∥ lane(P3) ∥ lane(P4) ∥ lane(P5)
+```
 
-Only if the result is ambiguous should we consider deeper tools such as:
+#### Deliverable
 
-- line-level profiling for one hot function
-- sampling profiler
-- allocation / copy inspection
+An explicit graph specification in code or runtime config.
 
-This is explicitly optional.
+### 3. Define Concurrency Policy
 
----
+#### Goal
 
-## Interpretation Rules
+Set a safe and sensible first parallelism policy.
 
-We should distinguish carefully between:
+#### Topics
 
-### Acceptable baseline
-A full run takes some time, but the dominant cost is obvious and not yet urgent.
+- maximum concurrent products
+- Databento stream concurrency
+- SQLite/file contention risk
+- whether product lanes are fully isolated enough
+- whether concurrency should initially be capped below 5
 
-### Borderline baseline
-A full run is slow enough to matter, but still operationally usable for current work.
+#### Likely initial policy
 
-### Unacceptable baseline
-A full run is clearly too slow for iteration, signalling that optimisation must become the next priority.
+- preserve sequential execution within each product
+- begin with limited cross-product concurrency
+- increase only after observing runtime behavior
 
-The session is successful once we can place the current system into one of these categories with evidence.
+#### Deliverable
 
----
+A written and implemented concurrency rule.
 
-## What We Expect to Learn
+### 4. Implement the First Runtime
 
-By the end of Session 33, we should know:
+#### Goal
 
-1. total runtime for a full realistic run
-2. time split by major pipeline phase
-3. dominant internal hotspot(s)
-4. whether performance work is urgent
-5. what the most likely high-leverage optimisation path is
+Create the actual executable runtime.
 
----
+#### Requirements
+
+- invokes the 5×2 graph
+- captures logs/status
+- records task outcomes
+- returns clear overall success/failure
+
+#### Possible surfaces
+
+- Python module
+- MXM runtime CLI command
+- `mxm-pipeline` graph
+- scheduler entrypoint
+
+#### Deliverable
+
+A first executable runtime command.
+
+### 5. Deploy on `monolith`
+
+#### Goal
+
+Run the runtime in the actual target environment.
+
+#### Tasks
+
+- install/configure entrypoint on `monolith`
+- verify `.venv` / CLI execution path
+- ensure secrets access works
+- ensure logs are written/readable
+- run end-to-end against real data
+
+#### Deliverable
+
+A real run on `monolith`.
+
+### 6. Define Logging and Run Output
+
+#### Goal
+
+Make the runtime inspectable.
+
+#### Minimum outputs
+
+- start/end time
+- per-task status
+- per-product lane status
+- overall status
+- stdout/stderr or structured logs
+
+#### Optional later
+
+- email notification
+- daily summary
+- richer run artifact
+
+#### Deliverable
+
+A clear run-reporting scheme for the deployed runtime.
+
+## Key Decision Criteria
+
+The chosen deployment mechanism should satisfy:
+
+### Correctness
+- job order preserved
+- dependencies respected
+
+### Operational clarity
+- failures visible
+- retries understandable
+- logs accessible
+
+### Simplicity
+- minimal moving parts
+- no unnecessary infrastructure burden
+
+### Extensibility
+- easy to extend from 2 jobs to full marketdata stack
+- easy to increase product universe later
 
 ## Non-Goals
 
-This session will not:
+Session 36 does **not** aim to:
 
-- optimise code
-- redesign architecture
-- introduce vectorisation
-- add parallelism
-- refactor the full backtest pipeline
+- fully formalize semantic event ledgers
+- solve general JSON representation policy
+- fully migrate all remaining dataset jobs
+- solve all concurrency for all future layers
+- deploy the complete marketdata stack
+- implement full email/alerting system
+- containerize MXM V1
 
-All of that comes later, and only after measurement.
+## Risks / Open Concerns
 
----
+### 1. `mxm-pipeline` fit
+It may already be suitable, but needs explicit validation.
+
+### 2. Shared storage contention
+Even simple cross-product parallelism may expose SQLite or filesystem issues.
+
+### 3. Vendor request limits
+Databento stream concurrency must be respected.
+
+### 4. False complexity
+There is a danger of overbuilding deployment infrastructure before the first runtime is proven.
 
 ## Success Criteria
 
-Session 33 is complete when we can answer all three questions:
+Session 36 is successful if:
 
-1. How long does the full realistic run take?
-2. Which phase dominates runtime?
-3. Which function(s) dominate within that phase?
+1. the deployment mechanism for MXM V1 is explicitly chosen
+2. the 5-product × 2-job runtime graph is implemented
+3. parallelism policy is explicitly defined
+4. the runtime runs successfully on `monolith`
+5. logs / run status are inspectable
+6. the path to extending the graph to the remaining marketdata jobs is clear
 
----
+## Extension Path After Session 36
 
-## Likely Follow-On
+Once the 5×2 runtime works, extension should be mechanical:
 
-Depending on results, Session 33 may focus on one of:
+Per product:
 
-- price-access performance
-- backtest loop optimisation
-- DataFrame copy / allocation reduction
-- PnL constructor optimisation
+```text
+instrument-definitions update
+    ↓
+instrument-definition-mappings rebuild
+    ↓
+ohlcv_1d update
+statistics_1d update
+    ↓        ↓
+daily_stats build
+    ↓
+daily_mark build
+```
 
-That decision should be evidence-driven.
+with:
 
----
+- additional parallelism opportunities by product
+- possible later parallelism by contract where sensible
+- explicit runtime control at the scheduler layer
 
-## Summary
+## One-Sentence Definition
 
-Session 31 restored correctness and control.
-
-Session 33 will establish the first real performance baseline for the full
-pipeline and identify the dominant bottleneck before any optimisation begins.
+> Session 36 establishes the first deployed MXM V1 runtime by implementing and running a 5-product × 2-job DAG on `monolith`, and uses that slice to settle the deployment mechanism for the system.
