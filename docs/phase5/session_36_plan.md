@@ -1,205 +1,128 @@
 # session_36_plan.md
 
-## Session 36 — First Deployed Runtime: 5 Products × 2 Jobs DAG
+## Session 36 — MXM Runtime & Execution Model (V1 Implementation)
 
-### Summary
+## Summary
 
-Session 35 resolved the execution semantics of MXM V1:
+Session 36 establishes the **first deployed runtime for MXM V1**, while simultaneously formalizing and implementing the **execution and reporting model** of the system.
 
-- dataset logic now lives in dataset-local modules
-- named jobs exist above the dataset logic
-- a unified `mxm` CLI exists as the canonical invocation surface
-- the distinction between jobs, CLI, and orchestration is now clear
+This session incorporates a key architectural refinement:
 
-Session 36 moves to the next layer:
+> **Tasks are the canonical executable unit. There is no separate jobs layer.**
 
-> **define and implement the first real deployed runtime for MXM V1**
+The execution model is now aligned with standard orchestration frameworks, while remaining **fully controlled and owned by MXM via `mxm-pipeline`**.
 
-The scope is intentionally minimal but operationally meaningful:
+The goal is to build a **minimal but complete vertical slice**:
 
-- 5 products
-- 2 atomic jobs per product
-- sequencing within each product
-- parallelism across products
-- deployed on `monolith`
-- producing logs, outputs, and run status
-
-This is the first runtime graph that turns MXM V1 from a manually invoked toolset into a **living system**.
+- execution model
+- runtime reporting
+- orchestration DAG
+- deployment on `monolith`
 
 ## Core Objective
 
-> Build and validate the first deployed runtime for MXM V1 using a 5-product × 2-job DAG, and use it to settle the deployment mechanism for V1.
+> Build and deploy the first MXM V1 runtime using a 5-product × 2-task DAG, while implementing the canonical execution model based on `FlowRun`, `TaskRun`, and `TaskAttempt`, with domain-level `SemanticEvent`s.
 
-## Runtime Scope
+## Final Execution Model (V1)
+
+```text
+FlowRun
+  TaskRun
+    TaskAttempt(s)
+    SemanticEvent(s)
+```
+
+### Interpretation
+
+- **FlowRun** → orchestration of a full runtime execution
+- **TaskRun** → orchestration-level scheduling and dependency resolution
+- **TaskAttempt** → actual execution attempt of a task
+- **SemanticEvent** → domain-level meaning emitted by tasks
+
+## Architectural Ownership
+
+### `mxm-pipeline` — Execution & Orchestration Substrate
+
+Owns:
+
+- `FlowSpec`, `TaskSpec`
+- `FlowRun`, `TaskRun`, `TaskAttempt`
+- execution runners (local, parallel, CLI)
+- DAG compilation and scheduling
+- runtime reporting and persistence
+- logging integration and correlation
+
+Defines:
+
+> the **grammar and runtime of execution**
+
+### `mxm-v1` — Domain Task Definitions
+
+Owns:
+
+- concrete `TaskSpec` instances
+- concrete `FlowSpec` definitions
+- config loading
+- dependency construction
+- domain logic
+- emission of `SemanticEvent`s
+
+Defines:
+
+> the **actual work performed by the system**
+
+### Dataset / Domain Layer — Semantic Meaning
+
+Owns:
+
+- `SemanticEvent` instances
+- dataset-local stores
+- domain-specific payloads and interpretations
+
+Defines:
+
+> what execution *means*
+
+## Key Architectural Decision
+
+### Tasks are the canonical executable unit
+
+- tasks replace the previous "job" abstraction
+- tasks must be executable:
+  - standalone (CLI / local)
+  - within flows
+- no duplication of execution semantics across surfaces
+
+### Design Rule
+
+```text
+Task = canonical executable
+Flow = composition of tasks
+```
+
+Standalone execution is equivalent to:
+
+```text
+FlowRun with a single TaskRun
+```
+
+## Runtime Scope (V1)
 
 ### Products
 
-A current universe of 5 products.
+5 products (current universe)
 
-### Jobs per product
+### Tasks per product
 
 1. `instrument-definitions update`
 2. `instrument-definition-mappings rebuild`
 
 ### Execution topology
 
-For each product:
-
 ```text
-instrument-definitions update
-    ↓
-instrument-definition-mappings rebuild
-```
-
-Across products:
-
-- products are independent
-- product lanes may be run in parallel
-- sequencing must hold within each lane
-
-This yields:
-
-- 10 total job executions
-- 5 parallel lanes
-- 2 sequential jobs per lane
-
-## Why This Scope Is Correct
-
-This runtime slice is rich enough to answer the important questions without dragging in the full marketdata stack.
-
-It already includes:
-
-- a real vendor-facing job (`instrument_definitions`)
-- a downstream derived job (`instrument_definition_mappings`)
-- an explicit dependency edge
-- shared storage
-- meaningful opportunities for parallelism
-- vendor limits and operational concerns
-
-It is therefore sufficient to decide:
-
-- whether MXM V1 should use `mxm-pipeline`
-- how deployment should actually work
-- how concurrency and retries should be handled
-- how runtime reporting should be captured
-
-## Main Questions for Session 36
-
-### 1. Deployment Mechanism
-
-We must decide whether the first deployed runtime should be implemented via:
-
-#### Option A — direct Python runtime runner
-A custom deployment runner inside MXM V1.
-
-#### Option B — `mxm-pipeline`
-Reuse the existing task/pipeline framework, likely already close to what is needed.
-
-#### Option C — thin host-level scheduling only
-Use shell/systemd/cron chains without an explicit runtime graph framework.
-
-The working assumption is:
-
-> `mxm-pipeline` is likely the most promising candidate, but must be assessed explicitly against current Session 36 needs.
-
-### 2. Parallelism
-
-We want parallelism across products.
-
-However, we must consider:
-
-- SQLite concurrency
-- file write contention
-- Databento request limits
-- max concurrent streaming requests
-- whether back-pressure / worker-count control is needed
-
-We therefore need a clear initial policy for:
-
-- concurrency width
-- failure isolation
-- retry handling
-- resource limits
-
-### 3. Runtime Reporting
-
-The runtime must produce operationally useful outputs.
-
-At minimum:
-
-- per-task success/failure
-- logs
-- timing
-- overall run summary
-
-This is operational reporting, not semantic provenance.
-
-## Architectural Assumptions
-
-### Settled from Session 35
-
-- jobs are the primary executable unit
-- CLI is the canonical invocation surface
-- orchestration is external to jobs
-- semantic provenance is future work
-- attempts/logs are operational provenance
-
-### Applied in Session 36
-
-The runtime must invoke the settled jobs/CLI surface, not bypass it.
-
-This means deployment should be built on top of:
-
-```text
-mxm marketdata instrument-definitions update ...
-mxm marketdata instrument-definition-mappings rebuild ...
-```
-
-or the equivalent direct job call surface, if we explicitly decide to use Python invocation instead of CLI invocation.
-
-This choice must be made consciously.
-
-## Work Plan
-
-### 1. Decide the Deployment Mechanism
-
-#### Goal
-
-Determine how the runtime graph should actually be executed.
-
-#### Tasks
-
-- inspect current `mxm-pipeline` capabilities
-- compare it against the exact needs of:
-  - 5 product lanes
-  - 2-job sequence
-  - controlled parallelism
-  - run reporting
-- decide whether to:
-  - use `mxm-pipeline`
-  - build a thin custom runtime runner
-  - use an even thinner host-level chain
-
-#### Success criterion
-
-A clear decision:
-
-> what execution framework is being used for the first deployed runtime
-
-### 2. Define the Runtime Graph Explicitly
-
-#### Goal
-
-Formalize the first runtime DAG.
-
-#### Graph
-
-For each product `P`:
-
-```text
-update_instrument_definitions_for_product(P)
-    ↓
-rebuild_instrument_definition_mappings_for_product(P)
+update
+  ↓
+rebuild
 ```
 
 Across products:
@@ -208,163 +131,232 @@ Across products:
 lane(P1) ∥ lane(P2) ∥ lane(P3) ∥ lane(P4) ∥ lane(P5)
 ```
 
-#### Deliverable
+### Result
 
-An explicit graph specification in code or runtime config.
+- 10 TaskRuns
+- 5 parallel lanes
+- 2 sequential steps per lane
 
-### 3. Define Concurrency Policy
+## Execution Model Responsibilities
 
-#### Goal
+### FlowRun
 
-Set a safe and sensible first parallelism policy.
-
-#### Topics
-
-- maximum concurrent products
-- Databento stream concurrency
-- SQLite/file contention risk
-- whether product lanes are fully isolated enough
-- whether concurrency should initially be capped below 5
-
-#### Likely initial policy
-
-- preserve sequential execution within each product
-- begin with limited cross-product concurrency
-- increase only after observing runtime behavior
-
-#### Deliverable
-
-A written and implemented concurrency rule.
-
-### 4. Implement the First Runtime
-
-#### Goal
-
-Create the actual executable runtime.
-
-#### Requirements
-
-- invokes the 5×2 graph
-- captures logs/status
-- records task outcomes
-- returns clear overall success/failure
-
-#### Possible surfaces
-
-- Python module
-- MXM runtime CLI command
-- `mxm-pipeline` graph
-- scheduler entrypoint
-
-#### Deliverable
-
-A first executable runtime command.
-
-### 5. Deploy on `monolith`
-
-#### Goal
-
-Run the runtime in the actual target environment.
-
-#### Tasks
-
-- install/configure entrypoint on `monolith`
-- verify `.venv` / CLI execution path
-- ensure secrets access works
-- ensure logs are written/readable
-- run end-to-end against real data
-
-#### Deliverable
-
-A real run on `monolith`.
-
-### 6. Define Logging and Run Output
-
-#### Goal
-
-Make the runtime inspectable.
-
-#### Minimum outputs
-
-- start/end time
-- per-task status
-- per-product lane status
+- unique run identifier
+- start/end timestamps
 - overall status
-- stdout/stderr or structured logs
+- grouping of TaskRuns
 
-#### Optional later
+### TaskRun
 
-- email notification
-- daily summary
-- richer run artifact
+- task identity
+- product / parameters
+- orchestration state:
+  - pending / running / succeeded / failed / skipped / blocked
+- dependency context
+- start/end timestamps
 
-#### Deliverable
+### TaskAttempt
 
-A clear run-reporting scheme for the deployed runtime.
+- execution attempt for a task
+- retry tracking
+- start/end timestamps
+- status
+- error summary
+- log references
 
-## Key Decision Criteria
+### SemanticEvent
 
-The chosen deployment mechanism should satisfy:
+- domain-level event emitted during execution
 
-### Correctness
-- job order preserved
-- dependencies respected
+Minimal envelope:
 
-### Operational clarity
-- failures visible
-- retries understandable
-- logs accessible
+```text
+event_id
+task_attempt_id
+event_type
+event_ts
+dataset_key
+payload
+```
 
-### Simplicity
-- minimal moving parts
-- no unnecessary infrastructure burden
+## Logging vs Structured Reporting
 
-### Extensibility
-- easy to extend from 2 jobs to full marketdata stack
-- easy to increase product universe later
+### Structured records (FlowRun / TaskRun / TaskAttempt)
 
-## Non-Goals
+- factual
+- queryable
+- persistent
+- minimal
 
-Session 36 does **not** aim to:
+### SemanticEvents
 
-- fully formalize semantic event ledgers
-- solve general JSON representation policy
-- fully migrate all remaining dataset jobs
-- solve all concurrency for all future layers
-- deploy the complete marketdata stack
-- implement full email/alerting system
-- containerize MXM V1
+- domain meaning
+- structured but domain-specific
 
-## Risks / Open Concerns
+### Logs (stdout / file)
 
-### 1. `mxm-pipeline` fit
-It may already be suitable, but needs explicit validation.
+- narrative execution trace
+- debugging context
+- stack traces
+- intermediate state
 
-### 2. Shared storage contention
-Even simple cross-product parallelism may expose SQLite or filesystem issues.
+### Principle
 
-### 3. Vendor request limits
-Databento stream concurrency must be respected.
+> records say **what happened**  
+> semantic events say **what it meant**  
+> logs say **how it unfolded**
 
-### 4. False complexity
-There is a danger of overbuilding deployment infrastructure before the first runtime is proven.
+## Work Plan
+
+### 1. Define Minimal Data Models
+
+Implement:
+
+- `FlowRun`
+- `TaskRun`
+- `TaskAttempt`
+- base `SemanticEvent` envelope
+
+Keep schemas minimal and sufficient for:
+
+- status tracking
+- linkage
+- inspection
+
+### 2. Implement Persistence
+
+Implement simple persistence (likely SQLite or file-based):
+
+- flow_runs table
+- task_runs table
+- task_attempts table
+
+Optional:
+
+- semantic_events store (may remain dataset-local initially)
+
+### 3. Upgrade Execution Engine
+
+Extend `mxm-pipeline`:
+
+- support true DAG execution
+- enable parallel execution across independent tasks
+- preserve sequential dependencies within lanes
+
+### 4. Define TaskSpec Properly
+
+Ensure `TaskSpec` supports:
+
+- config resolution
+- dependency construction
+- execution function
+- context injection
+- semantic event emission hooks
+
+### 5. Implement Runners
+
+Provide:
+
+- local sequential runner
+- local parallel runner
+- CLI entrypoint
+
+All operating on the same `TaskSpec` / `FlowSpec`
+
+### 6. Build Runtime Graph
+
+Define 5×2 DAG using TaskSpecs:
+
+```text
+update(P)
+  ↓
+rebuild(P)
+```
+
+### 7. Implement Runtime Reporting
+
+Minimal reporting:
+
+- FlowRun summary
+- TaskRun statuses
+- failure visibility
+- log linkage
+
+### 8. Deploy on `monolith`
+
+- create runtime entrypoint
+- run via cron/systemd
+- verify environment and secrets
+- execute full DAG
+
+## Concurrency Policy (Initial)
+
+- sequential within product
+- limited parallelism across products
+- start conservatively (e.g. 2–3 concurrent lanes)
+- increase after observation
+
+Consider:
+
+- Databento limits
+- SQLite contention
+- file system write conflicts
+
+## Key Principles
+
+### 1. Standard Model Alignment
+
+MXM uses standard execution concepts:
+
+- flows
+- tasks
+- runs
+- attempts
+
+No exotic execution ontology.
+
+### 2. Separation of Concerns
+
+```text
+mxm-pipeline → execution & orchestration
+mxm-v1       → task definitions & domain logic
+datasets     → semantic meaning
+```
+
+### 3. Canonical Execution Boundary
+
+> Task is the single executable abstraction across all surfaces.
+
+### 4. Link, Don’t Merge
+
+- structured records linked via IDs
+- logs remain separate
+- semantic events remain domain-local
+
+## Non-Goals (V1)
+
+- full semantic event platform
+- advanced reporting UI
+- multi-backend persistence abstraction
+- full dataset refactor of AttemptStores
+- distributed execution
+- containerization
 
 ## Success Criteria
 
 Session 36 is successful if:
 
-1. the deployment mechanism for MXM V1 is explicitly chosen
-2. the 5-product × 2-job runtime graph is implemented
-3. parallelism policy is explicitly defined
-4. the runtime runs successfully on `monolith`
-5. logs / run status are inspectable
-6. the path to extending the graph to the remaining marketdata jobs is clear
+1. execution model is implemented (`FlowRun`, `TaskRun`, `TaskAttempt`)
+2. 5×2 DAG runs via `mxm-pipeline`
+3. parallelism works across products
+4. runtime executes successfully on `monolith`
+5. failures are visible and inspectable
+6. logs and structured records are linked
+7. extension to full marketdata stack is straightforward
 
-## Extension Path After Session 36
+## Extension Path
 
-Once the 5×2 runtime works, extension should be mechanical:
-
-Per product:
+After Session 36:
 
 ```text
 instrument-definitions update
@@ -379,12 +371,6 @@ daily_stats build
 daily_mark build
 ```
 
-with:
-
-- additional parallelism opportunities by product
-- possible later parallelism by contract where sensible
-- explicit runtime control at the scheduler layer
-
 ## One-Sentence Definition
 
-> Session 36 establishes the first deployed MXM V1 runtime by implementing and running a 5-product × 2-job DAG on `monolith`, and uses that slice to settle the deployment mechanism for the system.
+> Session 36 establishes the MXM V1 execution substrate by implementing a standard flow/task/attempt model in `mxm-pipeline`, defining domain tasks in `mxm-v1`, and deploying the first 5-product × 2-task runtime on `monolith`.
