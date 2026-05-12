@@ -61,11 +61,11 @@ Pure function of:
 from dataclasses import dataclass
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
 from numpy.typing import NDArray
 
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+    RefDataAPI,
+)
 from mxm.v1.calendars.mapping import map_business_to_trading_sessions
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.utils.date_utils import coerce_np_day, ensure_1d_day_array

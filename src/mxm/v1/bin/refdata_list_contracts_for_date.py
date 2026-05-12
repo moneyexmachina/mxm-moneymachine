@@ -1,11 +1,6 @@
 from datetime import date
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-
-
-def _get(obj, attr):
-    """Safe attribute access for proof printing."""
-    return getattr(obj, attr, "-")
+from mxm.refdata.api.ref_data_api import RefDataAPI
 
 
 def main() -> None:
@@ -20,11 +15,7 @@ def main() -> None:
     # Deterministic ordering for proof output
     contracts = sorted(
         contracts,
-        key=lambda c: (
-            _get(c, "product_id"),
-            _get(c, "period_id"),
-            _get(c, "contract_id"),
-        ),
+        key=lambda c: (c.product_id, c.period_id, c.contract_id),
     )[:LIMIT]
 
     print(f"Contracts active on: {TARGET_DATE.isoformat()}")
@@ -42,11 +33,11 @@ def main() -> None:
 
     for c in contracts:
         print(
-            f"{_get(c, 'product_id'):<26}"
-            f"{_get(c, 'contract_id'):<34}"
-            f"{_get(c, 'period_id'):<14}"
-            f"{str(_get(c, 'first_day_of_interest')):<22}"
-            f"{str(_get(c, 'last_trading_day')):<20}"
+            f"{c.product_id:<26}"
+            f"{c.contract_id:<34}"
+            f"{c.period_id:<14}"
+            f"{c.first_day_of_interest!s:<22}"
+            f"{c.last_trading_day!s:<20}"
         )
 
 

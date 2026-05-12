@@ -67,14 +67,14 @@ audit logs and CLI inspection.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, Mapping, Sequence
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import RefDataAPI
-from mxm_refdata.models.contracts.futures_contract import FuturesContract
-from mxm_refdata.models.periods import Period
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.periods import Period
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.utils.date_utils import coerce_np_day, fmt_iso_day
 from mxm.v1.utils.time_utils import UtcTimestampInput, fmt_run_ts
@@ -92,10 +92,10 @@ class PeriodIndex:
     We rely on Period.__lt__ (refdata-defined ordering).
     """
 
-    by_id: Dict[str, Period]
+    by_id: dict[str, Period]
 
     @staticmethod
-    def from_periods(periods: Iterable[Period]) -> "PeriodIndex":
+    def from_periods(periods: Iterable[Period]) -> PeriodIndex:
         return PeriodIndex(by_id={p.period_id: p for p in periods})
 
     def get(self, period_id: str) -> Period:
@@ -120,7 +120,7 @@ class ContractSelectorEngine:
     @staticmethod
     def build(
         refdata: RefDataAPI, calendars: TradingCalendarService
-    ) -> "ContractSelectorEngine":
+    ) -> ContractSelectorEngine:
         periods = refdata.get_periods()
         return ContractSelectorEngine(
             refdata=refdata,

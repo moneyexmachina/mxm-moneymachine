@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mxm.v1.calendars.loader import load_calendar
 from mxm.v1.calendars.service import TradingCalendarService, canonical_calendar_id
 
 

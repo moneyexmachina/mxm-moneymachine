@@ -1,7 +1,7 @@
 # tests/unittests/mxm/v1/utils/test_time_utils.py
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
@@ -76,7 +76,7 @@ def test_to_utc_ts_from_datetime_naive_interprets_as_utc() -> None:
 
 
 def test_to_utc_ts_from_datetime_aware_converts_to_utc() -> None:
-    dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     out = to_utc_ts(dt)
     assert out.isoformat() == "2026-01-01T12:00:00+00:00"
 

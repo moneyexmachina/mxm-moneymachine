@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from mxm_refdata.models.periods import PeriodType
+from mxm.refdata.models.periods import PeriodType
 
 from .selectors import PeriodFilter, SelectorRule
 

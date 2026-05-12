@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -20,8 +20,8 @@ from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.utils.time_utils import to_utc_ts
 
 SESSION = np.datetime64("2026-03-12", "D")
-CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=timezone.utc))
-SUBMISSION_TS = to_utc_ts(datetime(2026, 3, 12, 16, 0, 0, tzinfo=timezone.utc))
+CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=UTC))
+SUBMISSION_TS = to_utc_ts(datetime(2026, 3, 12, 16, 0, 0, tzinfo=UTC))
 
 
 class DummyExecutionPriceAccessor(ExecutionPriceAccessor):

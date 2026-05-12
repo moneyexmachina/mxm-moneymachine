@@ -5,11 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-from mxm_refdata.models.contracts.futures_contract import FuturesContract
-
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import utc_now_ts
 
@@ -112,7 +110,7 @@ def resolve_databento_instrument(
     backend: SQLiteBackend,
     contract: FuturesContract,
     *,
-    as_of_dt: Optional[datetime] = None,
+    as_of_dt: datetime | None = None,
 ) -> DatabentoInstrumentIdentity:
     """
     Resolve a FuturesContract to Databento's tradable identity.

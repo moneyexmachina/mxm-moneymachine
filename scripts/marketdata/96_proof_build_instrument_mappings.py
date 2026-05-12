@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_mappings import (
     build_mappings_for_product,
 )

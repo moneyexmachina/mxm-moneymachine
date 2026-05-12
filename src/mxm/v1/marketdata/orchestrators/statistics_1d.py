@@ -5,11 +5,11 @@ from datetime import date
 from typing import Any, Literal
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm_refdata.models.contracts.futures_contract import (
+
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.contracts.futures_contract import (
     FuturesContract,  # type: ignore
 )
-
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
     get_watermark_for_product,
     read_lifecycle_for_product_instrument,
@@ -256,7 +256,7 @@ def _cov_snapshot(coverage: StoreCoverageSnapshot) -> AttemptsCoverageSnapshot:
         max_ts=getattr(coverage, "max_ts", None),
         row_count=int(getattr(coverage, "row_count", 0)),
         stats_path=(
-            str(getattr(coverage, "stats_path"))
+            str(coverage.stats_path)
             if getattr(coverage, "stats_path", None) is not None
             else None
         ),
@@ -791,7 +791,7 @@ def ingest_statistics_1d_for_product(
         "incomplete_remaining": int(report.incomplete_remaining),
         "contracts_excluded_unavailable": int(report.contracts_excluded_unavailable),
         "contracts_considered": int(report.contracts_considered),
-        "runs": int(len(report.runs)),
+        "runs": len(report.runs),
         "dataset_range_start": report.dataset_range_start,
         "dataset_range_end": report.dataset_range_end,
         "stopped_reason": report.stopped_reason,

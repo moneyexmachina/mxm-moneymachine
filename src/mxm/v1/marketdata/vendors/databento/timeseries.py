@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Dict, Mapping, Optional, Sequence, Union, cast
+from typing import Any, Union, cast
 
 import pandas as pd
+
 from mxm.dataio.adapters import Fetcher
 from mxm.dataio.models import AdapterResult, Request
 
@@ -73,9 +75,9 @@ class DatabentoTimeseriesParams:
     stype_in: str = "raw_symbol"
 
     # Optional passthrough kwargs. Keep this small and explicit over time.
-    extra: Optional[Mapping[str, Any]] = None
+    extra: Mapping[str, Any] | None = None
 
-    def to_request_params(self) -> Dict[str, Any]:
+    def to_request_params(self) -> dict[str, Any]:
         """
         Convert to a JSON-serializable dict suitable for mxm-dataio Request.params.
 
@@ -87,7 +89,7 @@ class DatabentoTimeseriesParams:
         else:
             symbols = list(self.symbols)
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "dataset": self.dataset,
             "schema": self.schema,
             "symbols": symbols,
@@ -110,7 +112,7 @@ def pull_timeseries_df_raw(
     stype_in: str,
     start: str,
     end: str,
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
     Raw vendor call to Databento timeseries.get_range(...). Returns a DataFrame.
@@ -118,7 +120,7 @@ def pull_timeseries_df_raw(
     This function is intentionally storage-agnostic. Caching and persistence are
     handled by the DataIO adapter layer.
     """
-    kwargs: Dict[str, Any] = {}
+    kwargs: dict[str, Any] = {}
     if extra:
         kwargs.update(dict(extra))
     t0 = time.time()
@@ -175,7 +177,7 @@ class DatabentoTimeseriesFetcher(Fetcher):
         return
 
     def fetch(self, request: Request) -> AdapterResult:
-        params: Dict[str, Any] = dict(request.params)
+        params: dict[str, Any] = dict(request.params)
 
         dataset = cast(str, params["dataset"])
         schema = cast(str, params["schema"])
@@ -183,7 +185,7 @@ class DatabentoTimeseriesFetcher(Fetcher):
         stype_in = cast(str, params.get("stype_in", "raw_symbol"))
         start = cast(str, params["start"])
         end = cast(str, params["end"])
-        extra = cast(Optional[Dict[str, Any]], params.get("extra"))
+        extra = cast(dict[str, Any] | None, params.get("extra"))
 
         # Definitive proof of vendor call (cache miss)
         print(
@@ -206,7 +208,7 @@ class DatabentoTimeseriesFetcher(Fetcher):
         df = _materialise_index(df)
         payload = _df_to_parquet_bytes(df)
 
-        adapter_meta: Dict[str, Any] = {
+        adapter_meta: dict[str, Any] = {
             "vendor": "databento",
             "dataset": dataset,
             "schema": schema,

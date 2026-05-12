@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -36,13 +35,13 @@ class StoreCoverageSnapshot:
     mark_path: Path
     exists: bool
     row_count: int
-    min_session_id: Optional[int]
-    max_session_id: Optional[int]
+    min_session_id: int | None
+    max_session_id: int | None
 
-    meta_path: Optional[Path] = None
-    content_sha256: Optional[str] = None
-    artifact_sha256: Optional[str] = None
-    source_content_sha256: Optional[str] = None
+    meta_path: Path | None = None
+    content_sha256: str | None = None
+    artifact_sha256: str | None = None
+    source_content_sha256: str | None = None
 
 
 class DailyMarkStore:
@@ -209,7 +208,7 @@ class DailyMarkStore:
         return StoreCoverageSnapshot(
             mark_path=mark_path,
             exists=True,
-            row_count=int(len(df)),
+            row_count=len(df),
             min_session_id=session_min,
             max_session_id=session_max,
             meta_path=meta_path if meta_path.exists() else None,

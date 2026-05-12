@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
-from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm_refdata.models.periods import Period  # type: ignore
-
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.periods import Period  # type: ignore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     BuildResult,
     InstrumentDefinitionMappingsStore,
@@ -287,7 +286,7 @@ def _finalize_report(
         "build_attempted": int(br.contracts_attempted) if br else 0,
         "build_inserted": int(br.inserted) if br else 0,
         "build_ignored": int(br.ignored) if br else 0,
-        "build_unmapped": int(len(br.unmapped)) if br else 0,
+        "build_unmapped": len(br.unmapped) if br else 0,
         "stopped_reason": report.stopped_reason,
         "mapping_ready_for_ohlcv": report.mapping_ready_for_ohlcv,
     }

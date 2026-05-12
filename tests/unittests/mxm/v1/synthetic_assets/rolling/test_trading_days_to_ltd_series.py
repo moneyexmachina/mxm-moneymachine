@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 import numpy as np
 import pytest
@@ -36,7 +35,7 @@ class _FakeRefDataAPI:
     def __init__(self, contracts: dict[str, _FakeContract]) -> None:
         self._contracts = contracts
 
-    def get_contract_by_id(self, contract_id: str) -> Optional[_FakeContract]:
+    def get_contract_by_id(self, contract_id: str) -> _FakeContract | None:
         return self._contracts.get(contract_id)
 
 
@@ -76,7 +75,7 @@ class _DeterministicCalendar:
         out = np.empty(a.shape, dtype=np.int64)
         a_flat = a.ravel().tolist()
         l_flat = l.ravel().tolist()
-        for k, (ai, li) in enumerate(zip(a_flat, l_flat)):
+        for k, (ai, li) in enumerate(zip(a_flat, l_flat, strict=False)):
             if strict:
                 if ai not in self._idx:
                     raise ValueError(f"asof {ai} not in trading_days")

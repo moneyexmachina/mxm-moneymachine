@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from typing import Dict, List
+from datetime import UTC, date, datetime
 
 import pytest
-from mxm_refdata.models.contracts.futures_contract import FuturesContract
-from mxm_refdata.models.periods import Period, PeriodType
 
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.periods import Period, PeriodType
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.contracts.exceptions import NoEligibleContracts, RelativeContractUnavailable
 from mxm.v1.contracts.relative_ids import canonical_relative_id, short_rel_id
@@ -28,7 +27,7 @@ class _FakeCalendar:
 
 @dataclass(frozen=True)
 class _FakeCalendarService:
-    by_product: Dict[str, _FakeCalendar]
+    by_product: dict[str, _FakeCalendar]
 
     def calendar_for_product(self, product_id: str) -> _FakeCalendar:
         return self.by_product[product_id]
@@ -36,16 +35,16 @@ class _FakeCalendarService:
 
 @dataclass
 class _FakeRefData:
-    periods: List[Period]
-    contracts_by_product: Dict[str, List[FuturesContract]]
-    cycle_elements: Dict[str, Dict[str, int]]  # cycle_id -> period_id -> element
+    periods: list[Period]
+    contracts_by_product: dict[str, list[FuturesContract]]
+    cycle_elements: dict[str, dict[str, int]]  # cycle_id -> period_id -> element
 
-    def get_periods(self) -> List[Period]:
+    def get_periods(self) -> list[Period]:
         return list(self.periods)
 
     def get_contracts_for_product(
         self, product_id: str, *, period_type=None
-    ) -> List[FuturesContract]:
+    ) -> list[FuturesContract]:
         xs = list(self.contracts_by_product.get(product_id, []))
         if period_type is None:
             return xs
@@ -55,14 +54,14 @@ class _FakeRefData:
         return xs
 
     def get_cycle_elements(
-        self, period_ids: List[str], *, cycle_id: str
-    ) -> Dict[str, int]:
+        self, period_ids: list[str], *, cycle_id: str
+    ) -> dict[str, int]:
         mapping = self.cycle_elements.get(cycle_id, {})
         return {pid: mapping[pid] for pid in period_ids if pid in mapping}
 
 
 def _ts(yyyy: int, mm: int, dd: int) -> datetime:
-    return datetime(yyyy, mm, dd, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(yyyy, mm, dd, 12, 0, 0, tzinfo=UTC)
 
 
 # -------------------------
@@ -71,7 +70,7 @@ def _ts(yyyy: int, mm: int, dd: int) -> datetime:
 
 
 @pytest.fixture()
-def sample_periods() -> List[Period]:
+def sample_periods() -> list[Period]:
     # Keep Period ordering deterministic using first_date.
     # Period.__lt__ sorts by priority then by first_date.
     return [
@@ -97,7 +96,7 @@ def sample_periods() -> List[Period]:
 
 
 @pytest.fixture()
-def engine(sample_periods: List[Period]) -> ContractSelectorEngine:
+def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
     contracts = [
         FuturesContract(
             contract_id="ES-2026-03",
@@ -246,7 +245,7 @@ def test_cycle_filter_calendar_months_december_only(
     assert exp.details["eligible_count"] == 1
 
 
-def test_tie_break_by_period_then_contract_id(sample_periods: List[Period]) -> None:
+def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> None:
     # Two contracts share LTD; order should use Period ordering then contract_id.
     contracts = [
         FuturesContract(

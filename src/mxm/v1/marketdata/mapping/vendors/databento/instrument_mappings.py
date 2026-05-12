@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import utc_now_run_ts

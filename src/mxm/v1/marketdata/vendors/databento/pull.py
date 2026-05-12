@@ -60,14 +60,15 @@ This module intentionally contains no dataset-specific business logic.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Union
 
 import pandas as pd
+
 from mxm.dataio.api import CacheMode, DataIoSession
 from mxm.dataio.models import Request, Response
-
 from mxm.v1.marketdata.config.dataio import marketdata_dataio_cfg
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
@@ -99,7 +100,7 @@ def _canonical_timeseries_params(
     stype_in: str,
     start: str,
     end: str,
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Canonical params for *any* Databento timeseries.get_range(...) call.
@@ -142,7 +143,7 @@ def pull_timeseries(
     end: str,
     source: str = "databento",
     kind: str = "databento.timeseries.get_range",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
@@ -192,7 +193,7 @@ def pull_ohlcv_1d(
     start: str,
     end: str,
     source: str = "databento",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
     DataIO-backed pull for Databento ohlcv-1d.
@@ -217,7 +218,7 @@ def pull_ohlcv_1d_by_instrument_id(
     start: str,
     end: str,
     source: str = "databento",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     return pull_ohlcv_1d(
         dataset=dataset,
@@ -238,7 +239,7 @@ def pull_statistics_1d(
     start: str,
     end: str,
     source: str = "databento",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
@@ -269,7 +270,7 @@ def pull_statistics_1d_by_instrument_id(
     start: str,
     end: str,
     source: str = "databento",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
@@ -293,7 +294,7 @@ def pull_instrument_definitions(
     start: str,
     end: str,
     source: str = "databento",
-    extra: Optional[Mapping[str, Any]] = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
     DataIO-backed pull for Databento instrument definition events (schema="definition").

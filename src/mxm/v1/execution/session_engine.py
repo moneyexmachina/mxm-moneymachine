@@ -75,10 +75,10 @@ Current implementation choices
 from dataclasses import dataclass
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import (
+
+from mxm.refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
-
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 from mxm.v1.execution.executor import ExecutionResult, Executor, OrderSubmission
 from mxm.v1.execution.holdings import (

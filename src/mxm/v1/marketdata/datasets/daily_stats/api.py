@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     resolve_databento_instrument,

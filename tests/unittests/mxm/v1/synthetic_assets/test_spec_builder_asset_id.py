@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from mxm_refdata.models.periods import PeriodType
-
+from mxm.refdata.models.periods import PeriodType
 from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
 from mxm.v1.synthetic_assets.spec_builder import (
     build_continuous_roll_spec,

@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import databento as db
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,

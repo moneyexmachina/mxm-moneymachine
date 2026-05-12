@@ -29,9 +29,9 @@ from pathlib import Path
 from typing import Literal, cast
 
 import databento as db
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.datasets.instrument_definitions.ingest import (
     InstrumentDefinitionsIngestReport,
     ingest_instrument_definitions,

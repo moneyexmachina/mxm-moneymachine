@@ -52,8 +52,8 @@ new bundle objects without mutating state.
 
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.execution.contract_bundles import ContractBundle
 
 

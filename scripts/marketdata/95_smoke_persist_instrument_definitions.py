@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import databento as db
 import pandas as pd
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.datasets.instrument_definitions.api import (
     get_start_from_watermark,
     make_instrument_definition_feed,
@@ -36,7 +36,7 @@ DATASET_AVAILABLE_START: dict[str, str] = {
 
 
 def _utc_today_yyyy_mm_dd() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _iso_z(ts: pd.Timestamp) -> str:

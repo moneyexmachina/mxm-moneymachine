@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Dict, List, Union
+from typing import Union
 
 import numpy as np
 import pytest
-from mxm_refdata.models.contracts.futures_contract import FuturesContract
-from mxm_refdata.models.periods import Period, PeriodType
 
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.periods import Period, PeriodType
 from mxm.v1.contracts.contract_series import (
     ContractSeries,
     ContractSeriesSpec,
@@ -53,7 +53,7 @@ class _FakeTradingCalendar:
 
 @dataclass(frozen=True)
 class _FakeCalendarService:
-    by_product: Dict[str, _FakeTradingCalendar]
+    by_product: dict[str, _FakeTradingCalendar]
 
     def calendar_for_product(self, product_id: str) -> _FakeTradingCalendar:
         return self.by_product[product_id]
@@ -61,16 +61,16 @@ class _FakeCalendarService:
 
 @dataclass
 class _FakeRefData:
-    periods: List[Period]
-    contracts_by_product: Dict[str, List[FuturesContract]]
-    cycle_elements: Dict[str, Dict[str, int]]  # cycle_id -> period_id -> element
+    periods: list[Period]
+    contracts_by_product: dict[str, list[FuturesContract]]
+    cycle_elements: dict[str, dict[str, int]]  # cycle_id -> period_id -> element
 
-    def get_periods(self) -> List[Period]:
+    def get_periods(self) -> list[Period]:
         return list(self.periods)
 
     def get_contracts_for_product(
         self, product_id: str, *, period_type=None
-    ) -> List[FuturesContract]:
+    ) -> list[FuturesContract]:
         xs = list(self.contracts_by_product.get(product_id, []))
         if period_type is None:
             return xs
@@ -78,8 +78,8 @@ class _FakeRefData:
         return xs
 
     def get_cycle_elements(
-        self, period_ids: List[str], *, cycle_id: str
-    ) -> Dict[str, int]:
+        self, period_ids: list[str], *, cycle_id: str
+    ) -> dict[str, int]:
         mapping = self.cycle_elements.get(cycle_id, {})
         return {pid: mapping[pid] for pid in period_ids if pid in mapping}
 
@@ -90,7 +90,7 @@ class _FakeRefData:
 
 
 @pytest.fixture()
-def sample_periods() -> List[Period]:
+def sample_periods() -> list[Period]:
     return [
         Period(
             period_id="2026-03",
@@ -115,7 +115,7 @@ def sample_periods() -> List[Period]:
 
 @pytest.fixture()
 def engine_and_calendar(
-    sample_periods: List[Period],
+    sample_periods: list[Period],
 ) -> tuple[ContractSelectorEngine, _FakeCalendarService]:
     contracts = [
         FuturesContract(

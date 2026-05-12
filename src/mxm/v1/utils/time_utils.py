@@ -109,7 +109,7 @@ Those concepts belong in their respective domain modules and are built on top
 of the primitives defined here.
 """
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TypeAlias
 
 import pandas as pd
@@ -231,7 +231,7 @@ def to_utc_ts(value: UtcTimestampInput) -> pd.Timestamp:
 
     if isinstance(value, datetime):
         return pd.Timestamp(
-            value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         ).tz_convert("UTC")
 
     if isinstance(value, str):
@@ -318,7 +318,7 @@ def fmt_second_ts(ts: UtcTimestampInput) -> str:
     This is allowed only when precision beyond seconds is not meaningful.
     """
     t = to_utc_ts(ts)
-    dt = t.to_pydatetime().astimezone(timezone.utc).replace(microsecond=0)
+    dt = t.to_pydatetime().astimezone(UTC).replace(microsecond=0)
     return dt.strftime(ISO_Z_SECONDS)
 
 
@@ -329,7 +329,7 @@ def fmt_day_ts(ts: UtcTimestampInput) -> str:
     The input must be UTC-midnight aligned.
     """
     t = ensure_midnight_utc(ts)
-    return t.to_pydatetime().astimezone(timezone.utc).strftime(ISO_Z_SECONDS)
+    return t.to_pydatetime().astimezone(UTC).strftime(ISO_Z_SECONDS)
 
 
 def add_days(ts: UtcTimestampInput, days: int) -> pd.Timestamp:

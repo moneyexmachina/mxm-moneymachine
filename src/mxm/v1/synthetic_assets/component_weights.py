@@ -38,15 +38,15 @@ For each supported component pair:
 - roll timing is computed in trading-calendar space, evaluated on MXM business-session support
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
     RefDataAPI,
 )
-
 from mxm.v1.calendars.mapping import map_business_to_trading_sessions
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService

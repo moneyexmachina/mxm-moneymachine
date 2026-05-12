@@ -14,8 +14,8 @@ Notes:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 import pandas as pd
 
@@ -235,7 +235,7 @@ def coerce_daily_stats(
             continue
         try:
             out[col] = out[col].astype(dtype)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise ValueError(f"failed to coerce `{col}` to {dtype}: {e}") from e
 
     # Keep numeric columns numeric (do not force float/int, just ensure parseable)

@@ -168,7 +168,7 @@ class Statistics1DStore:
         return StoreCoverageSnapshot(
             stats_path=stats_path,
             exists=True,
-            row_count=int(len(df)),
+            row_count=len(df),
             min_ts=parse_ts(df["ts_event"].min()),
             max_ts=parse_ts(df["ts_event"].max()),
             meta_path=meta_path,

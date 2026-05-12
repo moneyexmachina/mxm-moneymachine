@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Iterable, List
+from collections.abc import Iterable
 
-from mxm_refdata.models.contracts.futures_contract import (
+from mxm.refdata.models.contracts.futures_contract import (
     FuturesContract,  # type: ignore
 )
 
@@ -45,8 +45,8 @@ def make_contracts(
     product_id: str,
     year: int = 2020,
     months: Iterable[int] = (1,),
-) -> List[FuturesContract]:
-    contracts: List[FuturesContract] = []
+) -> list[FuturesContract]:
+    contracts: list[FuturesContract] = []
     for m in months:
         period_id = f"P.TEST.{year:04d}-{m:02d}"
         contract_id = f"{product_id}.{year:04d}-{m:02d}"

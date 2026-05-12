@@ -93,9 +93,9 @@ def test_no_unknown_attempt_status_literals_in_ohlcv_orchestrator(relpath: str) 
 
     # If you do not use literal assignments, this may be empty (that's fine).
     for s in found:
-        assert s in AUTHORITATIVE_ATTEMPT_STATUSES, (
-            f"unknown attempt status literal {s!r} in {relpath}"
-        )
+        assert (
+            s in AUTHORITATIVE_ATTEMPT_STATUSES
+        ), f"unknown attempt status literal {s!r} in {relpath}"
 
 
 def test_no_deprecated_vendor_final_detail_string() -> None:

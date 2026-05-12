@@ -49,11 +49,10 @@ dependencies. It must not:
 Its only responsibility is to author the synthetic asset construction policy
 in a clear, deterministic, and declarative form.
 """
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
-from mxm_refdata.models import PeriodType
-
+from mxm.refdata.models import PeriodType
 from mxm.v1.contracts.selectors import PeriodFilter
 from mxm.v1.synthetic_assets.weights_rules import (
     WeightsRuleSpec,
@@ -129,7 +128,7 @@ def repeated_calendar_period_family(
     months: Iterable[int],
     cont_max_n: int,
     ts_max_n: int,
-) -> "PeriodFamilyPolicy":
+) -> PeriodFamilyPolicy:
     """
     Convenience helper to author one PeriodFamilyPolicy over CALENDAR_MONTHS.
     """
@@ -146,7 +145,7 @@ def repeated_singleton_calendar_families(
     months: Iterable[int],
     cont_max_n: int,
     ts_max_n: int,
-) -> tuple["PeriodFamilyPolicy", ...]:
+) -> tuple[PeriodFamilyPolicy, ...]:
     """
     Convenience helper to author repeated singleton calendar-month families.
 

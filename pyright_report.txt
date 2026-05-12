@@ -1,0 +1,481 @@
+/Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:3:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:6:10 - error: Type of parameter "obj" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:6:10 - error: Type annotation is missing for parameter "obj" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:6:15 - error: Type of parameter "attr" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:6:15 - error: Type annotation is missing for parameter "attr" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:8:20 - error: Argument type is unknown
+    Argument corresponds to parameter "o" in function "getattr" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_date.py:8:25 - error: Argument type is unknown
+    Argument corresponds to parameter "name" in function "getattr" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:1:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:4:10 - error: Type of parameter "obj" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:4:10 - error: Type annotation is missing for parameter "obj" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:4:15 - error: Type of parameter "attr" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:4:15 - error: Type annotation is missing for parameter "attr" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:6:20 - error: Argument type is unknown
+    Argument corresponds to parameter "o" in function "getattr" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_contracts_for_product.py:6:25 - error: Argument type is unknown
+    Argument corresponds to parameter "name" in function "getattr" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_products.py
+  /Users/mxm/mxm-v1/src/mxm/v1/bin/refdata_list_products.py:1:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/calendars/service.py
+  /Users/mxm/mxm-v1/src/mxm/v1/calendars/service.py:7:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/calendars/service.py:62:5 - error: Type of "_cache" is partially unknown
+    Type of "_cache" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
+/Users/mxm/mxm-v1/src/mxm/v1/contracts/engine.py
+  /Users/mxm/mxm-v1/src/mxm/v1/contracts/engine.py:74:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/contracts/engine.py:75:6 - warning: Stub file not found for "mxm_refdata.models.contracts.futures_contract" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/contracts/engine.py:76:6 - warning: Stub file not found for "mxm_refdata.models.periods" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/contracts/relative_ids.py
+  /Users/mxm/mxm-v1/src/mxm/v1/contracts/relative_ids.py:5:6 - warning: Stub file not found for "mxm_refdata.models.periods" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/contracts/selectors.py
+  /Users/mxm/mxm-v1/src/mxm/v1/contracts/selectors.py:6:6 - warning: Stub file not found for "mxm_refdata.models.periods" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/execution/holdings.py
+  /Users/mxm/mxm-v1/src/mxm/v1/execution/holdings.py:55:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/execution/orders.py
+  /Users/mxm/mxm-v1/src/mxm/v1/execution/orders.py:61:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/execution/price_accessors.py
+  /Users/mxm/mxm-v1/src/mxm/v1/execution/price_accessors.py:85:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/execution/session_engine.py
+  /Users/mxm/mxm-v1/src/mxm/v1/execution/session_engine.py:78:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_mark/api.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_mark/api.py:6:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_stats/api.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_stats/api.py:7:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_stats/store.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/daily_stats/store.py:126:16 - error: Unnecessary isinstance call; "dict[str, Any]" is always an instance of "dict[Unknown, Unknown]" (reportUnnecessaryIsInstance)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:89:16 - error: Type of "list_mapped_maturities" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:89:16 - error: Argument type is unknown
+    Argument corresponds to parameter "iterable" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:89:22 - error: Cannot access attribute "list_mapped_maturities" for class "InstrumentDefinitionMappingsStore"
+    Attribute "list_mapped_maturities" is unknown (reportAttributeAccessIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:111:5 - error: Type of "latest" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:111:14 - error: Type of "get_latest_created_at" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:111:20 - error: Cannot access attribute "get_latest_created_at" for class "InstrumentDefinitionMappingsStore"
+    Attribute "get_latest_created_at" is unknown (reportAttributeAccessIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py:120:35 - error: Argument type is unknown
+    Argument corresponds to parameter "latest_mapping_created_at" in function "__init__" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:151:33 - error: Type of "_load_outright_candidates" is partially unknown
+    Type of "_load_outright_candidates" is "(conn: Unknown, *, feed: str, dataset: str) -> tuple[list[MappingCandidate], CandidateStats]" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:175:30 - error: Type of "_insert_mapping_append_only" is partially unknown
+    Type of "_insert_mapping_append_only" is "(conn: Unknown, *, product_id: str, contract_year: int, contract_month: int, candidate: MappingCandidate, mapping_reason: str) -> bool" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:328:15 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:328:15 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:336:9 - error: Type of "rows" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:336:16 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:336:16 - error: Type of "fetchall" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:362:13 - error: Type of "r" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:363:13 - error: Type of "my" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:364:13 - error: Type of "mm" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:371:30 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:373:38 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:374:39 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:375:36 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:376:39 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:377:42 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:378:39 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:379:40 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:381:66 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:384:66 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:386:34 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:387:46 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:394:38 - error: Argument type is unknown
+    Argument corresponds to parameter "obj" in function "len" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:401:9 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:401:9 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:431:9 - error: Type of "cur" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:431:15 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:476:16 - error: Type of "rowcount" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definition_mappings/store.py:476:16 - error: Return type is unknown (reportUnknownVariableType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/jobs.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/jobs.py:33:6 - warning: Stub file not found for "mxm_secrets" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:145:24 - error: Type of "_insert_events" is partially unknown
+    Type of "_insert_events" is "(conn: Unknown, events: Iterable[dict[str, Any]]) -> int" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:146:13 - error: Type of "_update_current_view" is partially unknown
+    Type of "_update_current_view" is "(conn: Unknown, events: list[dict[str, Any]]) -> None" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:147:13 - error: Type of "_upsert_watermark" is partially unknown
+    Type of "_upsert_watermark" is "(conn: Unknown, *, feed: str, ts_recv_last: str) -> None" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:534:38 - error: Type "dict[Hashable, Any]" is not assignable to declared type "dict[str, Any]"
+    "dict[Hashable, Any]" is not assignable to "dict[str, Any]"
+      Type parameter "_KT@dict" is invariant, but "Hashable" is not the same as "str" (reportAssignmentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:571:24 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:571:24 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:598:9 - error: Type of "before" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:598:18 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:598:18 - error: Type of "fetchone" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:602:9 - error: Type of "executemany" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:604:9 - error: Type of "after" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:604:17 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:604:17 - error: Type of "fetchone" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:608:9 - error: Type of "inserted" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:610:20 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:620:36 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:620:36 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:664:13 - error: Type of "row" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:664:19 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:664:19 - error: Type of "fetchone" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:666:17 - error: Type of "existing" is partially unknown
+    Type of "existing" is "tuple[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:668:49 - error: Argument type is partially unknown
+    Argument corresponds to parameter "b" in function "_is_newer"
+    Argument type is "tuple[Unknown, Unknown]" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:671:13 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:687:27 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:687:27 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/datasets/instrument_definitions/store.py:695:9 - error: Type of "execute" is unknown (reportUnknownMemberType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:86:17 - error: Argument of type "str | None" cannot be assigned to parameter "dataset" of type "str" in function "read"
+    Type "str | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:89:15 - error: Argument of type "str | None" cannot be assigned to parameter "start" of type "Timestamp | None" in function "read"
+    Type "str | None" is not assignable to type "Timestamp | None"
+      Type "str" is not assignable to type "Timestamp | None"
+        "str" is not assignable to "Timestamp"
+        "str" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:90:13 - error: Argument of type "str | None" cannot be assigned to parameter "end" of type "Timestamp | None" in function "read"
+    Type "str | None" is not assignable to type "Timestamp | None"
+      Type "str" is not assignable to type "Timestamp | None"
+        "str" is not assignable to "Timestamp"
+        "str" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:116:8 - error: Condition will always evaluate to False since the types "DataFrame" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:178:28 - error: Type of "sum" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:178:28 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:178:57 - error: Cannot access attribute "sum" for class "Index[bool]"
+    Attribute "sum" is unknown (reportAttributeAccessIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:293:28 - error: No overloads for "isna" match the provided arguments (reportCallIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:293:36 - error: Argument of type "Hashable" cannot be assigned to parameter "obj" of type "Scalar | NaTType | NAType | None" in function "isna"
+    Type "Hashable" is not assignable to type "Scalar | NaTType | NAType | None"
+      "Hashable" is not assignable to "str"
+      "Hashable" is not assignable to "bytes"
+      "Hashable" is not assignable to "date"
+      "Hashable" is not assignable to "datetime"
+      "Hashable" is not assignable to "timedelta"
+      "Hashable" is not assignable to "datetime64[date | int | None]"
+      "Hashable" is not assignable to "timedelta64[timedelta | int | None]"
+    ... (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:299:8 - error: Condition will always evaluate to False since the types "DataFrame" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/inspect/statistics_1d/instrument.py:320:8 - error: Condition will always evaluate to False since the types "Series[Any]" and "None" have no overlap (reportUnnecessaryComparison)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:61:5 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:61:5 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:67:5 - error: Type of "rows" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:67:12 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:67:12 - error: Type of "fetchall" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:92:9 - error: Type of "r" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:95:26 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:97:34 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:98:35 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:99:32 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:100:35 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:101:38 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:102:35 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:103:36 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:104:70 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:105:70 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:106:30 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:107:42 - error: Argument type is unknown
+    Argument corresponds to parameter "object" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:114:5 - error: Type of parameter "conn" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:114:5 - error: Type annotation is missing for parameter "conn" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:138:5 - error: Type of "cur" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:138:11 - error: Type of "execute" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:184:5 - error: Type of "inserted" is unknown (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:184:16 - error: Type of "rowcount" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_mappings.py:185:12 - error: Return type, "tuple[Unknown, str]", is partially unknown (reportUnknownVariableType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:10:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:11:6 - warning: Stub file not found for "mxm_refdata.models.contracts.futures_contract" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:17 - error: Type of "first_date" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:17 - error: Type of "year" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:17 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:19 - error: Cannot access attribute "first_date" for class "object"
+    Attribute "first_date" is unknown (reportAttributeAccessIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:41 - error: Type of "first_date" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:41 - error: Type of "month" is unknown (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:41 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/mapping/vendors/databento/instrument_resolver.py:103:43 - error: Cannot access attribute "first_date" for class "object"
+    Attribute "first_date" is unknown (reportAttributeAccessIssue)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:9:6 - warning: Stub file not found for "mxm_refdata.models.contracts.futures_contract" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:82:5 - error: Type of "gates" is partially unknown
+    Type of "gates" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:92:5 - error: Type of "runs" is partially unknown
+    Type of "runs" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:98:5 - error: Type of "counts" is partially unknown
+    Type of "counts" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:406:32 - error: Condition will always evaluate to True since the types "Path" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:492:32 - error: Condition will always evaluate to True since the types "Path" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:546:41 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present
+    ... (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:546:41 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:556:48 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present
+    ... (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/daily_stats.py:556:48 - error: Argument of type "object" cannot be assigned to parameter "x" of type "ConvertibleToInt" in function "__new__"
+    Type "object" is not assignable to type "ConvertibleToInt"
+      "object" is not assignable to "str"
+      "object" is incompatible with protocol "Buffer"
+        "__buffer__" is not present
+      "object" is incompatible with protocol "SupportsInt"
+        "__int__" is not present
+      "object" is incompatible with protocol "SupportsIndex"
+        "__index__" is not present (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:9:6 - warning: Stub file not found for "mxm_refdata.models.contracts.futures_contract" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:97:5 - error: Type of "gates" is partially unknown
+    Type of "gates" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:111:5 - error: Type of "runs" is partially unknown
+    Type of "runs" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:116:5 - error: Type of "counts" is partially unknown
+    Type of "counts" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:239:5 - error: Type of parameter "client" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:239:5 - error: Type annotation is missing for parameter "client" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:293:16 - error: Argument type is unknown
+    Argument corresponds to parameter "client" in function "get_dataset_range" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py:574:24 - error: Argument type is unknown
+    Argument corresponds to parameter "client" in function "estimate_cost_ohlcv_1d" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata.py:39:54 - error: Type of "ingest_ohlcv_1d_for_product" is partially unknown
+    Type of "ingest_ohlcv_1d_for_product" is "(*, backend: SQLiteBackend, store: OHLCV1DStore, product_id: str, mode: Literal['bootstrap', 'update'], cost_cap_usd: float, client: Unknown, max_contracts: int | None = None, dry_run: bool = False, reset_local: bool = False) -> OHLCV1DOrchestratorReport" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata.py:771:9 - error: Type of "counts" is partially unknown
+    Type of "counts" is "Any | dict[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata.py:780:16 - error: Argument type is partially unknown
+    Argument corresponds to parameter "counts" in function "__init__"
+    Argument type is "dict[str, Any] | dict[Unknown, Unknown]" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:207:21 - error: Type of parameter "row" is unknown (reportUnknownParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:207:21 - error: Type annotation is missing for parameter "row" (reportMissingParameterType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:209:5 - error: Type of "summary_raw" is partially unknown
+    Type of "summary_raw" is "Unknown | Literal['{}']" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:211:30 - error: Argument type is partially unknown
+    Argument corresponds to parameter "s" in function "loads"
+    Argument type is "Unknown | Literal['{}']" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:215:9 - error: Type of "summary" is partially unknown
+    Type of "summary" is "dict[str, bool | Unknown | str]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:218:21 - error: Argument type is unknown
+    Argument corresponds to parameter "attempt_uid" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:219:20 - error: Argument type is unknown
+    Argument corresponds to parameter "created_at" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:220:20 - error: Argument type is unknown
+    Argument corresponds to parameter "run_ts_utc" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:221:14 - error: Argument type is unknown
+    Argument corresponds to parameter "mode" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:222:22 - error: Argument type is unknown
+    Argument corresponds to parameter "o" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:223:20 - error: Argument type is unknown
+    Argument corresponds to parameter "o" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:224:26 - error: Argument type is unknown
+    Argument corresponds to parameter "o" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:225:20 - error: Argument type is unknown
+    Argument corresponds to parameter "product_id" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:226:28 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:227:29 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:228:29 - error: Argument type is unknown
+    Argument corresponds to parameter "x" in function "__new__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:229:16 - error: Argument type is unknown
+    Argument corresponds to parameter "status" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:230:21 - error: Argument type is unknown
+    Argument corresponds to parameter "stop_reason" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:231:20 - error: Argument type is unknown
+    Argument corresponds to parameter "started_at" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:232:21 - error: Argument type is unknown
+    Argument corresponds to parameter "finished_at" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:233:17 - error: Argument type is partially unknown
+    Argument corresponds to parameter "summary" in function "__init__"
+    Argument type is "dict[str, Any] | dict[Unknown, Unknown] | dict[str, bool | Unknown | str]" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:234:20 - error: Argument type is unknown
+    Argument corresponds to parameter "error_type" in function "__init__" (reportUnknownArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py:235:23 - error: Argument type is unknown
+    Argument corresponds to parameter "error_message" in function "__init__" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:9:6 - warning: Stub file not found for "mxm_refdata.models.contracts.futures_contract" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:99:5 - error: Type of "gates" is partially unknown
+    Type of "gates" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:113:5 - error: Type of "runs" is partially unknown
+    Type of "runs" is "list[Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:118:5 - error: Type of "counts" is partially unknown
+    Type of "counts" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:527:32 - error: Argument of type "Statistics1DAttemptRow | None" cannot be assigned to parameter "latest_attempt" of type "OHLCV1DAttemptRow | None" in function "derive_state"
+    Type "Statistics1DAttemptRow | None" is not assignable to type "OHLCV1DAttemptRow | None"
+      Type "Statistics1DAttemptRow" is not assignable to type "OHLCV1DAttemptRow | None"
+        "Statistics1DAttemptRow" is not assignable to "OHLCV1DAttemptRow"
+        "Statistics1DAttemptRow" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:528:20 - error: Argument of type "ExpectedWindow" cannot be assigned to parameter "ew" of type "ExpectedWindow" in function "derive_state"
+    "mxm.v1.marketdata.datasets.statistics_1d.expected.ExpectedWindow" is not assignable to "mxm.v1.marketdata.datasets.ohlcv_1d.expected.ExpectedWindow" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:529:30 - error: Argument of type "AttemptsCoverageSnapshot" cannot be assigned to parameter "coverage_now" of type "AttemptsCoverageSnapshot | None" in function "derive_state"
+    Type "AttemptsCoverageSnapshot" is not assignable to type "AttemptsCoverageSnapshot | None"
+      "mxm.v1.marketdata.datasets.statistics_1d.attempts_store.AttemptsCoverageSnapshot" is not assignable to "mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store.AttemptsCoverageSnapshot"
+      "AttemptsCoverageSnapshot" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/orchestrators/statistics_1d.py:537:32 - error: Argument of type "Statistics1DAttemptRow | None" cannot be assigned to parameter "latest_attempt" of type "OHLCV1DAttemptRow | None" in function "decide_action"
+    Type "Statistics1DAttemptRow | None" is not assignable to type "OHLCV1DAttemptRow | None"
+      Type "Statistics1DAttemptRow" is not assignable to type "OHLCV1DAttemptRow | None"
+        "Statistics1DAttemptRow" is not assignable to "OHLCV1DAttemptRow"
+        "Statistics1DAttemptRow" is not assignable to "None" (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/daily_stats.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/daily_stats.py:237:24 - error: No overloads for "astype" match the provided arguments (reportCallIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/daily_stats.py:237:40 - error: Argument of type "str" cannot be assigned to parameter "dtype" of type "ObjectDtypeArg | VoidDtypeArg | DtypeObj" in function "astype"
+    Type "str" is not assignable to type "ObjectDtypeArg | VoidDtypeArg | DtypeObj"
+      Type "str" is not assignable to type "type[object]"
+      Type "str" is not assignable to type "type[object_]"
+      Type "str" is not assignable to type "type[void]"
+      "str" is not assignable to "ExtensionDtype"
+      "str" is not assignable to "dtype[generic[Any]]"
+      "str" is not assignable to type "Literal['object']"
+      "str" is not assignable to type "Literal['object_']"
+    ... (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/instrument_definitions.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/instrument_definitions.py:50:16 - error: Return type is unknown (reportUnknownVariableType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/ohlcv_1d.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/ohlcv_1d.py:87:8 - error: Condition will always evaluate to False since the types "DataFrame" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/ohlcv_1d.py:149:8 - error: Condition will always evaluate to False since the types "DataFrame" and "None" have no overlap (reportUnnecessaryComparison)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/ohlcv_1d.py:167:24 - error: No overloads for "astype" match the provided arguments (reportCallIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/ohlcv_1d.py:167:40 - error: Argument of type "str" cannot be assigned to parameter "dtype" of type "ObjectDtypeArg | VoidDtypeArg | DtypeObj" in function "astype"
+    Type "str" is not assignable to type "ObjectDtypeArg | VoidDtypeArg | DtypeObj"
+      Type "str" is not assignable to type "type[object]"
+      Type "str" is not assignable to type "type[object_]"
+      Type "str" is not assignable to type "type[void]"
+      "str" is not assignable to "ExtensionDtype"
+      "str" is not assignable to "dtype[generic[Any]]"
+      "str" is not assignable to type "Literal['object']"
+      "str" is not assignable to type "Literal['object_']"
+    ... (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/statistics_1d.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/statistics_1d.py:239:24 - error: No overloads for "astype" match the provided arguments (reportCallIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/schema/statistics_1d.py:239:40 - error: Argument of type "str" cannot be assigned to parameter "dtype" of type "ObjectDtypeArg | VoidDtypeArg | DtypeObj" in function "astype"
+    Type "str" is not assignable to type "ObjectDtypeArg | VoidDtypeArg | DtypeObj"
+      Type "str" is not assignable to type "type[object]"
+      Type "str" is not assignable to type "type[object_]"
+      Type "str" is not assignable to type "type[void]"
+      "str" is not assignable to "ExtensionDtype"
+      "str" is not assignable to "dtype[generic[Any]]"
+      "str" is not assignable to type "Literal['object']"
+      "str" is not assignable to type "Literal['object_']"
+    ... (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py:38:48 - error: Type "DatasetRangeResponse" is not assignable to declared type "dict[str, str | dict[str, str]]"
+    "DatasetRangeResponse" is not assignable to "dict[str, str | dict[str, str]]" (reportAssignmentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py:44:9 - error: Type of "schema_payload" is partially unknown
+    Type of "schema_payload" is "str | Unknown | None" (reportUnknownVariableType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py:44:26 - error: Type of "get" is partially unknown
+    Type of "get" is "Unknown | Overload[(key: str, default: None = None, /) -> (str | None), (key: str, default: str, /) -> str, (key: str, default: _T@get, /) -> (str | _T@get)]" (reportUnknownMemberType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py:44:37 - error: Cannot access attribute "get" for class "str"
+    Attribute "get" is unknown (reportAttributeAccessIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/dataset_range.py:50:40 - error: Argument type is partially unknown
+    Argument corresponds to parameter "payload" in function "_range_from_payload"
+    Argument type is "dict[Unknown, Unknown]" (reportUnknownArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/timeseries.py
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/timeseries.py:178:34 - error: No overloads for "__init__" match the provided arguments (reportCallIssue)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/timeseries.py:178:34 - error: Type "dict[bytes, bytes]" is not assignable to declared type "Dict[str, Any]"
+    "dict[bytes, bytes]" is not assignable to "Dict[str, Any]"
+      Type parameter "_KT@dict" is invariant, but "bytes" is not the same as "str" (reportAssignmentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/marketdata/vendors/databento/timeseries.py:178:39 - error: Argument of type "JSONObj | None" cannot be assigned to parameter "iterable" of type "Iterable[list[bytes]]" in function "__init__"
+    Type "JSONObj | None" is not assignable to type "Iterable[list[bytes]]"
+      "Mapping[str, JSONValue]" is not assignable to "Iterable[list[bytes]]"
+        Type parameter "_T_co@Iterable" is covariant, but "str" is not a subtype of "list[bytes]"
+          "str" is not assignable to "list[bytes]" (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:55:6 - warning: Stub file not found for "mxm_refdata.api.ref_data_api" (reportMissingTypeStubs)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:152:26 - error: Argument of type "datetime64[date | int | None] | None" cannot be assigned to parameter "previous_session" of type "Timestamp | None" in function "__init__"
+    Type "datetime64[date | int | None] | None" is not assignable to type "Timestamp | None"
+      Type "datetime64[date | int | None]" is not assignable to type "Timestamp | None"
+        "datetime64[date | int | None]" is not assignable to "Timestamp"
+        "datetime64[date | int | None]" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:153:17 - error: Argument of type "datetime64[date | int | None]" cannot be assigned to parameter "session" of type "Timestamp" in function "__init__"
+    "datetime64[date | int | None]" is not assignable to "Timestamp" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:206:17 - error: Argument of type "datetime64[date | int | None]" cannot be assigned to parameter "session" of type "Timestamp" in function "_get_fx_multiplier"
+    "datetime64[date | int | None]" is not assignable to "Timestamp" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:214:26 - error: Argument of type "datetime64[date | int | None] | None" cannot be assigned to parameter "previous_session" of type "Timestamp | None" in function "_compute_contract_price_move_pnl"
+    Type "datetime64[date | int | None] | None" is not assignable to type "Timestamp | None"
+      Type "datetime64[date | int | None]" is not assignable to type "Timestamp | None"
+        "datetime64[date | int | None]" is not assignable to "Timestamp"
+        "datetime64[date | int | None]" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:215:17 - error: Argument of type "datetime64[date | int | None]" cannot be assigned to parameter "session" of type "Timestamp" in function "_compute_contract_price_move_pnl"
+    "datetime64[date | int | None]" is not assignable to "Timestamp" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:223:17 - error: Argument of type "datetime64[date | int | None]" cannot be assigned to parameter "session" of type "Timestamp" in function "_compute_contract_trade_pnl"
+    "datetime64[date | int | None]" is not assignable to "Timestamp" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:262:17 - error: Argument of type "Timestamp" cannot be assigned to parameter "session" of type "datetime64[date | int | None]" in function "get_mark_price"
+    "Timestamp" is not assignable to "datetime64[date | int | None]" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:266:17 - error: Argument of type "Timestamp" cannot be assigned to parameter "session" of type "datetime64[date | int | None]" in function "get_mark_price"
+    "Timestamp" is not assignable to "datetime64[date | int | None]" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/pnl/constructor.py:302:17 - error: Argument of type "Timestamp" cannot be assigned to parameter "session" of type "datetime64[date | int | None]" in function "get_mark_price"
+    "Timestamp" is not assignable to "datetime64[date | int | None]" (reportArgumentType)
+/Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/construction_policy.py
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/construction_policy.py:55:6 - warning: Stub file not found for "mxm_refdata.models" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/policy_compile.py
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/policy_compile.py:35:6 - warning: Stub file not found for "mxm_refdata.models" (reportMissingTypeStubs)
+/Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/target_holdings.py
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/target_holdings.py:290:25 - error: Argument of type "Literal['contract_id']" cannot be assigned to parameter "mapper" of type "Renamer | None" in function "rename"
+    Type "Literal['contract_id']" is not assignable to type "Renamer | None"
+      "Literal['contract_id']" is not assignable to "Mapping[Any, Label]"
+      Type "Literal['contract_id']" is not assignable to type "(Any) -> Label"
+      "Literal['contract_id']" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/target_holdings.py:302:25 - error: Argument of type "Literal['weight']" cannot be assigned to parameter "mapper" of type "Renamer | None" in function "rename"
+    Type "Literal['weight']" is not assignable to type "Renamer | None"
+      "Literal['weight']" is not assignable to "Mapping[Any, Label]"
+      Type "Literal['weight']" is not assignable to type "(Any) -> Label"
+      "Literal['weight']" is not assignable to "None" (reportArgumentType)
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/target_holdings.py:325:34 - error: "unit" is not a known attribute of "None" (reportOptionalMemberAccess)
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/target_holdings.py:326:40 - error: "contract_size" is not a known attribute of "None" (reportOptionalMemberAccess)
+/Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/unit_conversion.py
+  /Users/mxm/mxm-v1/src/mxm/v1/synthetic_assets/unit_conversion.py:19:6 - warning: Stub file not found for "mxm_refdata.models" (reportMissingTypeStubs)
+199 errors, 25 warnings, 0 informations
+WARNING: there is a new pyright version available (v1.1.408 -> v1.1.409).
+Please install the new version or set PYRIGHT_PYTHON_FORCE_VERSION to `latest`
+

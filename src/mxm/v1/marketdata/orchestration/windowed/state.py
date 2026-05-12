@@ -83,7 +83,11 @@ def is_systemic_error(
     # Authentication / permission failures
     if "authentication" in m or "permission" in m or "unauthorized" in m:
         return True
-    if "forbidden" in m or "invalid api key" in m or "api key" in m and "invalid" in m:
+    if (
+        "forbidden" in m
+        or "invalid api key" in m
+        or ("api key" in m and "invalid" in m)
+    ):
         return True
 
     # Schema / migration / structural issues

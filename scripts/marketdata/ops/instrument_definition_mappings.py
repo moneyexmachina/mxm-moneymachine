@@ -97,7 +97,7 @@ def main() -> None:
     print(f"[args] product_id={args.product_id}")
     print(f"[args] mode={args.mode}")
     print(f"[args] reset={bool(args.reset)}")
-    print(f"[args] root={str(root)}")
+    print(f"[args] root={root!s}")
     print(f"[db]   sqlite={backend.db_path()}")
 
     report = rebuild_instrument_definition_mappings(

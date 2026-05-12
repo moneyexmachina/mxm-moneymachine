@@ -33,18 +33,17 @@ import argparse
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Databento
 import databento as db  # type: ignore
 import pandas as pd
-
-# MXM
-from mxm_refdata.api.ref_data_api import RefDataAPI
 from mxm_secrets import get_secret
 from rich.console import Console
 from rich.table import Table
 
+# MXM
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.marketdata.mapping.vendors.databento import (
     fetch_product_instruments_table,
     list_instruments_for_parent,
@@ -57,7 +56,7 @@ from mxm.v1.marketdata.mapping.vendors.databento.store_sqlite import (
 )
 
 
-def _parse_date(s: Optional[str]) -> Optional[date]:
+def _parse_date(s: str | None) -> date | None:
     if s is None:
         return None
     return date.fromisoformat(s)
@@ -179,7 +178,7 @@ def main() -> None:
 
     fmt: str = args.format
     product_id: str = args.product_id
-    as_of: Optional[date] = _parse_date(args.as_of)
+    as_of: date | None = _parse_date(args.as_of)
 
     # --- SQLite store (exists even if empty; proves wiring)
     db_path = Path(args.db_path) if args.db_path else _default_db_path()
@@ -221,7 +220,7 @@ def main() -> None:
     dataset = root.dataset
     parent = root.parent
 
-    print(f"\nDatabento product root mapping:")
+    print("\nDatabento product root mapping:")
     print(f"  product_id = {product_id}")
     print(f"  dataset    = {dataset}")
     print(f"  parent     = {parent}")

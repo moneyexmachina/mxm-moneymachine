@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from mxm.types import JSONObj, JSONValue
 
+from mxm.types import JSONObj, JSONValue
 from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec
 from mxm.v1.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,

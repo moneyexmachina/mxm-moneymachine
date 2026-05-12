@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
 from rich.console import Console
 from rich.table import Table
+
+from mxm.refdata.api.ref_data_api import RefDataAPI
 
 
 def _parse_date(s: str) -> date:
@@ -57,7 +58,7 @@ def _contracts_to_df(contracts: list[Any]) -> pd.DataFrame:
     return df
 
 
-def _print_df_as_rich_table(df: pd.DataFrame, *, title: Optional[str] = None) -> None:
+def _print_df_as_rich_table(df: pd.DataFrame, *, title: str | None = None) -> None:
     import sys
 
     console = Console(file=sys.stdout, force_terminal=True)

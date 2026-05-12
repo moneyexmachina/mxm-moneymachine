@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.marketdata.datasets.daily_mark.store import DailyMarkStore
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 

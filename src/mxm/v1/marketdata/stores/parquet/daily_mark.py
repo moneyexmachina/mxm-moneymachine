@@ -90,7 +90,7 @@ def _build_daily_mark_meta(
         "mxm_schema_columns": list(DAILY_MARK.columns),
         "contract_id": str(contract_id),
         "calendar_id": str(calendar_id),
-        "row_count": int(len(df)),
+        "row_count": len(df),
         "min_session_id": min_session_id,
         "max_session_id": max_session_id,
         "content_sha256": content_sha256,
@@ -271,7 +271,7 @@ def write_daily_mark(
 
             return {
                 "wrote": False,
-                "rows": int(len(df_old)),
+                "rows": len(df_old),
                 "min_session_id": smin,
                 "max_session_id": smax,
                 "content_sha256": sha_old,
@@ -302,7 +302,7 @@ def write_daily_mark(
 
     return {
         "wrote": True,
-        "rows": int(len(df_new)),
+        "rows": len(df_new),
         "min_session_id": smin,
         "max_session_id": smax,
         "content_sha256": meta["content_sha256"],

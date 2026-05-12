@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Mapping
+from typing import Any, Literal
 
-from mxm_refdata.models.periods import PeriodType
+from mxm.refdata.models.periods import PeriodType
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +62,8 @@ class PeriodFilter:
     # Serialisation (config / audit safe)
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {"period_type": self.period_type.name}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"period_type": self.period_type.name}
         if self.cycle_id is not None:
             d["cycle_id"] = self.cycle_id
         if self.cycle_elements is not None:
@@ -70,7 +71,7 @@ class PeriodFilter:
         return d
 
     @staticmethod
-    def from_dict(d: Mapping[str, Any]) -> "PeriodFilter":
+    def from_dict(d: Mapping[str, Any]) -> PeriodFilter:
         period_type = PeriodType[d["period_type"]]
 
         cycle_id_raw = d.get("cycle_id", None)
@@ -113,17 +114,17 @@ class SelectorRule:
         if self.n < 1:
             raise ValueError("SelectorRule.n must be >= 1 (1-indexed)")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"period_filter": self.period_filter.to_dict(), "n": self.n}
 
     @staticmethod
-    def from_dict(d: Mapping[str, Any]) -> "SelectorRule":
+    def from_dict(d: Mapping[str, Any]) -> SelectorRule:
         pf = PeriodFilter.from_dict(d["period_filter"])
         n = int(d.get("n", 1))
         return SelectorRule(period_filter=pf, n=n)
 
     @staticmethod
-    def from_canonical_relative_id(s: str) -> "SelectorRule":
+    def from_canonical_relative_id(s: str) -> SelectorRule:
         from mxm.v1.contracts.relative_ids import parse_canonical_relative_id
 
         return parse_canonical_relative_id(s)
@@ -152,7 +153,7 @@ class SelectionExplanation:
     message: str | None
     details: Mapping[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "product_id": self.product_id,
             "as_of_utc": self.as_of_utc,

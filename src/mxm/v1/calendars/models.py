@@ -35,8 +35,9 @@ Non-goals
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, NamedTuple, Sequence, Union, cast
+from typing import Literal, NamedTuple, cast
 
 import numpy as np
 import pandas as pd
@@ -236,11 +237,11 @@ class TradingCalendar:
 
     # ---------- basic predicates (labels) ----------
 
-    def is_trading_day(self, d: Union[str, np.datetime64]) -> bool:
+    def is_trading_day(self, d: str | np.datetime64) -> bool:
         dd = coerce_np_day(d)
         return searchsorted_exact(self.trading_days, dd) is not None
 
-    def is_projected_day(self, d: Union[str, np.datetime64]) -> bool:
+    def is_projected_day(self, d: str | np.datetime64) -> bool:
         """
         Return True iff `d` is a trading day and lies in the projected region.
         """
@@ -250,7 +251,7 @@ class TradingCalendar:
         return self.is_trading_day(dd)
 
     def normalize(
-        self, d: Union[str, np.datetime64], how: NormalizeHow = "raise"
+        self, d: str | np.datetime64, how: NormalizeHow = "raise"
     ) -> np.datetime64:
         """
         Normalize an arbitrary date to a trading day.
@@ -499,7 +500,7 @@ class TradingCalendar:
     # ---------- neighborhood operations (labels) ----------
 
     def next_trading_day(
-        self, d: Union[str, np.datetime64], *, strict: bool = True
+        self, d: str | np.datetime64, *, strict: bool = True
     ) -> np.datetime64:
         dd = coerce_np_day(d)
         if strict:
@@ -517,7 +518,7 @@ class TradingCalendar:
         return self.trading_days[j]
 
     def prev_trading_day(
-        self, d: Union[str, np.datetime64], *, strict: bool = True
+        self, d: str | np.datetime64, *, strict: bool = True
     ) -> np.datetime64:
         dd = coerce_np_day(d)
         if strict:
@@ -538,7 +539,7 @@ class TradingCalendar:
 
     def add_trading_days(
         self,
-        d: Union[str, np.datetime64],
+        d: str | np.datetime64,
         n: int,
         *,
         strict: bool = True,
@@ -564,8 +565,8 @@ class TradingCalendar:
 
     def trading_days_between(
         self,
-        start: Union[str, np.datetime64],
-        end: Union[str, np.datetime64],
+        start: str | np.datetime64,
+        end: str | np.datetime64,
         *,
         inclusive: Literal["both", "left", "right", "neither"] = "both",
         strict: bool = True,
@@ -609,10 +610,8 @@ class TradingCalendar:
 
     def bdays_to_ltd(
         self,
-        asof: Union[
-            str, np.datetime64, np.ndarray, Sequence[Union[str, np.datetime64]]
-        ],
-        ltd: Union[str, np.datetime64, np.ndarray, Sequence[Union[str, np.datetime64]]],
+        asof: str | np.datetime64 | np.ndarray | Sequence[str | np.datetime64],
+        ltd: str | np.datetime64 | np.ndarray | Sequence[str | np.datetime64],
         *,
         strict: bool = True,
         normalize_asof: NormalizeHow = "raise",
@@ -687,7 +686,7 @@ class TradingCalendar:
 
     # ---------- session label -> schedule boundary mapping (schedule mode) ----------
 
-    def session_open(self, session: Union[str, np.datetime64]) -> pd.Timestamp:
+    def session_open(self, session: str | np.datetime64) -> pd.Timestamp:
         """
         Return the UTC open timestamp for a given session label.
 
@@ -729,7 +728,7 @@ class TradingCalendar:
 
         return to_utc_ts(pd.Timestamp(cache.opens[idx]))
 
-    def session_close(self, session: Union[str, np.datetime64]) -> pd.Timestamp:
+    def session_close(self, session: str | np.datetime64) -> pd.Timestamp:
         """
         Return the UTC close timestamp for a given session label.
 
@@ -773,7 +772,7 @@ class TradingCalendar:
 
     def session_bounds(
         self,
-        session: Union[str, np.datetime64],
+        session: str | np.datetime64,
     ) -> tuple[pd.Timestamp, pd.Timestamp]:
         """
         Return the UTC (open, close) timestamps for a given session label.

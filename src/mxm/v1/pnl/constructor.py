@@ -52,8 +52,8 @@ Design notes
 from collections.abc import Sequence
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.execution.contract_bundles import ContractBundle
 from mxm.v1.execution.executor import ExecutionResult
 from mxm.v1.execution.price_accessors import MarkPriceAccessor

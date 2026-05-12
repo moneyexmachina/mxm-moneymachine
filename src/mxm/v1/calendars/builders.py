@@ -226,7 +226,7 @@ def build_exchange_calendars_v1(
     reg_path = registry_path(cal_root)
     reg = load_calendar_registry(reg_path) if reg_path.exists() else {}
     now = (
-        dt.datetime.now(dt.timezone.utc)
+        dt.datetime.now(dt.UTC)
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z")

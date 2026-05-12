@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -75,7 +76,7 @@ class CoverageCheck:
 
     ok: bool
     feed: str
-    watermark: Optional[str]
+    watermark: str | None
     required_end: str
     reason: str  # "ok" | "no_watermark" | "watermark_before_required_end"
 

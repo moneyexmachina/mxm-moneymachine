@@ -19,9 +19,10 @@ This module defines the strict schema and validation rules for those entries.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, cast
+from typing import Any, cast
 
 import numpy as np
 import yaml
@@ -62,7 +63,7 @@ class SourceInfo:
     """
 
     kind: str
-    spec: Dict[str, Any]
+    spec: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +77,7 @@ class BuilderInfo:
 
     builder_id: str
     mxm_version: str | None
-    params: Dict[str, Any] | None
+    params: dict[str, Any] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +114,7 @@ class CalendarRegistryError(RuntimeError):
         super().__init__(message)
 
 
-def load_calendar_registry(registry_path: Path) -> Dict[str, CalendarRegistryEntry]:
+def load_calendar_registry(registry_path: Path) -> dict[str, CalendarRegistryEntry]:
     """
     Load calendar_registry.yaml and return mapping calendar_id -> CalendarRegistryEntry.
 
@@ -131,10 +132,10 @@ def load_calendar_registry(registry_path: Path) -> Dict[str, CalendarRegistryEnt
     if raw is None:
         raise CalendarRegistryError(f"Calendar registry is empty: {registry_path}")
 
-    entries: Dict[str, Dict[str, Any]]
+    entries: dict[str, dict[str, Any]]
 
     if isinstance(raw, dict):
-        raw_dict = cast(Dict[Any, Any], raw)
+        raw_dict = cast(dict[Any, Any], raw)
 
         # If it looks like a single entry dict (has calendar_id), wrap it.
         if "calendar_id" in raw_dict:
@@ -143,10 +144,10 @@ def load_calendar_registry(registry_path: Path) -> Dict[str, CalendarRegistryEnt
                 raise CalendarRegistryError(
                     "Registry single-entry mapping missing valid calendar_id"
                 )
-            entries = {cid_any: cast(Dict[str, Any], raw_dict)}
+            entries = {cid_any: cast(dict[str, Any], raw_dict)}
         else:
             # Expect {calendar_id: entry_dict, ...}
-            tmp: Dict[str, Dict[str, Any]] = {}
+            tmp: dict[str, dict[str, Any]] = {}
             for k, v in raw_dict.items():
                 if not isinstance(k, str):
                     raise CalendarRegistryError(
@@ -156,16 +157,16 @@ def load_calendar_registry(registry_path: Path) -> Dict[str, CalendarRegistryEnt
                     raise CalendarRegistryError(
                         f"Registry entry for {k!r} must be a mapping"
                     )
-                tmp[k] = cast(Dict[str, Any], v)
+                tmp[k] = cast(dict[str, Any], v)
             entries = tmp
 
     elif isinstance(raw, list):
         raw_list = cast(list[Any], raw)
-        tmp2: Dict[str, Dict[str, Any]] = {}
+        tmp2: dict[str, dict[str, Any]] = {}
         for item in raw_list:
             if not isinstance(item, dict):
                 raise CalendarRegistryError("Registry list items must be mappings")
-            item_dict = cast(Dict[str, Any], item)
+            item_dict = cast(dict[str, Any], item)
             cid = item_dict.get("calendar_id")
             if not isinstance(cid, str) or not cid.strip():
                 raise CalendarRegistryError(
@@ -176,7 +177,7 @@ def load_calendar_registry(registry_path: Path) -> Dict[str, CalendarRegistryEnt
 
     else:
         raise CalendarRegistryError(f"Unsupported registry YAML type: {type(raw)!r}")
-    out: Dict[str, CalendarRegistryEntry] = {}
+    out: dict[str, CalendarRegistryEntry] = {}
     for calendar_id, entry_dict in entries.items():
         parsed = _parse_entry(entry_dict, fallback_calendar_id=str(calendar_id))
         validate_registry_entry(parsed)
@@ -265,7 +266,7 @@ def validate_registry_files_exist(
     p = entry.projection
 
     cal_dir = calendar_root / entry.calendar_id
-    missing: List[str] = []
+    missing: list[str] = []
 
     for fn in (o.trading_days_artifact, o.schedule_artifact, p.trading_days_artifact):
         path = cal_dir / fn
@@ -279,7 +280,7 @@ def validate_registry_files_exist(
 
 
 def _parse_entry(
-    d: Dict[str, Any], *, fallback_calendar_id: str
+    d: dict[str, Any], *, fallback_calendar_id: str
 ) -> CalendarRegistryEntry:
     """
     Parse a single registry entry mapping into a CalendarRegistryEntry.

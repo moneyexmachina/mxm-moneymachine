@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "mxm-v1"
 version = "0.1.0"
-description = "MVP paper futures trading system for Money ex Machina."
+description = "MVP futures trading system for Money ex Machina."
 authors = ["mxm <contact@moneyexmachina.com>"]
 license = "MIT"
 readme = "README.md"
@@ -15,18 +15,30 @@ classifiers = ["Typing :: Typed"]
 
 [tool.poetry.dependencies]
 python = ">=3.13, <3.15"
-mxm-types = "^0.1.1"
-mxm-secrets = { git = "https://github.com/moneyexmachina/mxm-secrets.git", branch = "master" }
-mxm-refdata = { path = "/Users/mxm/mxm-refdata", develop = true }
+mxm-types = "^0.2.2"
+mxm-secrets = "^0.2.0"
+mxm-refdata = "^0.3.0"
+mxm-config = "^0.5.2"
+mxm-dataio = "^0.4.3"
 pydantic = "^2.12.5"
 pydantic-settings = "^2.12.0"
-cachetools = "^6.2.4"
+cachetools = "^7.1.1"
 databento = "^0.68.2"
 click = "^8.2.1"
-mxm-config = "^0.5.1"
-mxm-dataio = "^0.4.0"
-rich = "^14.2.0"
+rich = "^15.0.0"
 exchange-calendars = "^4.13"
+
+[tool.poetry.group.dev.dependencies]
+isort = "^6.0.1"
+black = "^25.9.0"
+ruff = "^0.13.2"
+pytest = "^8.4.2"
+ipython = "^9.6.0"
+pyright = "^1.1.406"
+pandas-stubs = "^2.3.3.260113"
+
+[tool.poetry.group.reports.dependencies]
+matplotlib = "^3.10.8"
 
 [[tool.poetry.source]]
 name = "PyPI"
@@ -38,19 +50,8 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 mxm = "mxm.v1.cli.main:main"
-# -------------------------
-# Coding standards
-# -------------------------
 
-[tool.ruff]
-line-length = 88
-target-version = "py313"
-# Select rulesets; expand gradually if desired
-lint.select = ["E", "F", "B", "ANN"]
-# Exclude common non-source dirs
-exclude = ["build", "dist", ".venv"]
-
-
+# ---- Tooling (package-local, MXM defaults) ----
 [tool.black]
 line-length = 88
 target-version = ["py313"]
@@ -58,37 +59,26 @@ target-version = ["py313"]
 [tool.isort]
 profile = "black"
 line_length = 88
+known_first_party = ["mxm"]
 combine_as_imports = true
 
-[tool.pyright]
-typeCheckingMode = "strict"
-include = ["src"]
-exclude = ["build", "dist", "docs", ".venv"]
-pythonVersion = "3.13"
-pythonPlatform = "All"
-reportMissingImports = "error"
-reportMissingTypeStubs = "warning"
+[tool.ruff]
+line-length = 88
+target-version = "py313"
 
-[tool.poetry.group.dev.dependencies]
-isort = "^6.0.1"
-black = "^25.9.0"
-ruff = "^0.13.2"
-pytest = "^8.4.2"
-ipython = "^9.6.0"
-pyright = "^1.1.406"
-pandas-stubs = "^2.3.3.260113"
+[tool.ruff.lint]
+select = ["E","F","I","B","UP","C90","RUF"]
+ignore = ["E203","E501"]
 
-
-
-[tool.poetry.group.reports.dependencies]
-matplotlib = "^3.10.8"
+[tool.ruff.lint.isort]
+known-first-party = ["mxm"]
 
 [tool.pytest.ini_options]
-# Base configuration
-addopts = "-ra -q"
-
-# Define custom markers
+addopts = "-q"
+pythonpath = ["src"]
 markers = [
     "integration: tests hitting external services (API, DB, network)",
     "slow: long-running tests (>30s, heavy compute/backtest)",
 ]
+
+

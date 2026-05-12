@@ -91,8 +91,8 @@ All time-indexed surfaces are constructed in later sessions by combining:
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from mxm.v1.synthetic_assets.canonical_ids import validate_synthetic_asset_canonical_id
 

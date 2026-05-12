@@ -105,9 +105,9 @@ def main() -> None:
         instrument_id=instrument_id,
     )
     validate_ohlcv_1d(df_read_1)
-    assert len(df_read_1) == 3, (
-        f"expected 3 rows after first write, got {len(df_read_1)}"
-    )
+    assert (
+        len(df_read_1) == 3
+    ), f"expected 3 rows after first write, got {len(df_read_1)}"
 
     print("[step] Write overlapping dummy df (2 rows, one overlap)")
     df2 = _make_dummy_df(
@@ -137,12 +137,12 @@ def main() -> None:
     expected_dates = pd.to_datetime(
         ["2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06"], utc=True
     )
-    assert len(df_read_2) == 4, (
-        f"expected 4 unique rows after merge, got {len(df_read_2)}"
-    )
-    assert (df_read_2["ts_event"].to_numpy() == expected_dates.to_numpy()).all(), (
-        "ts_event ordering/values mismatch"
-    )
+    assert (
+        len(df_read_2) == 4
+    ), f"expected 4 unique rows after merge, got {len(df_read_2)}"
+    assert (
+        df_read_2["ts_event"].to_numpy() == expected_dates.to_numpy()
+    ).all(), "ts_event ordering/values mismatch"
 
     print("[ok] Store round-trip proof passed.")
     print(f"[info] Stored at: {bars_path}")

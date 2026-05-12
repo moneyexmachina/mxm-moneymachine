@@ -30,10 +30,9 @@ It is the canonical place where policy meaning is turned into concrete
 SyntheticAssetSpec definitions.
 """
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
-from mxm_refdata.models import FuturesProduct, PeriodType
-
+from mxm.refdata.models import FuturesProduct, PeriodType
 from mxm.v1.contracts.selectors import SelectorRule
 from mxm.v1.synthetic_assets.construction_policy import (
     PeriodFamilyPolicy,

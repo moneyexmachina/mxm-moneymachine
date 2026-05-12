@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -27,8 +26,8 @@ class StoreCoverageSnapshot:
     bars_path: Path
     exists: bool
     row_count: int
-    min_ts: Optional[pd.Timestamp]
-    max_ts: Optional[pd.Timestamp]
+    min_ts: pd.Timestamp | None
+    max_ts: pd.Timestamp | None
 
 
 class OHLCV1DStore:
@@ -130,7 +129,7 @@ class OHLCV1DStore:
         return StoreCoverageSnapshot(
             bars_path=path,
             exists=True,
-            row_count=int(len(df)),
+            row_count=len(df),
             min_ts=ts_min,
             max_ts=ts_max,
         )

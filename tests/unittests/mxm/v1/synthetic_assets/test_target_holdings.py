@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import pytest
-from mxm_refdata.models import ProductUnit
 
+from mxm.refdata.models import ProductUnit
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec

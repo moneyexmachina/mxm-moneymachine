@@ -1,4 +1,4 @@
-from mxm_refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.api.ref_data_api import RefDataAPI
 
 
 def main() -> None:

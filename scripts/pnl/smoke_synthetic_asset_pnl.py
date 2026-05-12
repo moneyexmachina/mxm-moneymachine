@@ -31,16 +31,16 @@ import matplotlib
 matplotlib.use("Agg")
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import matplotlib.pyplot as plt  # type: ignore[reportUnknownVariableType]
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import (
+
+from mxm.refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
-
 from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
@@ -515,7 +515,7 @@ def main(argv: Sequence[str]) -> int:
         end=str(args.end),
         price_surface="daily_mark",
         target_currency=spec.currency,
-        session_count=int(len(session_df)),
+        session_count=len(session_df),
         cumulative_total_pnl=cumulative_total,
         cumulative_price_move_pnl=cumulative_price_move,
         cumulative_trade_pnl=cumulative_trade,

@@ -26,7 +26,7 @@ import json
 import os
 import sys
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def _bootstrap() -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _to_jsonable(obj: Any) -> Any:

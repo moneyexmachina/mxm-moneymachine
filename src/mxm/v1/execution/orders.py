@@ -58,10 +58,10 @@ from enum import Enum
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import (
+
+from mxm.refdata.api.ref_data_api import (
     RefDataAPI,  # type: ignore[reportMissingTypeStubs]
 )
-
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 from mxm.v1.utils.date_utils import coerce_np_day

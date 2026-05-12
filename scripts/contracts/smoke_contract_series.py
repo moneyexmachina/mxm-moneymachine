@@ -18,12 +18,12 @@ Defaults:
 
 import argparse
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import RefDataAPI
-from mxm_refdata.models.periods import PeriodType
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.periods import PeriodType
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import (
     ContractSeriesSpec,
@@ -110,7 +110,7 @@ def main(argv: Sequence[str]) -> int:
     print()
 
     print("Head (first 10 rows)")
-    for s, cid in list(zip(series.sessions, series.contract_ids))[:10]:
+    for s, cid in list(zip(series.sessions, series.contract_ids, strict=False))[:10]:
         print(f"  {s}  ->  {cid}")
 
     switches = series.switch_view(max_rows=50)

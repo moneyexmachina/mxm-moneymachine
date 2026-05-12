@@ -162,7 +162,7 @@ def describe_statistics_1d_events_df(
     settlement_df = d[d["stat_type"] == 3]
     if len(settlement_df) > 0:
         settlement_report = {
-            "row_count": int(len(settlement_df)),
+            "row_count": len(settlement_df),
             "min_ts_event": _minmax_iso(settlement_df["ts_event"])[0],
             "max_ts_event": _minmax_iso(settlement_df["ts_event"])[1],
             "is_final_counts": _value_counts_json(settlement_df, "is_final"),
@@ -252,7 +252,7 @@ def describe_statistics_1d_events_df(
     return {
         "identity": identity,
         "rows": {
-            "row_count": int(len(d)),
+            "row_count": len(d),
             "min_ts_event": min_ts_event,
             "max_ts_event": max_ts_event,
             "min_ts_recv": min_ts_recv,

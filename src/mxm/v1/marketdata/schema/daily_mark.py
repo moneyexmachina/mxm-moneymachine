@@ -26,8 +26,8 @@ Notes
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -199,7 +199,7 @@ def _validate_day_label_series(s: pd.Series, *, column_name: str) -> None:
             [coerce_np_day(v) for v in s.to_numpy()],
             dtype="datetime64[D]",
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise ValueError(
             f"daily_mark `{column_name}` contains values not coercible to "
             f"np.datetime64[D]: {e}"
@@ -422,7 +422,7 @@ def coerce_daily_mark(
         if bool(non_null.any()):
             try:
                 coerced = _coerce_day_label_series(src.loc[non_null])
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 raise ValueError(f"failed to coerce `source_trading_date`: {e}") from e
 
             out.loc[non_null, "source_trading_date"] = coerced.to_numpy()

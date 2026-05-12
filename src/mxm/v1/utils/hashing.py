@@ -19,8 +19,9 @@ No other module in V1 should import hashlib directly.
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd

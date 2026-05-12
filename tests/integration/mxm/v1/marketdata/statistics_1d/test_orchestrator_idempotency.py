@@ -151,12 +151,12 @@ def test_statistics_1d_orchestrator_roundtrip_idempotent(
 
     # 3) If it ingested, we should see coverage_after populated (row_count_after > 0)
     # Names here depend on your attempt row fields; from your earlier printout these exist:
-    assert (a1.stored_rows_after or 0) > 0, (
-        f"expected stored_rows_after > 0, got {a1.stored_rows_after!r}"
-    )
-    assert a1.stored_min_after is not None and a1.stored_max_after is not None, (
-        "expected min/max ts after ingest"
-    )
+    assert (
+        a1.stored_rows_after or 0
+    ) > 0, f"expected stored_rows_after > 0, got {a1.stored_rows_after!r}"
+    assert (
+        a1.stored_min_after is not None and a1.stored_max_after is not None
+    ), "expected min/max ts after ingest"
 
     # Ingest path should set coverage_after
     assert a1.stored_rows_after is not None and a1.stored_rows_after > 0

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ def _format_args(args: ast.arguments) -> str:
     pad = len(all_pos) - len(defaults)
     defaults = [None] * max(pad, 0) + defaults
 
-    for a, d in zip(all_pos, defaults):
+    for a, d in zip(all_pos, defaults, strict=False):
         parts.append(fmt_arg(a, d))
 
     if n_posonly:
@@ -67,7 +67,7 @@ def _format_args(args: ast.arguments) -> str:
             parts.append("*")
 
     # kw-only args (defaults in kw_defaults)
-    for a, d in zip(args.kwonlyargs, args.kw_defaults):
+    for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=False):
         parts.append(fmt_arg(a, d))
 
     # kwarg

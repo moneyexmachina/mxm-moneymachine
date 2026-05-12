@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm_refdata.models.contracts.futures_contract import (
+
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.contracts.futures_contract import (
     FuturesContract,  # type: ignore
 )
-
 from mxm.v1.marketdata.datasets.daily_stats.selection import build_daily_stats_surface
 from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.datasets.ohlcv_1d.api import contract_window_utc_half_open
@@ -567,7 +568,7 @@ def derive_daily_stats_for_product(
                     ),
                 )
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             report.errors += 1
             report.runs.append(
                 ContractRun(
@@ -577,12 +578,12 @@ def derive_daily_stats_for_product(
                     ),
                     dataset=str(getattr(ident, "dataset", None)) if ident else None,
                     publisher_id=(
-                        int(getattr(ident, "publisher_id"))
+                        int(ident.publisher_id)
                         if ident and getattr(ident, "publisher_id", None) is not None
                         else None
                     ),
                     instrument_id=(
-                        int(getattr(ident, "instrument_id"))
+                        int(ident.instrument_id)
                         if ident and getattr(ident, "instrument_id", None) is not None
                         else None
                     ),
@@ -617,6 +618,6 @@ def derive_daily_stats_for_product(
         "skipped_no_upstream": int(report.skipped_no_upstream),
         "unmapped": int(report.unmapped),
         "errors": int(report.errors),
-        "runs": int(len(report.runs)),
+        "runs": len(report.runs),
     }
     return report

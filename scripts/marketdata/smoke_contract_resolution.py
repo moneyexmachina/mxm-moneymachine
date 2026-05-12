@@ -4,8 +4,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.marketdata.mapping.vendors.databento.instrument_resolver import (
     contract_year_month,
     resolve_databento_instrument,
@@ -174,9 +173,9 @@ def _print_single_contract_resolution(
 
     resolved1 = resolve_databento_instrument(backend, contract)
     resolved2 = resolve_databento_instrument(backend, contract)
-    assert resolved1 == resolved2, (
-        f"non-deterministic resolution: {resolved1!r} != {resolved2!r}"
-    )
+    assert (
+        resolved1 == resolved2
+    ), f"non-deterministic resolution: {resolved1!r} != {resolved2!r}"
 
     suspicious = _looks_suspicious_raw_symbol(resolved1.raw_symbol)
 

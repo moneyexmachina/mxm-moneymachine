@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -31,13 +30,13 @@ class StoreCoverageSnapshot:
     stats_path: Path
     exists: bool
     row_count: int
-    min_ts: Optional[pd.Timestamp]
-    max_ts: Optional[pd.Timestamp]
+    min_ts: pd.Timestamp | None
+    max_ts: pd.Timestamp | None
 
-    meta_path: Optional[Path] = None
-    content_sha256: Optional[str] = None
-    artifact_sha256: Optional[str] = None
-    source_content_sha256: Optional[str] = None
+    meta_path: Path | None = None
+    content_sha256: str | None = None
+    artifact_sha256: str | None = None
+    source_content_sha256: str | None = None
 
 
 class DailyStatsStore:
@@ -197,7 +196,7 @@ class DailyStatsStore:
         return StoreCoverageSnapshot(
             stats_path=stats_path,
             exists=True,
-            row_count=int(len(df)),
+            row_count=len(df),
             min_ts=ts_min,
             max_ts=ts_max,
             meta_path=meta_path if meta_path.exists() else None,

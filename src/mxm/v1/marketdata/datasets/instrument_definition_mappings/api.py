@@ -1,9 +1,9 @@
 # mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Optional
 
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
@@ -41,7 +41,7 @@ class MappingCoverageReport:
     unmapped: list[tuple[int, int]]
 
     # optional diagnostics
-    latest_mapping_created_at: Optional[str] = None
+    latest_mapping_created_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ def resolve_latest_identity(
     product_id: str,
     contract_year: int,
     contract_month: int,
-) -> Optional[DatabentoInstrumentIdentity]:
+) -> DatabentoInstrumentIdentity | None:
     """
     Resolve the latest mapping row for (product_id, year, month) to a Databento identity.
 

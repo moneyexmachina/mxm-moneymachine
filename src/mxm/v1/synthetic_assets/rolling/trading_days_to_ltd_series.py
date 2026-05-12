@@ -56,11 +56,11 @@ Pure function of:
 from dataclasses import dataclass
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
 from numpy.typing import NDArray
 
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+    RefDataAPI,
+)
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import ContractSeries
 from mxm.v1.utils.date_utils import coerce_np_day
@@ -121,7 +121,7 @@ def build_trading_days_to_ltd_series(
             f"ContractSeries.sessions must be datetime64[D], got {sessions.dtype}"
         )
 
-    n = int(len(sessions))
+    n = len(sessions)
     if len(series.contract_ids) != n:
         raise ValueError(
             "ContractSeries.sessions and contract_ids must have equal length"

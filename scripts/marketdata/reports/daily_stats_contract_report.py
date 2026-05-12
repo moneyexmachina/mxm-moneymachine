@@ -153,7 +153,7 @@ def main() -> int:
         contract_id=args.contract_id,
         start=args.start,
         end=args.end,
-        rows=int(len(df)),
+        rows=len(df),
         trading_date_min=_fmt_day(td_min),
         trading_date_max=_fmt_day(td_max),
         output_files=[str(settle_path), str(vol_path)],

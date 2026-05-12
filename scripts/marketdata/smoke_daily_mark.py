@@ -118,7 +118,7 @@ def main() -> None:
     print(f"[args] dry_run={bool(args.dry_run)}")
     print(f"[args] force_reset={bool(args.force_reset)}")
     print(f"[args] root={root}")
-    print(f"[calendar] session_count={int(len(business_calendar.session_ids))}")
+    print(f"[calendar] session_count={len(business_calendar.session_ids)}")
 
     report = derive_daily_mark_for_product(
         product_id=args.product_id,

@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import databento as db
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.parquet.daily_bars import write_daily_bars
 from mxm.v1.marketdata.vendors.databento.cost import (

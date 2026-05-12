@@ -82,8 +82,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.marketdata.datasets.daily_mark.api import read_daily_mark_product
 from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_product

@@ -37,10 +37,10 @@ Concretely:
 from dataclasses import dataclass
 
 import numpy as np
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
     RefDataAPI,
 )
-
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine

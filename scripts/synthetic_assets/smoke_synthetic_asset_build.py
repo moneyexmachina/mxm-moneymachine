@@ -23,15 +23,15 @@ This is a human inspection tool, not a regression test.
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
     RefDataAPI,
 )
-
 from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine

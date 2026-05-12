@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import pandas as pd
 
@@ -94,7 +94,7 @@ def _select_one_per_session_date(
     if prefer_final:
         _require_cols(candidates, ["is_final"])
 
-    src_total = int(len(candidates))
+    src_total = len(candidates)
     if src_total == 0:
         diag = StatSelectionDiagnostics(
             stat_type=int(candidates.attrs.get("stat_type", -1)),
@@ -149,7 +149,7 @@ def _select_one_per_session_date(
         source_rows_total=int(candidates.attrs.get("source_rows_total", 0)),
         candidate_rows_total=src_total,
         session_dates_total=int(counts.shape[0]),
-        selected_rows=int(len(selected)),
+        selected_rows=len(selected),
         session_dates_multiple_candidates_n=int(multi.shape[0]),
         session_dates_missing_n=0,  # filled by caller if they supply an expected calendar window
         session_dates_multiple_candidates_sample=multi_sample,

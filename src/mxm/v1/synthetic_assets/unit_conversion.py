@@ -16,8 +16,9 @@ unambiguously to ProductUnit enum members.
 from dataclasses import dataclass, field
 
 import numpy as np
-from mxm_refdata.models import ProductUnit
 from numpy.typing import NDArray
+
+from mxm.refdata.models import ProductUnit
 
 
 class UnsupportedUnitConversion(ValueError):

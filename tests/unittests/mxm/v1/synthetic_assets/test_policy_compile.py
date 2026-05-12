@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from mxm_refdata.models import (
+from mxm.refdata.models import (
     Currency,
     FuturesProduct,
     PeriodType,
     ProductUnit,
     SettlementMethod,
 )
-
 from mxm.v1.synthetic_assets.construction_policy import v1_policy
 from mxm.v1.synthetic_assets.policy_compile import compile_specs_from_policy
 

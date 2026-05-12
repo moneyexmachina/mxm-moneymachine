@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.calendars.loader import load_calendar
 from mxm.v1.calendars.models import TradingCalendar
 from mxm.v1.calendars.registry import CalendarRegistryError
@@ -58,8 +56,8 @@ class TradingCalendarService:
     """
 
     refdata_api: RefDataAPI
-    calendars_root: Optional[Path] = None
-    _cache: Dict[str, TradingCalendar] = field(default_factory=dict)
+    calendars_root: Path | None = None
+    _cache: dict[str, TradingCalendar] = field(default_factory=dict)
 
     def calendar_for_product(self, product_id: str) -> TradingCalendar:
         """

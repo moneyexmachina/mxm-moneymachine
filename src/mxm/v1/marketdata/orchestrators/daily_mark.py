@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm_refdata.models.contracts.futures_contract import (  # type: ignore
+
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.contracts.futures_contract import (  # type: ignore
     FuturesContract,
 )
-
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.marketdata.datasets.daily_mark.builder import build_daily_mark
 from mxm.v1.marketdata.datasets.daily_mark.store import DailyMarkStore
@@ -72,11 +72,11 @@ class ContractRun:
     max_carry_streak: int | None = None
 
 
-def _empty_gate_results() -> List[GateResult]:
+def _empty_gate_results() -> list[GateResult]:
     return []
 
 
-def _empty_contract_runs() -> List[ContractRun]:
+def _empty_contract_runs() -> list[ContractRun]:
     return []
 
 
@@ -229,7 +229,7 @@ def _upstream_snapshot_from_daily_stats(
 
     min_td = fmt_iso_day(df["trading_date"].min())
     max_td = fmt_iso_day(df["trading_date"].max())
-    return int(len(df)), min_td, max_td
+    return len(df), min_td, max_td
 
 
 def derive_daily_mark_for_product(
@@ -572,7 +572,7 @@ def derive_daily_mark_for_product(
                     status_detail=f"{type(e).__name__}:{str(e)[:300]}",
                 )
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             report.errors += 1
             report.runs.append(
                 ContractRun(
@@ -611,6 +611,6 @@ def derive_daily_mark_for_product(
         "unmapped": int(report.unmapped),
         "dry_run_n": int(report.dry_run_n),
         "errors": int(report.errors),
-        "runs": int(len(report.runs)),
+        "runs": len(report.runs),
     }
     return report

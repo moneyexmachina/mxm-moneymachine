@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import utc_now_run_ts
@@ -234,7 +236,7 @@ class InstrumentDefinitionMappingsStore:
 
     def get_latest_mapping_row(
         self, *, product_id: str, contract_year: int, contract_month: int
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Return the latest mapping row for this contract key (for diagnostics).
         """
@@ -325,7 +327,7 @@ class InstrumentDefinitionMappingsStore:
         return self._sha256_hex(key)
 
     def _load_outright_candidates(
-        self, conn, *, feed: str, dataset: str
+        self, conn: sqlite3.Connection, *, feed: str, dataset: str
     ) -> tuple[list[MappingCandidate], CandidateStats]:
         """
         Extract Databento outright futures from instrument_definition_current for this feed.
@@ -391,14 +393,14 @@ class InstrumentDefinitionMappingsStore:
         stats = CandidateStats(
             feed=feed,
             dataset=dataset,
-            candidates_total=int(len(rows)),
+            candidates_total=len(rows),
             candidates_with_maturity=int(with_maturity),
         )
         return out, stats
 
     def _insert_mapping_append_only(
         self,
-        conn,
+        conn: sqlite3.Connection,
         *,
         product_id: str,
         contract_year: int,

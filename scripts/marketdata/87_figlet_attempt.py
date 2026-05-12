@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # -------------------------
 # MXM palette (truecolor)
@@ -95,7 +95,7 @@ def detect_env() -> str:
 
 def main() -> None:
     w = min(max(term_width(), 72), 110)  # keep sensible bounds
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Header section
     headline = ascii_headline()

@@ -1,7 +1,7 @@
 # tests/unittests/mxm/v1/utils/test_date_utils.py
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import numpy as np
 import pandas as pd
@@ -185,9 +185,7 @@ def test_utc_day_end_exclusive_is_next_midnight() -> None:
 
 def test_fmt_iso_day_formats_day_like_values() -> None:
     assert fmt_iso_day("2026-01-02") == "2026-01-02"
-    assert (
-        fmt_iso_day(datetime(2026, 1, 2, 12, 0, 0, tzinfo=timezone.utc)) == "2026-01-02"
-    )
+    assert fmt_iso_day(datetime(2026, 1, 2, 12, 0, 0, tzinfo=UTC)) == "2026-01-02"
     assert fmt_iso_day(np.datetime64("2026-01-02T23:59:59")) == "2026-01-02"
 
 

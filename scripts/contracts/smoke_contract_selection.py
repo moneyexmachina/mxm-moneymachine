@@ -42,13 +42,13 @@ Exit code:
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timezone
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, date, datetime
 
 import pandas as pd
-from mxm_refdata.api.ref_data_api import RefDataAPI
-from mxm_refdata.models.periods import PeriodType
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.periods import PeriodType
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
@@ -73,13 +73,13 @@ def _parse_utc_ts(s: str) -> datetime:
     """
     if "T" not in s:
         d = _parse_day(s)
-        return datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=timezone.utc)
+        return datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=UTC)
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
     dt = datetime.fromisoformat(s)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _date_range_days(start: date, end: date) -> Iterable[date]:
@@ -143,7 +143,7 @@ def build_contract_series(
 
     for d in _date_range_days(start, end):
         # Use a consistent midday timestamp to avoid timezone boundary weirdness.
-        ts = datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=UTC)
         cid = engine.select(product_id, ts, rule)
         idx.append(pd.Timestamp(d))
         vals.append(cid)

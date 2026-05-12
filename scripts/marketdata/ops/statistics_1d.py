@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import databento as db
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
 from mxm.v1.marketdata.orchestrators.statistics_1d import (
     ingest_statistics_1d_for_product,
@@ -98,7 +98,7 @@ def main() -> None:
     if getattr(args, "contract_id", None):
         print(f"[args] contract_ids={contract_ids}")
     else:
-        print(f"[args] contract_ids=ALL")
+        print("[args] contract_ids=ALL")
 
     print(f"[args] cost_cap_usd={args.cost_cap_usd}")
     print(f"[args] dry_run={bool(args.dry_run)}")

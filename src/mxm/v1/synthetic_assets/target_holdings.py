@@ -35,10 +35,10 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from mxm_refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
     RefDataAPI,
 )
-
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import databento as db
 from mxm_secrets import get_secret
@@ -37,7 +37,7 @@ END_DATE = "2026-01-13"  # exclusive per Databento conventions for most endpoint
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def main() -> int:
@@ -74,7 +74,7 @@ def main() -> int:
     idx_type = str(getattr(df.index, "dtype", type(df.index)))
 
     # Row count and time bounds
-    row_count = int(len(df))
+    row_count = len(df)
     min_ts = None
     max_ts = None
     if row_count > 0:

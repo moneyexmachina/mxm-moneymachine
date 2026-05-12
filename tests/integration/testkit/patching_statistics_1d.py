@@ -1,9 +1,9 @@
 # tests/integrationtests/testkit/patching_statistics_1d.py
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Callable
 
 import pandas as pd
 from _pytest.monkeypatch import MonkeyPatch

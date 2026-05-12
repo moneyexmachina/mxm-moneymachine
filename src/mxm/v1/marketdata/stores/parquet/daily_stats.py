@@ -82,7 +82,7 @@ def _build_daily_stats_meta(
         "dataset": dataset,
         "publisher_id": int(publisher_id),
         "instrument_id": int(instrument_id),
-        "row_count": int(len(df)),
+        "row_count": len(df),
         "min_session_date": min_session_date,
         "max_session_date": max_session_date,
         "content_sha256": content_sha256,
@@ -253,7 +253,7 @@ def write_daily_stats(
             )
             return {
                 "wrote": False,
-                "rows": int(len(df_old)),
+                "rows": len(df_old),
                 "session_start": smin,
                 "session_end": smax,
                 "content_sha256": sha_old,
@@ -289,7 +289,7 @@ def write_daily_stats(
     )
     return {
         "wrote": True,
-        "rows": int(len(df_new)),
+        "rows": len(df_new),
         "session_start": smin,
         "session_end": smax,
         "content_sha256": meta["content_sha256"],

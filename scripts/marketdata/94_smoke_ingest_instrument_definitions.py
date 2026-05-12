@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import databento as db
-from mxm.dataio.registry import list_registered, register
 from mxm_secrets import get_secret
 from rich import print as rprint
 
+from mxm.dataio.registry import list_registered, register
 from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
@@ -19,7 +19,7 @@ from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFe
 
 
 def _utc_today_yyyy_mm_dd() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _brief_df_summary(df) -> None:

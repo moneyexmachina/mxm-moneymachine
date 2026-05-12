@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mxm_refdata.api.ref_data_api import RefDataAPI
-
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.synthetic_assets.construction_policy import v1_policy
 from mxm.v1.synthetic_assets.policy_compile import compile_specs_from_policy
 from mxm.v1.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry

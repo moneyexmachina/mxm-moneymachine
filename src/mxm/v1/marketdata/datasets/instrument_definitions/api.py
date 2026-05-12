@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from mxm.v1.marketdata.datasets.instrument_definitions.store import (
     CoverageCheck,
@@ -172,7 +172,7 @@ def resolve_scope_for_product(*, product_id: str) -> InstrumentDefinitionsScope:
 
 def get_watermark_for_product(
     *, store: InstrumentDefinitionsStore, product_id: str
-) -> Optional[str]:
+) -> str | None:
     """
     Read-only watermark lookup for the product's instrument definition feed.
     """
