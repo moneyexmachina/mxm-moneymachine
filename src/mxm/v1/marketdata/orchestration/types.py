@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Shared orchestration domain types (provisional).
 
@@ -23,6 +21,8 @@ This module is pure and must not import:
 Semantic logic belongs in dedicated modules (e.g. `state.py`, `coverage.py`),
 not here.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum

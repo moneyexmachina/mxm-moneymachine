@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Synthetic Asset Policy Compiler
 
@@ -29,6 +27,8 @@ This module is pure compilation logic. It must not:
 It is the canonical place where policy meaning is turned into concrete
 SyntheticAssetSpec definitions.
 """
+
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 mxm.v1.pnl.models
 
@@ -128,6 +126,8 @@ for trade attribution, potentially FX rates at fill time.
 This functionality is intentionally deferred beyond Session 29 in order
 to keep the first PnL implementation focused and deterministic.
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass

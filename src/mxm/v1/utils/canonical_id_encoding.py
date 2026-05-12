@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Helpers for safely embedding one canonical id inside another flat canonical-id
 grammar.
@@ -16,6 +14,8 @@ becomes ambiguous.
 
 These helpers provide a standard reversible encoding for such nested payloads.
 """
+
+from __future__ import annotations
 
 from urllib.parse import quote, unquote
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Smoke script: build and inspect a realised SyntheticAsset.
 
@@ -20,6 +18,8 @@ Optional overrides:
 
 This is a human inspection tool, not a regression test.
 """
+
+from __future__ import annotations
 
 import argparse
 import sys

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Canonical hashing utilities.
 
@@ -16,6 +14,8 @@ We distinguish clearly between:
 
 No other module in V1 should import hashlib directly.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json

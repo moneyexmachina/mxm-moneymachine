@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Realisation of component-level contract identities for SyntheticAssetSpec.
 
@@ -50,6 +48,8 @@ Business-session to trading-session mapping uses:
 That is, each business session is mapped to the greatest trading session
 less than or equal to it for the component's product calendar.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast

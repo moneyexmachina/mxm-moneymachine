@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -78,9 +78,6 @@ def _empty_gate_results() -> list[GateResult]:
 
 def _empty_contract_runs() -> list[ContractRun]:
     return []
-
-
-from typing import TypedDict
 
 
 class DailyMarkCounts(TypedDict):

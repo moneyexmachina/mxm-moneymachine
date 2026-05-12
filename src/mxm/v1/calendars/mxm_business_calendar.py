@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — MXMBusinessCalendar core model.
 
@@ -58,6 +56,8 @@ Design principles
 - no convenience session arithmetic is embedded here; dense integer arithmetic
   and slicing are left to client code
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast

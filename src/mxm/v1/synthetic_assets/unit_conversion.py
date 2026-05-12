@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Explicit unit conversion utilities for synthetic asset construction.
 
@@ -12,6 +10,8 @@ This module provides:
 Inputs may be provided either as ProductUnit or as strings that resolve
 unambiguously to ProductUnit enum members.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 

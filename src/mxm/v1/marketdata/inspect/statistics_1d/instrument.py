@@ -1,6 +1,3 @@
-# mxm/v1/marketdata/inspect/statistics_1d/instrument.py
-from __future__ import annotations
-
 """
 Data-plane inspection for statistics_1d (event stream).
 
@@ -17,6 +14,11 @@ Design:
 - Core transform is pure: describe_statistics_1d_events_df(df=...) -> dict.
   This can be reused by daily_stats derivation attempts to record diagnostics.
 """
+
+from __future__ import annotations
+
+# mxm/v1/marketdata/inspect/statistics_1d/instrument.py
+
 
 from typing import Any
 

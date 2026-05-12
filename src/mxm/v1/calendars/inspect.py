@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Trading Calendar Inspection & Rendering.
 
@@ -28,6 +26,8 @@ Future work (explicitly out of scope here):
 - graphical or web-based calendar views,
 - product- or contract-specific overlays.
 """
+
+from __future__ import annotations
 
 import calendar as _cal
 import datetime as dt

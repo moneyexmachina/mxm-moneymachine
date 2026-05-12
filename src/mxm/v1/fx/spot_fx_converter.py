@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Spot FX conversion boundary.
 
@@ -40,6 +38,8 @@ Later implementations will need to support:
     - FX effect
     - price–FX interaction
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

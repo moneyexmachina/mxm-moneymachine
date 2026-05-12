@@ -1,6 +1,3 @@
-# mxm/v1/synthetic_assets/models.py
-from __future__ import annotations
-
 """
 mxm.v1.synthetic_assets.models
 ==============================
@@ -89,6 +86,11 @@ All time-indexed surfaces are constructed in later sessions by combining:
     - Trading calendars
     - Instrument metadata
 """
+
+from __future__ import annotations
+
+# mxm/v1/synthetic_assets/models.py
+
 
 import re
 from collections.abc import Mapping

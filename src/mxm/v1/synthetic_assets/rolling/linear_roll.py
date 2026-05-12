@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Linear roll model for futures contract pairs, expressed in session-distance space.
 
@@ -55,6 +53,8 @@ Determinism
 -----------
 Pure function: no I/O, no timestamps, no external services.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Execution engine.
 
@@ -63,6 +61,8 @@ Later executors may introduce:
 - broker order identifiers
 - richer execution state transitions
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

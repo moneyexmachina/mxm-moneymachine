@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Runtime wrapper and orchestration for realised synthetic assets.
 
@@ -33,6 +31,8 @@ Concretely:
 - TargetHoldings is derived from those aligned realised surfaces and therefore
   also inherits the same support
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

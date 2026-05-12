@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Order generation.
 
@@ -52,6 +50,8 @@ All logic in this module is deterministic:
 given target trades, a session label, and a policy configuration, the
 resulting implemented trades and orders are deterministic.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum

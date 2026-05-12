@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Session engine.
 
@@ -71,6 +69,8 @@ Current implementation choices
   adapter or execution-model extension, not by smuggling timestamp
   semantics into the V1 session engine
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

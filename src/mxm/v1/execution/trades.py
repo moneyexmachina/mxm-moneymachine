@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Trade transition helpers.
 
@@ -37,6 +35,8 @@ All functions in this module are pure:
 they take bundle objects as inputs and return new bundle objects as
 outputs, without mutating state.
 """
+
+from __future__ import annotations
 
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 

@@ -1,6 +1,3 @@
-# mxm/v1/marketdata/inspect/statistics_1d/system.py
-from __future__ import annotations
-
 """
 System-level inspection rollups for statistics_1d attempts.
 
@@ -18,6 +15,11 @@ Design notes:
 - This report is "freshness-ish": last_run_ts reflects the most recent attempt recorded
   per product, not live vendor staleness.
 """
+
+from __future__ import annotations
+
+# mxm/v1/marketdata/inspect/statistics_1d/system.py
+
 
 from dataclasses import dataclass
 

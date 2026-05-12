@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from mxm.v1.utils.date_utils import coerce_np_day
-
 """
 MXM V1 — Target Holdings for Synthetic Assets
 
@@ -31,6 +27,8 @@ Out of scope
 - persistence
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,6 +41,7 @@ from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
 from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
 from mxm.v1.synthetic_assets.unit_conversion import UnitConverter
+from mxm.v1.utils.date_utils import coerce_np_day
 
 
 @dataclass(frozen=True, slots=True)

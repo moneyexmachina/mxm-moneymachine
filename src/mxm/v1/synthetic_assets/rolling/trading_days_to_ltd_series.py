@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Trading-calendar days-to-LTD surface for a trading-session-aligned series.
 
@@ -52,6 +50,8 @@ Pure function of:
 - RefDataAPI LTD values
 - TradingCalendar.trading_days_to_ltd / bdays_to_ltd semantics
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Generic state derivation and decision logic for windowed datasets.
 
@@ -21,6 +19,8 @@ Dataset-specific code is responsible for producing the evidence inputs:
 - completeness verdict
 - latest attempt outcome (if any)
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

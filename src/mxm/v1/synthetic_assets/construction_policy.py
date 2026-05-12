@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Synthetic Asset Construction Policy
 
@@ -49,6 +47,9 @@ dependencies. It must not:
 Its only responsibility is to author the synthetic asset construction policy
 in a clear, deterministic, and declarative form.
 """
+
+from __future__ import annotations
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 

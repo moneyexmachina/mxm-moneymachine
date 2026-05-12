@@ -1,6 +1,3 @@
-# mxm/v1/utils/time_utils.py
-from __future__ import annotations
-
 """
 MXM V1 time utilities (UTC-normalised, tz-aware, pandas-first).
 
@@ -108,6 +105,11 @@ This module deliberately does **not** define:
 Those concepts belong in their respective domain modules and are built on top
 of the primitives defined here.
 """
+
+from __future__ import annotations
+
+# mxm/v1/utils/time_utils.py
+
 import re
 from datetime import UTC, datetime, timedelta
 from typing import TypeAlias

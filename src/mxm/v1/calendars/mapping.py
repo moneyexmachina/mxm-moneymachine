@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Calendar Surface Mapping.
 
@@ -64,6 +62,8 @@ Notes
 - Mapping failures raise explicit exceptions rather than silently skipping
   or fabricating support.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal

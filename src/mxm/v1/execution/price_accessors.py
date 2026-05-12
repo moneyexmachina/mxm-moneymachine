@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Price accessors for execution and mark-to-market valuation.
 
@@ -74,6 +72,8 @@ If later profiling shows these accessors to be a bottleneck, the
 internal lookup representation can be replaced without changing the
 public accessor interfaces.
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

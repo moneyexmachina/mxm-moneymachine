@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Holdings transition helpers.
 
@@ -50,6 +48,7 @@ they take bundle objects and reference inputs as arguments, and return
 new bundle objects without mutating state.
 """
 
+from __future__ import annotations
 
 import numpy as np
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Smoke script: build a realised SyntheticAsset, run a short historical
 backtest, and construct session / contract-level PnL.
@@ -22,6 +20,8 @@ Optional overrides:
 
 This is a human inspection tool, not a regression test.
 """
+
+from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass

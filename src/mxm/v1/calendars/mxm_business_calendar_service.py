@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — MXM business calendar service.
 
@@ -36,6 +34,8 @@ This ensures that downstream systems only need to persist / compare
 This service does not persist calendars and does not derive them from trading
 calendars. It simply wraps the rule-based MXM business-calendar builder.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 

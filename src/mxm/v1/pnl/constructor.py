@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 mxm.v1.pnl.constructor
 
@@ -48,6 +46,8 @@ Design notes
   prior mark exists
 - missing marks, fill prices, and refdata lookups fail loudly
 """
+
+from __future__ import annotations
 
 from collections.abc import Sequence
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — MXM business calendar builder.
 
@@ -23,6 +21,8 @@ This is a boundary/construction module. Small input normalization is acceptable
 here. The returned `MXMBusinessCalendar` remains the strict validated core
 artifact.
 """
+
+from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray

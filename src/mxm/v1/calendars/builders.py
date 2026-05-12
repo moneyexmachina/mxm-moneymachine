@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Trading Calendar Builders.
 
@@ -25,6 +23,9 @@ This module currently provides a V1 builder that sources observed schedules
 from the `exchange_calendars` package and extends them via a minimal,
 transparent projection rule.
 """
+
+from __future__ import annotations
+
 import datetime as dt
 import importlib.metadata
 from pathlib import Path

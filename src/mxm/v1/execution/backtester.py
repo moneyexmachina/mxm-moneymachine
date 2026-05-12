@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Multi-session backtest runner.
 
@@ -42,6 +40,8 @@ The Backtester iterates over session labels represented canonically as
 timestamped order or execution facts are introduced downstream by the
 order-generation and execution layers.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

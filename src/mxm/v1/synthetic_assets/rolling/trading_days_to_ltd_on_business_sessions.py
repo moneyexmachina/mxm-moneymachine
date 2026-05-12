@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MXM V1 — Trading-calendar distance-to-LTD surface on MXM business-session support.
 
@@ -57,6 +55,8 @@ Pure function of:
 - TradingCalendar.bdays_to_ltd semantics
 - RefDataAPI LTD values
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 

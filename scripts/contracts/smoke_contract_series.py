@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Smoke script: build and inspect a ContractSeries.
 
@@ -15,6 +13,8 @@ Defaults:
     - unfiltered cycle (all listed)
     - n = 1
 """
+
+from __future__ import annotations
 
 import argparse
 import sys

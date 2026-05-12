@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Realisation of component-level weights for SyntheticAssetSpec.
 
@@ -37,6 +35,8 @@ For each supported component pair:
 - that anchor identity is then projected onto the common MXM business-session grid
 - roll timing is computed in trading-calendar space, evaluated on MXM business-session support
 """
+
+from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
