@@ -89,24 +89,63 @@ def last_weekday_of_month(year: int, month: int, weekday: int) -> dt.date:
 
 def easter_sunday_gregorian(year: int) -> dt.date:
     """
-    Compute Easter Sunday (Gregorian calendar) using Anonymous Gregorian algorithm.
-    Deterministic and dependency-free.
+    Compute Gregorian Easter Sunday using the Anonymous Gregorian algorithm.
+
+    This implementation is:
+    - deterministic,
+    - dependency-free,
+    - valid for Gregorian calendar years.
+
+    References:
+    - Meeus/Jones/Butcher Gregorian computus
+    - "Anonymous Gregorian algorithm"
+
+    Args:
+        year:
+            Gregorian calendar year.
+
+    Returns:
+        Easter Sunday as a ``datetime.date``.
     """
-    a = year % 19
-    b = year // 100
-    c = year % 100
-    d = b // 4
-    e = b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i = c // 4
-    k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    month = (h + l - 7 * m + 114) // 31
-    day = ((h + l - 7 * m + 114) % 31) + 1
-    return dt.date(year, month, day)
+    golden_number = year % 19
+
+    century = year // 100
+    year_of_century = year % 100
+
+    leap_year_correction = century // 4
+    century_remainder = century % 4
+
+    lunar_correction = (century + 8) // 25
+    solar_correction = (century - lunar_correction + 1) // 3
+
+    paschal_full_moon_offset = (
+        19 * golden_number + century - leap_year_correction - solar_correction + 15
+    ) % 30
+
+    year_quarter = year_of_century // 4
+    year_remainder = year_of_century % 4
+
+    weekday_offset = (
+        32
+        + 2 * century_remainder
+        + 2 * year_quarter
+        - paschal_full_moon_offset
+        - year_remainder
+    ) % 7
+
+    epact_correction = (
+        golden_number + 11 * paschal_full_moon_offset + 22 * weekday_offset
+    ) // 451
+
+    easter_month = (
+        paschal_full_moon_offset + weekday_offset - 7 * epact_correction + 114
+    ) // 31
+
+    easter_day = (
+        (paschal_full_moon_offset + weekday_offset - 7 * epact_correction + 114) % 31
+    ) + 1
+
+    return dt.date(year, easter_month, easter_day)
 
 
 def us_full_closure_holidays_minimal(year: int) -> set[dt.date]:

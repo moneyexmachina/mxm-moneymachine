@@ -1,11 +1,18 @@
+"""Tests for trading-days-to-LTD construction on business-session support."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from typing import Protocol, cast
 
 import numpy as np
+import numpy.typing as npt
 import pytest
+from pytest import MonkeyPatch
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.synthetic_assets.rolling.trading_days_to_ltd_on_business_sessions import (
     TradingDaysToLTDOnBusinessSessions,
@@ -13,9 +20,9 @@ from mxm.v1.synthetic_assets.rolling.trading_days_to_ltd_on_business_sessions im
     build_trading_days_to_ltd_on_business_sessions,
 )
 
-# -----------------------------------------------------------------------------
-# Minimal fakes for RefDataAPI objects
-# -----------------------------------------------------------------------------
+type DateArray = npt.NDArray[np.datetime64]
+type IntArray = npt.NDArray[np.int64]
+type BoolArray = npt.NDArray[np.bool_]
 
 
 @dataclass(frozen=True)
@@ -24,138 +31,161 @@ class _FakeContract:
 
 
 class _FakeRefDataAPI:
-    """
-    Minimal surface used by build_trading_days_to_ltd_on_business_sessions.
+    """Minimal reference-data surface used by the builder."""
 
-    Only method required:
-      - get_contract_by_id(contract_id) -> contract or None
-    """
-
-    def __init__(self, contracts: dict[str, _FakeContract]) -> None:
-        self._contracts = contracts
+    def __init__(self, contracts: Mapping[str, _FakeContract]) -> None:
+        self._contracts = dict(contracts)
 
     def get_contract_by_id(self, contract_id: str) -> _FakeContract | None:
         return self._contracts.get(contract_id)
 
 
-# -----------------------------------------------------------------------------
-# Calendars: (1) deterministic oracle, (2) spy for interaction tests
-# -----------------------------------------------------------------------------
-
-
-class _DeterministicCalendar:
-    """
-    Tiny deterministic calendar implementing the definition:
-
-        trading_days_to_ltd = idx(ltd) - idx(asof)
-
-    Used as a functional oracle.
-    """
-
-    def __init__(self, trading_days: list[str]) -> None:
-        self.trading_days = np.array(trading_days, dtype="datetime64[D]")
-        self._idx = {d: i for i, d in enumerate(self.trading_days.tolist())}
+class _CalendarProtocol(Protocol):
+    trading_days: DateArray
 
     def bdays_to_ltd(
         self,
-        asof,
-        ltd,
+        asof: DateArray,
+        ltd: DateArray,
         *,
         strict: bool = True,
         return_projected_flag: bool = False,
-        **_kwargs,
-    ):
-        a = np.asarray(asof, dtype="datetime64[D]")
-        l = np.asarray(ltd, dtype="datetime64[D]")
-        if a.shape != l.shape:
+    ) -> IntArray | tuple[IntArray, BoolArray]: ...
+
+
+class _DeterministicCalendar:
+    """Small deterministic oracle for business-days-to-LTD calculations."""
+
+    def __init__(self, trading_days: list[str]) -> None:
+        self.trading_days: DateArray = np.array(trading_days, dtype="datetime64[D]")
+        self._index_by_day = {
+            trading_day: index
+            for index, trading_day in enumerate(self.trading_days.tolist())
+        }
+
+    def bdays_to_ltd(
+        self,
+        asof: DateArray,
+        ltd: DateArray,
+        *,
+        strict: bool = True,
+        return_projected_flag: bool = False,
+    ) -> IntArray | tuple[IntArray, BoolArray]:
+        asof_dates: DateArray = np.asarray(asof, dtype="datetime64[D]")
+        ltd_dates: DateArray = np.asarray(ltd, dtype="datetime64[D]")
+
+        if asof_dates.shape != ltd_dates.shape:
             raise ValueError("asof/ltd shape mismatch")
 
-        out = np.empty(a.shape, dtype=np.int64)
-        a_flat = a.ravel().tolist()
-        l_flat = l.ravel().tolist()
+        days_to_ltd: IntArray = np.empty(asof_dates.shape, dtype=np.int64)
+        flat_days_to_ltd = days_to_ltd.ravel()
 
-        for k, (ai, li) in enumerate(zip(a_flat, l_flat, strict=False)):
+        asof_flat = asof_dates.ravel().tolist()
+        ltd_flat = ltd_dates.ravel().tolist()
+
+        for flat_index, (asof_date, ltd_date) in enumerate(
+            zip(asof_flat, ltd_flat, strict=False)
+        ):
             if strict:
-                if ai not in self._idx:
-                    raise ValueError(f"asof {ai} not in trading_days")
-                if li not in self._idx:
-                    raise ValueError(f"ltd {li} not in trading_days")
-            out.ravel()[k] = int(self._idx[li] - self._idx[ai])
+                if asof_date not in self._index_by_day:
+                    raise ValueError(f"asof {asof_date} not in trading_days")
+                if ltd_date not in self._index_by_day:
+                    raise ValueError(f"ltd {ltd_date} not in trading_days")
+
+            flat_days_to_ltd[flat_index] = int(
+                self._index_by_day[ltd_date] - self._index_by_day[asof_date]
+            )
 
         if return_projected_flag:
-            return out, np.zeros_like(out, dtype=bool)
-        return out
+            projected_flags: BoolArray = np.zeros_like(days_to_ltd, dtype=np.bool_)
+            return days_to_ltd, projected_flags
+
+        return days_to_ltd
+
+
+@dataclass(frozen=True)
+class _CalendarCall:
+    asof: DateArray
+    ltd: DateArray
+    strict: bool | None
+    return_projected_flag: bool | None
 
 
 class _SpyCalendar:
-    """
-    Spy that records the call inputs and returns a deterministic sentinel.
-
-    Used to verify that build_trading_days_to_ltd_on_business_sessions calls
-    bdays_to_ltd with the correct mapped trading sessions, LTD array, and
-    keyword arguments.
-    """
+    """Spy calendar that records call inputs and returns a deterministic sentinel."""
 
     def __init__(self, trading_days: list[str]) -> None:
-        self.trading_days = np.array(trading_days, dtype="datetime64[D]")
-        self.calls: list[tuple[np.ndarray, np.ndarray, dict]] = []
+        self.trading_days: DateArray = np.array(trading_days, dtype="datetime64[D]")
+        self.calls: list[_CalendarCall] = []
 
-    def bdays_to_ltd(self, asof, ltd, **kwargs):
-        a = np.asarray(asof, dtype="datetime64[D]")
-        l = np.asarray(ltd, dtype="datetime64[D]")
-        self.calls.append((a, l, dict(kwargs)))
-        return np.arange(a.size, dtype=np.int64).reshape(a.shape)
+    def bdays_to_ltd(
+        self,
+        asof: DateArray,
+        ltd: DateArray,
+        *,
+        strict: bool = True,
+        return_projected_flag: bool = False,
+    ) -> IntArray:
+        asof_dates: DateArray = np.asarray(asof, dtype="datetime64[D]")
+        ltd_dates: DateArray = np.asarray(ltd, dtype="datetime64[D]")
+
+        self.calls.append(
+            _CalendarCall(
+                asof=asof_dates,
+                ltd=ltd_dates,
+                strict=strict,
+                return_projected_flag=return_projected_flag,
+            )
+        )
+
+        return np.arange(asof_dates.size, dtype=np.int64).reshape(asof_dates.shape)
 
 
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
+def _days(*date_strings: str) -> DateArray:
+    return np.array(date_strings, dtype="datetime64[D]")
 
 
-def _days(*xs: str) -> np.ndarray:
-    return np.array(xs, dtype="datetime64[D]")
-
-
-def _mk_service_and_patch_calendar(
-    monkeypatch,
+def _make_service_with_calendar(
+    monkeypatch: MonkeyPatch,
     *,
-    refdata,
-    calendar,
+    refdata_api: _FakeRefDataAPI,
+    calendar: _CalendarProtocol,
 ) -> TradingCalendarService:
-    cal_svc = TradingCalendarService(refdata_api=refdata)
+    calendar_service = TradingCalendarService(refdata_api=cast(RefDataAPI, refdata_api))
 
-    def _calendar_for_product(self: TradingCalendarService, _product_id: str):
+    def fake_calendar_for_product(
+        self: TradingCalendarService,
+        product_id: str,
+    ) -> _CalendarProtocol:
+        _ = (self, product_id)
         return calendar
 
     monkeypatch.setattr(
         TradingCalendarService,
         "calendar_for_product",
-        _calendar_for_product,
+        fake_calendar_for_product,
     )
-    return cal_svc
 
-
-# -----------------------------------------------------------------------------
-# Dataclass model tests
-# -----------------------------------------------------------------------------
+    return calendar_service
 
 
 def test_trading_days_to_ltd_on_business_sessions_accepts_valid_payload() -> None:
-    out = TradingDaysToLTDOnBusinessSessions(
+    result = TradingDaysToLTDOnBusinessSessions(
         product_id="ANY",
         sessions=_days("2026-03-18", "2026-03-19", "2026-03-20"),
         contract_ids=["C1", "C1", "C2"],
         trading_days_to_ltd=np.array([2, 1, 3], dtype=np.int64),
     )
 
-    assert out.product_id == "ANY"
-    assert out.sessions.dtype == np.dtype("datetime64[D]")
-    assert out.trading_days_to_ltd.dtype == np.dtype("int64")
+    assert result.product_id == "ANY"
+    assert result.sessions.dtype == np.dtype("datetime64[D]")
+    assert result.trading_days_to_ltd.dtype == np.dtype("int64")
 
 
 def test_trading_days_to_ltd_on_business_sessions_rejects_length_mismatch() -> None:
     with pytest.raises(
-        ValueError, match="sessions and contract_ids must have equal length"
+        ValueError,
+        match="sessions and contract_ids must have equal length",
     ):
         TradingDaysToLTDOnBusinessSessions(
             product_id="ANY",
@@ -180,42 +210,18 @@ def test_trading_days_to_ltd_on_business_sessions_rejects_values_length_mismatch
         )
 
 
-def test_trading_days_to_ltd_on_business_sessions_casts_values_to_int64() -> None:
-    out = TradingDaysToLTDOnBusinessSessions(
-        product_id="ANY",
-        sessions=_days("2026-03-18", "2026-03-19"),
-        contract_ids=["C1", "C1"],
-        trading_days_to_ltd=np.array([2, 1], dtype=np.int32),
-    )
-
-    assert out.trading_days_to_ltd.dtype == np.dtype("int64")
-
-
-# -----------------------------------------------------------------------------
-# Functional / semantic tests
-# -----------------------------------------------------------------------------
-
-
 def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
-    monkeypatch,
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    """
-    Functional test under controlled inputs.
-
-    Verifies:
-      - each business session is mapped to the prev trading session
-      - LTD is resolved per aligned contract_id
-      - output is indexed by business-session support
-      - values are counted in trading-calendar space
-    """
-    ref = _FakeRefDataAPI(
+    """Build trading-days-to-LTD on business sessions under controlled inputs."""
+    refdata_api = _FakeRefDataAPI(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
         }
     )
 
-    cal = _DeterministicCalendar(
+    calendar = _DeterministicCalendar(
         trading_days=[
             "2026-03-18",
             "2026-03-19",
@@ -226,11 +232,12 @@ def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
         ]
     )
 
-    cal_svc = _mk_service_and_patch_calendar(monkeypatch, refdata=ref, calendar=cal)
+    calendar_service = _make_service_with_calendar(
+        monkeypatch,
+        refdata_api=refdata_api,
+        calendar=calendar,
+    )
 
-    # Note the weekend-like gap from 03-20 -> 03-23 in trading days.
-    # Business-session support includes a Saturday-like label that should map
-    # back to 03-20 under how="prev".
     sessions = _days(
         "2026-03-18",
         "2026-03-19",
@@ -240,57 +247,32 @@ def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
     )
     contract_ids = ["C1", "C1", "C2", "C2", "C2"]
 
-    out = build_trading_days_to_ltd_on_business_sessions(
+    result = build_trading_days_to_ltd_on_business_sessions(
         product_id="ANY",
         sessions=sessions,
         contract_ids=contract_ids,
-        calendar_service=cal_svc,
-        refdata_api=ref,
+        calendar_service=calendar_service,
+        refdata_api=cast(RefDataAPI, refdata_api),
     )
 
-    assert out.sessions.tolist() == sessions.tolist()
-    assert out.contract_ids == contract_ids
-    assert out.trading_days_to_ltd.dtype == np.dtype("int64")
-
-    # Prev-trading-session mapping:
-    # 03-18 -> 03-18 (idx 0)
-    # 03-19 -> 03-19 (idx 1)
-    # 03-21 -> 03-20 (idx 2)
-    # 03-23 -> 03-23 (idx 3)
-    # 03-24 -> 03-24 (idx 4)
-    #
-    # LTD indices:
-    # C1 ltd=03-20 -> idx 2
-    # C2 ltd=06-19 -> idx 5
-    #
-    # Distances:
-    # 03-18/C1 -> 2-0 = 2
-    # 03-19/C1 -> 2-1 = 1
-    # 03-21/C2 -> 5-2 = 3
-    # 03-23/C2 -> 5-3 = 2
-    # 03-24/C2 -> 5-4 = 1
-    assert out.trading_days_to_ltd.tolist() == [2, 1, 3, 2, 1]
+    assert result.sessions.tolist() == sessions.tolist()
+    assert result.contract_ids == contract_ids
+    assert result.trading_days_to_ltd.dtype == np.dtype("int64")
+    assert result.trading_days_to_ltd.tolist() == [2, 1, 3, 2, 1]
 
 
 def test_build_trading_days_to_ltd_on_business_sessions_interaction_calls_calendar_correctly(
-    monkeypatch,
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    """
-    Interaction test: verifies correct usage of the trading calendar API.
-
-    We assert only the public contract:
-      - asof array equals business sessions mapped to prev trading sessions
-      - ltd array equals per-session LTD derived from contract_ids
-      - kwargs include strict=True and return_projected_flag=False
-    """
-    ref = _FakeRefDataAPI(
+    """Verify that the builder calls the calendar with mapped business sessions."""
+    refdata_api = _FakeRefDataAPI(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
         }
     )
 
-    spy = _SpyCalendar(
+    spy_calendar = _SpyCalendar(
         trading_days=[
             "2026-03-18",
             "2026-03-19",
@@ -299,83 +281,93 @@ def test_build_trading_days_to_ltd_on_business_sessions_interaction_calls_calend
             "2026-06-19",
         ]
     )
-    cal_svc = _mk_service_and_patch_calendar(monkeypatch, refdata=ref, calendar=spy)
+    calendar_service = _make_service_with_calendar(
+        monkeypatch,
+        refdata_api=refdata_api,
+        calendar=spy_calendar,
+    )
 
     sessions = _days("2026-03-18", "2026-03-21", "2026-03-23")
     contract_ids = ["C1", "C1", "C2"]
 
-    out = build_trading_days_to_ltd_on_business_sessions(
+    result = build_trading_days_to_ltd_on_business_sessions(
         product_id="ANY",
         sessions=sessions,
         contract_ids=contract_ids,
-        calendar_service=cal_svc,
-        refdata_api=ref,
+        calendar_service=calendar_service,
+        refdata_api=cast(RefDataAPI, refdata_api),
     )
 
-    assert len(spy.calls) == 1
+    assert len(spy_calendar.calls) == 1
 
-    asof, ltd, kwargs = spy.calls[0]
+    calendar_call = spy_calendar.calls[0]
 
-    # 03-21 maps back to 03-20 under how="prev"
-    expected_asof = np.array(
+    expected_asof: DateArray = np.array(
         ["2026-03-18", "2026-03-20", "2026-03-23"],
         dtype="datetime64[D]",
     )
-    assert asof.tolist() == expected_asof.tolist()
+    assert calendar_call.asof.tolist() == expected_asof.tolist()
 
-    expected_ltd = np.array(
+    expected_ltd: DateArray = np.array(
         ["2026-03-20", "2026-03-20", "2026-06-19"],
         dtype="datetime64[D]",
     )
-    assert ltd.tolist() == expected_ltd.tolist()
-
-    assert kwargs.get("strict") is True
-    assert kwargs.get("return_projected_flag") is False
-
-    # Spy returns sentinel [0, 1, 2]
-    assert out.trading_days_to_ltd.tolist() == [0, 1, 2]
+    assert calendar_call.ltd.tolist() == expected_ltd.tolist()
+    assert calendar_call.strict is True
+    assert calendar_call.return_projected_flag is False
+    assert result.trading_days_to_ltd.tolist() == [0, 1, 2]
 
 
 def test_build_trading_days_to_ltd_on_business_sessions_raises_on_unknown_contract_id(
-    monkeypatch,
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    ref = _FakeRefDataAPI(
+    """Raise when the contract id cannot be resolved."""
+    refdata_api = _FakeRefDataAPI(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
         }
     )
 
-    cal = _DeterministicCalendar(
+    calendar = _DeterministicCalendar(
         trading_days=["2026-03-18", "2026-03-19", "2026-03-20"]
     )
-    cal_svc = _mk_service_and_patch_calendar(monkeypatch, refdata=ref, calendar=cal)
+    calendar_service = _make_service_with_calendar(
+        monkeypatch,
+        refdata_api=refdata_api,
+        calendar=calendar,
+    )
 
     sessions = _days("2026-03-18", "2026-03-19")
     contract_ids = ["C1", "C_UNKNOWN"]
 
-    with pytest.raises(UnknownContractId, match="Unknown contract_id"):
+    with pytest.raises(UnknownContractId, match="C_UNKNOWN"):
         build_trading_days_to_ltd_on_business_sessions(
             product_id="ANY",
             sessions=sessions,
             contract_ids=contract_ids,
-            calendar_service=cal_svc,
-            refdata_api=ref,
+            calendar_service=calendar_service,
+            refdata_api=cast(RefDataAPI, refdata_api),
         )
 
 
 def test_build_trading_days_to_ltd_on_business_sessions_raises_on_length_mismatch(
-    monkeypatch,
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    ref = _FakeRefDataAPI(
+    """Raise when sessions and contract ids are not aligned."""
+    refdata_api = _FakeRefDataAPI(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
         }
     )
 
-    cal = _DeterministicCalendar(
+    calendar = _DeterministicCalendar(
         trading_days=["2026-03-18", "2026-03-19", "2026-03-20"]
     )
-    cal_svc = _mk_service_and_patch_calendar(monkeypatch, refdata=ref, calendar=cal)
+    calendar_service = _make_service_with_calendar(
+        monkeypatch,
+        refdata_api=refdata_api,
+        calendar=calendar,
+    )
 
     with pytest.raises(
         ValueError,
@@ -385,6 +377,6 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_length_mismatc
             product_id="ANY",
             sessions=_days("2026-03-18", "2026-03-19"),
             contract_ids=["C1"],
-            calendar_service=cal_svc,
-            refdata_api=ref,
+            calendar_service=calendar_service,
+            refdata_api=cast(RefDataAPI, refdata_api),
         )

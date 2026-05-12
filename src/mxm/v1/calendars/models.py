@@ -632,45 +632,49 @@ class TradingCalendar:
                 out[k] = coerce_np_day(v)
             return out.reshape(x.shape)
 
-        a = _to_days_array(asof_arr)
-        l = _to_days_array(ltd_arr)
+        as_of_days = _to_days_array(asof_arr)
+        ltd_days = _to_days_array(ltd_arr)
 
-        if a.shape != l.shape:
+        if as_of_days.shape != ltd_days.shape:
             raise ValueError(
-                f"asof and ltd must have same shape, got {a.shape} vs {l.shape}"
+                f"asof and ltd must have same shape, got {as_of_days.shape} vs {ltd_days.shape}"
             )
 
         if not strict:
-            a2 = np.empty_like(a)
-            l2 = np.empty_like(l)
-            it = np.nditer(a, flags=["multi_index", "refs_ok"])
+            as_of_days_broad = np.empty_like(as_of_days)
+            ltd_days_broad = np.empty_like(ltd_days)
+            it = np.nditer(as_of_days, flags=["multi_index", "refs_ok"])
             for _ in it:
                 idx = it.multi_index
-                a2[idx] = self.normalize(a[idx], how=normalize_asof)
-                l2[idx] = self.normalize(l[idx], how=normalize_ltd)
-            a, l = a2, l2
+                as_of_days_broad[idx] = self.normalize(
+                    as_of_days[idx], how=normalize_asof
+                )
+                ltd_days_broad[idx] = self.normalize(ltd_days[idx], how=normalize_ltd)
+            as_of_days, ltd_days = as_of_days_broad, ltd_days_broad
 
-        out = np.empty_like(a, dtype=np.int64)
-        projected_flag = np.zeros_like(a, dtype=bool)
+        out = np.empty_like(as_of_days, dtype=np.int64)
+        projected_flag = np.zeros_like(as_of_days, dtype=bool)
 
-        it2 = np.nditer(a, flags=["multi_index", "refs_ok"])
+        it2 = np.nditer(as_of_days, flags=["multi_index", "refs_ok"])
         for _ in it2:
             idx = it2.multi_index
-            ai = searchsorted_exact(self.trading_days, a[idx])
-            li = searchsorted_exact(self.trading_days, l[idx])
+            ai = searchsorted_exact(self.trading_days, as_of_days[idx])
+            li = searchsorted_exact(self.trading_days, ltd_days[idx])
             if strict:
                 if ai is None:
                     raise ValueError(
-                        f"asof {a[idx]} is not a trading day (strict=True)"
+                        f"asof {as_of_days[idx]} is not a trading day (strict=True)"
                     )
                 if li is None:
-                    raise ValueError(f"ltd {l[idx]} is not a trading day (strict=True)")
+                    raise ValueError(
+                        f"ltd {ltd_days[idx]} is not a trading day (strict=True)"
+                    )
             else:
                 assert ai is not None and li is not None
             out[idx] = int(li - ai)
             if return_projected_flag:
-                projected_flag[idx] = (a[idx] > self.observed_end) or (
-                    l[idx] > self.observed_end
+                projected_flag[idx] = (as_of_days[idx] > self.observed_end) or (
+                    ltd_days[idx] > self.observed_end
                 )
 
         if scalar:
