@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ import mxm.v1.synthetic_assets.runtime as rtmod
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
+from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
 from mxm.v1.synthetic_assets.runtime import SyntheticAsset
 from mxm.v1.synthetic_assets.target_holdings import TargetHoldings
 
@@ -133,7 +135,7 @@ def test_synthetic_asset_accepts_aligned_inputs() -> None:
     holdings = _make_target_holdings()
 
     out = SyntheticAsset(
-        spec=spec,
+        spec=cast(SyntheticAssetSpec, spec),
         component_contracts=contracts,
         component_weights=weights,
         target_holdings=holdings,
@@ -154,10 +156,10 @@ def test_synthetic_asset_raises_on_component_contracts_asset_id_mismatch() -> No
     holdings = _make_target_holdings()
 
     with pytest.raises(
-        ValueError, match="component_contracts.asset_id=.*does not match spec.asset_id"
+        ValueError, match=r"component_contracts.asset_id=.*does not match spec.asset_id"
     ):
         SyntheticAsset(
-            spec=spec,
+            spec=cast(SyntheticAssetSpec, spec),
             component_contracts=contracts,
             component_weights=weights,
             target_holdings=holdings,
@@ -172,7 +174,7 @@ def test_synthetic_asset_raises_on_component_weights_canonical_id_mismatch() -> 
 
     with pytest.raises(
         ValueError,
-        match="component_weights.canonical_id=.*does not match spec.canonical_id",
+        match=r"component_weights.canonical_id=.*does not match spec.canonical_id",
     ):
         SyntheticAsset(
             spec=spec,
@@ -189,7 +191,7 @@ def test_synthetic_asset_raises_on_target_holdings_asset_id_mismatch() -> None:
     holdings = _make_target_holdings(asset_id="wrong_asset")
 
     with pytest.raises(
-        ValueError, match="target_holdings.asset_id=.*does not match spec.asset_id"
+        ValueError, match=r"target_holdings.asset_id=.*does not match spec.asset_id"
     ):
         SyntheticAsset(
             spec=spec,
@@ -207,7 +209,7 @@ def test_synthetic_asset_raises_on_weights_rule_id_mismatch() -> None:
 
     with pytest.raises(
         ValueError,
-        match="component_weights.weights_rule_id=.*does not match spec.weights_rule_id",
+        match=r"component_weights.weights_rule_id=.*does not match spec.weights_rule_id",
     ):
         SyntheticAsset(
             spec=spec,
@@ -225,7 +227,7 @@ def test_synthetic_asset_raises_on_component_contract_column_order_mismatch() ->
 
     with pytest.raises(
         ValueError,
-        match="ComponentContracts columns do not match spec.components order",
+        match=r"ComponentContracts columns do not match spec.components order",
     ):
         SyntheticAsset(
             spec=spec,
@@ -242,7 +244,7 @@ def test_synthetic_asset_raises_on_component_weight_column_order_mismatch() -> N
     holdings = _make_target_holdings()
 
     with pytest.raises(
-        ValueError, match="ComponentWeights columns do not match spec.components order"
+        ValueError, match=r"ComponentWeights columns do not match spec.components order"
     ):
         SyntheticAsset(
             spec=spec,
@@ -310,7 +312,7 @@ def test_build_synthetic_asset_threads_mxm_business_calendar_to_component_builde
     monkeypatch.setattr(rtmod, "build_target_holdings", fake_build_target_holdings)
 
     out = rtmod.build_synthetic_asset(
-        spec=spec,
+        spec=cast(SyntheticAssetSpec, spec),
         start_session=np.datetime64("2026-03-18", "D"),
         end_session=np.datetime64("2026-03-20", "D"),
         engine=object(),

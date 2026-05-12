@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.refdata.models import ProductUnit
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import ComponentWeights
@@ -295,7 +297,7 @@ def test_build_target_holdings_cont_happy_path_identity_units() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         unit_converter=unit_converter,
     )
 
@@ -343,7 +345,7 @@ def test_build_target_holdings_aggregates_same_contract_across_components() -> N
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         unit_converter=unit_converter,
     )
 
@@ -389,7 +391,7 @@ def test_build_target_holdings_applies_size_scaling() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         unit_converter=unit_converter,
     )
 
@@ -446,7 +448,7 @@ def test_build_target_holdings_applies_unit_conversion() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         unit_converter=unit_converter,
     )
 
@@ -482,12 +484,12 @@ def test_build_target_holdings_raises_on_component_contracts_asset_mismatch() ->
     )
     unit_converter = UnitConverter()
 
-    with pytest.raises(ValueError, match="component_contracts.asset_id"):
+    with pytest.raises(ValueError, match=r"component_contracts.asset_id"):
         _ = build_target_holdings(
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=refdata_api,
+            refdata_api=cast(RefDataAPI, refdata_api),
             unit_converter=unit_converter,
         )
 
@@ -521,12 +523,12 @@ def test_build_target_holdings_raises_on_component_column_mismatch() -> None:
     )
     unit_converter = UnitConverter()
 
-    with pytest.raises(ValueError, match="columns do not match spec.components"):
+    with pytest.raises(ValueError, match=r"columns do not match spec.components"):
         _ = build_target_holdings(
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=refdata_api,
+            refdata_api=cast(RefDataAPI, refdata_api),
             unit_converter=unit_converter,
         )
 
@@ -563,6 +565,6 @@ def test_build_target_holdings_raises_on_session_index_mismatch() -> None:
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=refdata_api,
+            refdata_api=cast(RefDataAPI, refdata_api),
             unit_converter=unit_converter,
         )

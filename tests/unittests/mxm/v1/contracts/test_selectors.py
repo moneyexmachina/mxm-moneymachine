@@ -41,7 +41,7 @@ def test_period_filter_rejects_non_positive_cycle_elements() -> None:
 
 
 def test_period_filter_month_enforces_1_to_12() -> None:
-    with pytest.raises(ValueError, match="1..12"):
+    with pytest.raises(ValueError, match=r"1..12"):
         PeriodFilter(
             period_type=PeriodType.MONTH,
             cycle_id="CALENDAR_MONTHS",

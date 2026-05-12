@@ -265,25 +265,25 @@ class TestMXMBusinessCalendarValidationCoreInvariants:
     def test_rejects_session_ids_not_starting_at_zero(self) -> None:
         session_ids = np.array([1, 2, 3], dtype=np.int64)
 
-        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+        with pytest.raises(ValueError, match=r"dense sequence 0..N-1"):
             make_valid_calendar(session_ids=session_ids)
 
     def test_rejects_session_ids_with_gap(self) -> None:
         session_ids = np.array([0, 2, 3], dtype=np.int64)
 
-        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+        with pytest.raises(ValueError, match=r"dense sequence 0..N-1"):
             make_valid_calendar(session_ids=session_ids)
 
     def test_rejects_session_ids_with_duplicate(self) -> None:
         session_ids = np.array([0, 1, 1], dtype=np.int64)
 
-        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+        with pytest.raises(ValueError, match=r"dense sequence 0..N-1"):
             make_valid_calendar(session_ids=session_ids)
 
     def test_rejects_session_ids_out_of_order(self) -> None:
         session_ids = np.array([0, 2, 1], dtype=np.int64)
 
-        with pytest.raises(ValueError, match="dense sequence 0..N-1"):
+        with pytest.raises(ValueError, match=r"dense sequence 0..N-1"):
             make_valid_calendar(session_ids=session_ids)
 
     def test_rejects_labels_with_nat(self) -> None:
