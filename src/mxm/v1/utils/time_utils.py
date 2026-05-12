@@ -108,11 +108,8 @@ of the primitives defined here.
 
 from __future__ import annotations
 
-# mxm/v1/utils/time_utils.py
-
 import re
 from datetime import UTC, datetime, timedelta
-from typing import TypeAlias
 
 import pandas as pd
 
@@ -121,10 +118,10 @@ import pandas as pd
 # -------------------------
 
 
-ISO8601Z: TypeAlias = str
-NsEpoch: TypeAlias = int
+type ISO8601Z = str
+type NsEpoch = int
 
-UtcTimestampInput: TypeAlias = pd.Timestamp | datetime | ISO8601Z | NsEpoch
+type UtcTimestampInput = pd.Timestamp | datetime | ISO8601Z | NsEpoch
 
 
 # -------------------------

@@ -330,8 +330,8 @@ def build_daily_stats_surface(
     def _frame(
         selected: pd.DataFrame, *, prefix: str, value_col: str, keep_final: bool
     ) -> pd.DataFrame:
-        cols = ["session_date"] + ident_cols
-        out = selected[cols + [value_col]].copy()
+        cols = ["session_date", *ident_cols]
+        out = selected[*cols, value_col].copy()
         out = out.rename(columns={value_col: f"{prefix}"})
         if keep_final and "is_final" in selected.columns:
             out[f"{prefix}_is_final"] = selected["is_final"].astype("boolean")
@@ -357,7 +357,7 @@ def build_daily_stats_surface(
     )
 
     # outer-join everything on (session_date + identity)
-    keys = ["session_date"] + ident_cols
+    keys = ["session_date", *ident_cols]
     out = f_settle
     for part in [f_fix, f_open, f_high, f_low, f_oi, f_clr]:
         out = out.merge(part, on=keys, how="outer")

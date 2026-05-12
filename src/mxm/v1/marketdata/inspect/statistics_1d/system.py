@@ -19,8 +19,6 @@ Design notes:
 from __future__ import annotations
 
 # mxm/v1/marketdata/inspect/statistics_1d/system.py
-
-
 from dataclasses import dataclass
 
 import pandas as pd

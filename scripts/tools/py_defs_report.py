@@ -103,7 +103,7 @@ class DefCollector(ast.NodeVisitor):
     def _qual(self, name: str) -> str:
         if not self.stack:
             return name
-        return ".".join(self.stack + [name])
+        return ".".join([*self.stack, name])
 
     def _decorators(self, node: ast.AST) -> list[str]:
         decs = getattr(node, "decorator_list", [])

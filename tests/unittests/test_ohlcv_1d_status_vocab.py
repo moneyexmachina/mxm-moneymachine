@@ -93,16 +93,9 @@ def test_no_unknown_attempt_status_literals_in_ohlcv_orchestrator(relpath: str) 
 
     # If you do not use literal assignments, this may be empty (that's fine).
     for s in found:
-        assert (
-            s in AUTHORITATIVE_ATTEMPT_STATUSES
-        ), f"unknown attempt status literal {s!r} in {relpath}"
-
-
-def test_no_deprecated_vendor_final_detail_string() -> None:
-    repo = Path(__file__).resolve().parents[2]
-    text = (repo / "docs" / "phase2").read_text("utf-8") if False else ""
-    # (We do not want to read whole dir as a single file; see next test.)
-    assert True
+        assert s in AUTHORITATIVE_ATTEMPT_STATUSES, (
+            f"unknown attempt status literal {s!r} in {relpath}"
+        )
 
 
 def test_docs_do_not_reference_vendor_final_partial_done() -> None:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Union
 
 import numpy as np
 import pytest
@@ -24,16 +23,15 @@ from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
 # ---------------------------------------------------------------------
 
 
-UtcTs = Union[datetime, np.datetime64]
+UtcTs = datetime | np.datetime64
 
 
 def _to_py_date(x: UtcTs) -> date:
     if isinstance(x, datetime):
         return x.date()
-    if isinstance(x, np.datetime64):
+    else:
         # x is day-level in these tests; robust conversion:
         return date.fromisoformat(str(x)[:10])
-    raise TypeError(f"Unsupported timestamp type: {type(x)!r}")
 
 
 @dataclass(frozen=True)

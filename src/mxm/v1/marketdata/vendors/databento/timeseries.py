@@ -5,14 +5,14 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Union, cast
+from typing import Any, cast
 
 import pandas as pd
 
 from mxm.dataio.adapters import Fetcher
 from mxm.dataio.models import AdapterResult, Request
 
-SymbolsT = Union[str, Sequence[str]]
+SymbolsT = str | Sequence[str]
 
 
 def _materialise_index(df: pd.DataFrame) -> pd.DataFrame:

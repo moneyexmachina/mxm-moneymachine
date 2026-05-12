@@ -63,7 +63,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import pandas as pd
 
@@ -77,7 +77,7 @@ from mxm.v1.marketdata.vendors.databento.normalize.instrument_definitions import
     normalize_instrument_definitions,
 )
 
-SymbolsT = Union[str, Sequence[str]]
+SymbolsT = str | Sequence[str]
 
 
 def _parquet_bytes_to_df(payload: bytes) -> pd.DataFrame:

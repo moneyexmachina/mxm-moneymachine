@@ -18,8 +18,6 @@ Design:
 from __future__ import annotations
 
 # mxm/v1/marketdata/inspect/statistics_1d/instrument.py
-
-
 from typing import Any
 
 import pandas as pd

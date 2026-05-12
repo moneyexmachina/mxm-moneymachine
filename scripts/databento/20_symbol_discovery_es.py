@@ -21,7 +21,8 @@ import sys
 from datetime import date, timedelta
 
 import databento as db
-from mxm_secrets import get_secret
+
+from mxm.secrets import get_secret
 
 API_KEY_SECRET = "mxm/dev/databento/api-key"
 DATASET = "GLBX.MDP3"
@@ -166,7 +167,7 @@ def main() -> int:
         for (s, iid) in pairs
         if not iid.startswith("UNPARSED") and s != "RAW_RESULT_REPR"
     ]
-    resolved_symbols = sorted({s for s, _ in resolved})
+    _ = sorted({s for s, _ in resolved})
 
     print("=" * 80)
     print("MXM V1 — Databento Proof 2: Symbology resolution (outright candidates)")
@@ -174,7 +175,6 @@ def main() -> int:
     print(f"Dataset:  {DATASET}")
     print(f"Root:     {ROOT}")
     print(f"Window:   {start_date} -> {end_date}")
-    print(f"Resolver: symbology.{resolver_name}")
     print("-" * 80)
     print(f"Candidates generated: {len(candidates)}")
     print(f"Resolved candidates:  {len(resolved)}")

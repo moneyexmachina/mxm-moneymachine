@@ -115,11 +115,6 @@ def main() -> int:
 
     root = Path(args.root) if args.root else (Path.home() / ".mxm")
 
-    # The actual dataset key for routing is args.dataset (subcommand), not --dataset
-    dataset_key = (
-        args.dataset if args.dataset in ("ohlcv_1d", "statistics_1d") else args.dataset
-    )
-
     # argparse naming collision: args.dataset is the chosen subparser name.
     dataset_key = args.dataset  # subparser
     level = args.level
