@@ -62,58 +62,9 @@ class TargetHoldings:
         self.validate_schema()
 
     def validate_schema(self) -> None:
-        frame = self.frame
-
-        if not isinstance(frame.index, pd.MultiIndex):
-            raise ValueError("TargetHoldings.frame index must be a pandas MultiIndex")
-
-        if frame.index.nlevels != 2:
-            raise ValueError("TargetHoldings.frame index must have exactly two levels")
-
-        expected_names = ["session", "contract_id"]
-        if list(frame.index.names) != expected_names:
-            raise ValueError(
-                f"TargetHoldings.frame index names must be {expected_names}, "
-                f"got {list(frame.index.names)}"
-            )
-
-        expected_columns = ["target_holding"]
-        if list(frame.columns) != expected_columns:
-            raise ValueError(
-                f"TargetHoldings.frame must contain exactly one column "
-                f"{expected_columns}, got {list(frame.columns)}"
-            )
-
-        if frame.index.has_duplicates:
-            raise ValueError(
-                "TargetHoldings.frame index contains duplicate "
-                "(session, contract_id) rows"
-            )
-
-        if np.any(frame.index.get_level_values("session").isna()):
-            raise ValueError("TargetHoldings.frame session index contains null values")
-
-        if np.any(frame.index.get_level_values("contract_id").isna()):
-            raise ValueError(
-                "TargetHoldings.frame contract_id index contains null values"
-            )
-
-        if not frame.index.is_monotonic_increasing:
-            raise ValueError(
-                "TargetHoldings.frame index must be sorted by (session, contract_id)"
-            )
-
-        if frame["target_holding"].isna().any():
-            raise ValueError("TargetHoldings.frame target_holding contains null values")
-
-        values = frame["target_holding"].to_numpy()
-        if not np.issubdtype(values.dtype, np.number):
-            raise TypeError("TargetHoldings.frame target_holding must be numeric")
-
-        if not np.isfinite(values).all():
-            raise ValueError(
-                "TargetHoldings.frame target_holding must contain only finite values"
-            )
+        _validate_target_holdings_index(self.frame)
+        _validate_target_holdings_columns(self.frame)
+        _validate_target_holdings_values(self.frame)
 
     def holdings_for_session(self, session: np.datetime64) -> pd.DataFrame:
         """
@@ -344,3 +295,59 @@ def _build_contract_metadata_frame(
         rows,
         columns=["contract_id", "contract_size", "contract_unit", "unit_factor"],
     )
+
+
+def _validate_target_holdings_index(frame: pd.DataFrame) -> None:
+    if not isinstance(frame.index, pd.MultiIndex):
+        raise ValueError("TargetHoldings.frame index must be a pandas MultiIndex")
+
+    if frame.index.nlevels != 2:
+        raise ValueError("TargetHoldings.frame index must have exactly two levels")
+
+    expected_names = ["session", "contract_id"]
+    if list(frame.index.names) != expected_names:
+        raise ValueError(
+            f"TargetHoldings.frame index names must be {expected_names}, "
+            f"got {list(frame.index.names)}"
+        )
+
+    if frame.index.has_duplicates:
+        raise ValueError(
+            "TargetHoldings.frame index contains duplicate (session, contract_id) rows"
+        )
+
+    if np.any(frame.index.get_level_values("session").isna()):
+        raise ValueError("TargetHoldings.frame session index contains null values")
+
+    if np.any(frame.index.get_level_values("contract_id").isna()):
+        raise ValueError("TargetHoldings.frame contract_id index contains null values")
+
+    if not frame.index.is_monotonic_increasing:
+        raise ValueError(
+            "TargetHoldings.frame index must be sorted by (session, contract_id)"
+        )
+
+
+def _validate_target_holdings_columns(frame: pd.DataFrame) -> None:
+    expected_columns = ["target_holding"]
+    if list(frame.columns) != expected_columns:
+        raise ValueError(
+            "TargetHoldings.frame must contain exactly one column "
+            f"{expected_columns}, got {list(frame.columns)}"
+        )
+
+
+def _validate_target_holdings_values(frame: pd.DataFrame) -> None:
+    target_holding = frame["target_holding"]
+
+    if target_holding.isna().any():
+        raise ValueError("TargetHoldings.frame target_holding contains null values")
+
+    values = target_holding.to_numpy()
+    if not np.issubdtype(values.dtype, np.number):
+        raise TypeError("TargetHoldings.frame target_holding must be numeric")
+
+    if not np.isfinite(values).all():
+        raise ValueError(
+            "TargetHoldings.frame target_holding must contain only finite values"
+        )

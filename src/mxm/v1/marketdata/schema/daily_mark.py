@@ -225,34 +225,47 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
     """
     Validate that `df` conforms to the canonical daily_mark surface schema.
 
-    Contract (MXM V1)
-    -----------------
-    - `session_id` is the primary MXM business-session coordinate.
-    - One row per (contract_id, session_id).
-    - Surfaces are per-contract (contract_id constant within a file / surface).
-    - `mark_px` may be null only when:
-        - `mark_source='unavailable'`
-        - `mark_quality='unavailable'`
-        - `is_markable=False`
-
     Raises:
         ValueError: if the dataframe fails validation.
     """
+    _validate_daily_mark_required_columns(df)
+    _validate_daily_mark_session_id(df)
+    _validate_daily_mark_contract_id(df)
+    _validate_daily_mark_source_trading_date(df)
+    _validate_daily_mark_mark_taxonomy(df)
+    _validate_daily_mark_boolean_columns(df)
+    _validate_daily_mark_carry_streak(df)
+    _validate_daily_mark_price_column(df)
+    _validate_daily_mark_unavailable_state(df)
+    _validate_daily_mark_available_state(df)
+    _validate_daily_mark_carried_state(df)
+    _validate_daily_mark_optional_provenance_columns(df)
+
+
+def _validate_daily_mark_required_columns(df: pd.DataFrame) -> None:
     missing = _missing_columns(df, DAILY_MARK.required)
     if missing:
         raise ValueError(f"daily_mark dataframe missing required columns: {missing}")
 
+
+def _validate_daily_mark_session_id(df: pd.DataFrame) -> None:
     if df["session_id"].isna().any():
         raise ValueError("daily_mark `session_id` contains null values")
 
     if not pd.api.types.is_integer_dtype(df["session_id"]):
         raise ValueError(
-            f"daily_mark `session_id` must be integer dtype, got {df['session_id'].dtype}"
+            f"daily_mark `session_id` must be integer dtype, "
+            f"got {df['session_id'].dtype}"
         )
 
     if (df["session_id"] < 0).any():
         raise ValueError("daily_mark `session_id` must be non-negative")
 
+    if not df["session_id"].is_monotonic_increasing:
+        raise ValueError("daily_mark `session_id` must be sorted increasing")
+
+
+def _validate_daily_mark_contract_id(df: pd.DataFrame) -> None:
     if df["contract_id"].isna().any():
         raise ValueError("daily_mark `contract_id` contains null values")
 
@@ -262,17 +275,20 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
     if df["contract_id"].nunique(dropna=False) != 1:
         raise ValueError("daily_mark surface must contain exactly one contract_id")
 
-    if not df["session_id"].is_monotonic_increasing:
-        raise ValueError("daily_mark `session_id` must be sorted increasing")
 
-    if "source_trading_date" in df.columns:
-        non_null = df["source_trading_date"].dropna()
-        if not non_null.empty:
-            _validate_day_label_series(
-                df.loc[non_null.index, "source_trading_date"],
-                column_name="source_trading_date",
-            )
+def _validate_daily_mark_source_trading_date(df: pd.DataFrame) -> None:
+    if "source_trading_date" not in df.columns:
+        return
 
+    non_null = df["source_trading_date"].dropna()
+    if not non_null.empty:
+        _validate_day_label_series(
+            df.loc[non_null.index, "source_trading_date"],
+            column_name="source_trading_date",
+        )
+
+
+def _validate_daily_mark_mark_taxonomy(df: pd.DataFrame) -> None:
     if str(df["mark_source"].dtype) != "string":
         raise ValueError(
             f"daily_mark `mark_source` must be pandas string dtype, "
@@ -301,25 +317,35 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
             f"daily_mark `mark_quality` contains invalid values: {bad_qualities}"
         )
 
-    for col in ("is_markable", "is_carried"):
-        if str(df[col].dtype) != "boolean":
+
+def _validate_daily_mark_boolean_columns(df: pd.DataFrame) -> None:
+    for column_name in ("is_markable", "is_carried"):
+        if str(df[column_name].dtype) != "boolean":
             raise ValueError(
-                f"daily_mark `{col}` must be pandas boolean dtype, got {df[col].dtype}"
+                f"daily_mark `{column_name}` must be pandas boolean dtype, "
+                f"got {df[column_name].dtype}"
             )
 
+
+def _validate_daily_mark_carry_streak(df: pd.DataFrame) -> None:
     if not pd.api.types.is_integer_dtype(df["carry_streak"]):
         raise ValueError(
-            f"daily_mark `carry_streak` must be integer dtype, got {df['carry_streak'].dtype}"
+            f"daily_mark `carry_streak` must be integer dtype, "
+            f"got {df['carry_streak'].dtype}"
         )
 
     if (df["carry_streak"] < 0).any():
         raise ValueError("daily_mark `carry_streak` must be non-negative")
 
+
+def _validate_daily_mark_price_column(df: pd.DataFrame) -> None:
     if not pd.api.types.is_numeric_dtype(df["mark_px"]):
         raise ValueError(
             f"daily_mark `mark_px` must be numeric, got {df['mark_px'].dtype}"
         )
 
+
+def _validate_daily_mark_unavailable_state(df: pd.DataFrame) -> None:
     unavailable_mask = df["mark_source"] == "unavailable"
 
     mismatch_unavailable_quality = unavailable_mask != (
@@ -343,21 +369,29 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
     if bool(df.loc[unavailable_mask, "mark_px"].notna().any()):
         raise ValueError("daily_mark unavailable rows must have null `mark_px`")
 
-    available_mask = ~unavailable_mask
+
+def _validate_daily_mark_available_state(df: pd.DataFrame) -> None:
+    available_mask = df["mark_source"] != "unavailable"
+
     if bool(df.loc[available_mask, "mark_px"].isna().any()):
         raise ValueError("daily_mark available rows must have non-null `mark_px`")
 
     if bool((~df.loc[available_mask, "is_markable"].fillna(False)).any()):
         raise ValueError("daily_mark available rows must have `is_markable=True`")
 
+
+def _validate_daily_mark_carried_state(df: pd.DataFrame) -> None:
+    unavailable_mask = df["mark_source"] == "unavailable"
+    available_mask = ~unavailable_mask
     carried_mask = df["is_carried"] == True  # noqa: E712
+
     if bool((df.loc[carried_mask, "mark_source"] != "carry_forward").any()):
         raise ValueError(
             "daily_mark carried rows must have `mark_source='carry_forward'`"
         )
 
     if bool((df.loc[carried_mask, "mark_quality"] != "carried").any()):
-        raise ValueError("daily_mark carried rows must have `mark_quality='carried'`")
+        raise ValueError("daily_mark carried rows must have `mark_quality='carried'")
 
     if bool((df.loc[carried_mask, "carry_streak"] <= 0).any()):
         raise ValueError("daily_mark carried rows must have `carry_streak > 0`")
@@ -368,25 +402,27 @@ def validate_daily_mark(df: pd.DataFrame) -> None:
             "daily_mark non-carried available rows must have `carry_streak=0`"
         )
 
+
+def _validate_daily_mark_optional_provenance_columns(df: pd.DataFrame) -> None:
     if "instrument_id" in df.columns:
         if not pd.api.types.is_integer_dtype(df["instrument_id"]):
             raise ValueError(
-                f"daily_mark `instrument_id` must be integer dtype if present, "
+                "daily_mark `instrument_id` must be integer dtype if present, "
                 f"got {df['instrument_id'].dtype}"
             )
 
     if "source_publisher_id" in df.columns:
         if not pd.api.types.is_integer_dtype(df["source_publisher_id"]):
             raise ValueError(
-                f"daily_mark `source_publisher_id` must be integer dtype if present, "
+                "daily_mark `source_publisher_id` must be integer dtype if present, "
                 f"got {df['source_publisher_id'].dtype}"
             )
 
-    for col in ("source_dataset", "source_raw_symbol"):
-        if col in df.columns and str(df[col].dtype) != "string":
+    for column_name in ("source_dataset", "source_raw_symbol"):
+        if column_name in df.columns and str(df[column_name].dtype) != "string":
             raise ValueError(
-                f"daily_mark `{col}` must be pandas string dtype if present, "
-                f"got {df[col].dtype}"
+                f"daily_mark `{column_name}` must be pandas string dtype if present, "
+                f"got {df[column_name].dtype}"
             )
 
 
@@ -398,91 +434,110 @@ def coerce_daily_mark(
     """
     Coerce a dataframe into canonical daily_mark surface form.
 
-    Intended use:
-    - builder step constructs a per-contract business-session mark surface
-    - this function finalizes dtypes, provenance day-label semantics,
-      and column ordering
-
     Returns:
-        A new dataframe coerced into canonical form (copy).
+        A new dataframe coerced into canonical form.
     """
     out = df.copy()
 
-    if "source_trading_date" in out.columns:
-        src = out["source_trading_date"].copy()
-
-        # Start from an empty target column with the canonical storage dtype.
-        out["source_trading_date"] = pd.Series(
-            pd.NaT,
-            index=out.index,
-            dtype="datetime64[ns]",
-        )
-
-        non_null = src.notna()
-        if bool(non_null.any()):
-            try:
-                coerced = _coerce_day_label_series(src.loc[non_null])
-            except Exception as e:
-                raise ValueError(f"failed to coerce `source_trading_date`: {e}") from e
-
-            out.loc[non_null, "source_trading_date"] = coerced.to_numpy()
-
-        out["source_trading_date"] = pd.to_datetime(
-            out["source_trading_date"],
-            errors="coerce",
-        ).dt.normalize()
-    if "session_id" in out.columns:
-        if out["session_id"].isna().any():
-            raise ValueError("daily_mark `session_id` contains null values.")
-        out["session_id"] = out["session_id"].astype("int32")
-
-    if "contract_id" in out.columns:
-        out["contract_id"] = out["contract_id"].astype("string")
-
-    if "instrument_id" in out.columns:
-        out["instrument_id"] = out["instrument_id"].astype("Int64")
-
-    if "mark_source" in out.columns:
-        out["mark_source"] = out["mark_source"].astype("string")
-
-    if "mark_quality" in out.columns:
-        out["mark_quality"] = out["mark_quality"].astype("string")
-
-    if "is_markable" in out.columns:
-        out["is_markable"] = out["is_markable"].astype("boolean")
-
-    if "is_carried" in out.columns:
-        out["is_carried"] = out["is_carried"].astype("boolean")
-
-    if "carry_streak" in out.columns:
-        out["carry_streak"] = out["carry_streak"].astype("int32")
-
-    if "source_dataset" in out.columns:
-        out["source_dataset"] = out["source_dataset"].astype("string")
-
-    if "source_publisher_id" in out.columns:
-        out["source_publisher_id"] = out["source_publisher_id"].astype("Int32")
-
-    if "source_raw_symbol" in out.columns:
-        out["source_raw_symbol"] = out["source_raw_symbol"].astype("string")
-
-    if "mark_px" in out.columns and not pd.api.types.is_numeric_dtype(out["mark_px"]):
-        out["mark_px"] = pd.to_numeric(out["mark_px"], errors="raise")
-
-    out = out.sort_values(["session_id"], kind="mergesort").reset_index(drop=True)
+    _coerce_daily_mark_source_trading_date(out)
+    _coerce_daily_mark_dtypes(out)
+    _coerce_daily_mark_price(out)
+    _sort_daily_mark_rows(out)
 
     if ensure_column_order:
-        missing = _missing_columns(out, DAILY_MARK.required)
-        if missing:
-            raise ValueError(
-                f"cannot coerce daily_mark: missing required columns: {missing}"
-            )
-
-        cols = [c for c in DAILY_MARK.columns if c in out.columns]
-        out = out.loc[:, cols]
+        out = _order_daily_mark_columns(out)
 
     validate_daily_mark(out)
+
     return out
+
+
+def _coerce_daily_mark_source_trading_date(df: pd.DataFrame) -> None:
+    if "source_trading_date" not in df.columns:
+        return
+
+    source_trading_date = df["source_trading_date"].copy()
+
+    df["source_trading_date"] = pd.Series(
+        pd.NaT,
+        index=df.index,
+        dtype="datetime64[ns]",
+    )
+
+    non_null = source_trading_date.notna()
+    if bool(non_null.any()):
+        try:
+            coerced = _coerce_day_label_series(source_trading_date.loc[non_null])
+        except Exception as exc:
+            raise ValueError(f"failed to coerce `source_trading_date`: {exc}") from exc
+
+        df.loc[non_null, "source_trading_date"] = coerced.to_numpy()
+
+    df["source_trading_date"] = pd.to_datetime(
+        df["source_trading_date"],
+        errors="coerce",
+    ).dt.normalize()
+
+
+def _coerce_daily_mark_dtypes(df: pd.DataFrame) -> None:
+    _coerce_daily_mark_session_id(df)
+    _coerce_daily_mark_optional_column(df, "contract_id", "string")
+    _coerce_daily_mark_optional_column(df, "instrument_id", "Int64")
+    _coerce_daily_mark_optional_column(df, "mark_source", "string")
+    _coerce_daily_mark_optional_column(df, "mark_quality", "string")
+    _coerce_daily_mark_optional_column(df, "is_markable", "boolean")
+    _coerce_daily_mark_optional_column(df, "is_carried", "boolean")
+    _coerce_daily_mark_optional_column(df, "carry_streak", "int32")
+    _coerce_daily_mark_optional_column(df, "source_dataset", "string")
+    _coerce_daily_mark_optional_column(df, "source_publisher_id", "Int32")
+    _coerce_daily_mark_optional_column(df, "source_raw_symbol", "string")
+
+
+def _coerce_daily_mark_session_id(df: pd.DataFrame) -> None:
+    if "session_id" not in df.columns:
+        return
+
+    if df["session_id"].isna().any():
+        raise ValueError("daily_mark `session_id` contains null values.")
+
+    df["session_id"] = df["session_id"].astype("int32")
+
+
+def _coerce_daily_mark_optional_column(
+    df: pd.DataFrame,
+    column_name: str,
+    dtype_target: str,
+) -> None:
+    if column_name in df.columns:
+        df[column_name] = df[column_name].astype(dtype_target)
+
+
+def _coerce_daily_mark_price(df: pd.DataFrame) -> None:
+    if "mark_px" not in df.columns:
+        return
+
+    if not pd.api.types.is_numeric_dtype(df["mark_px"]):
+        df["mark_px"] = pd.to_numeric(df["mark_px"], errors="raise")
+
+
+def _order_daily_mark_columns(df: pd.DataFrame) -> pd.DataFrame:
+    missing = _missing_columns(df, DAILY_MARK.required)
+    if missing:
+        raise ValueError(
+            f"cannot coerce daily_mark: missing required columns: {missing}"
+        )
+
+    ordered_columns = [
+        column_name for column_name in DAILY_MARK.columns if column_name in df.columns
+    ]
+    return df.loc[:, ordered_columns]
+
+
+def _sort_daily_mark_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if "session_id" not in df.columns:
+        return df
+
+    return df.sort_values(["session_id"], kind="mergesort").reset_index(drop=True)
 
 
 def hash_daily_mark_content(df: pd.DataFrame) -> str:

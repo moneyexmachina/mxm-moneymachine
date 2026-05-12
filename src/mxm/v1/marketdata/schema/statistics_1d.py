@@ -122,37 +122,52 @@ def validate_statistics_1d(df: pd.DataFrame) -> None:
     Raises:
         ValueError: if the dataframe fails validation.
     """
+    _validate_statistics_1d_required_columns(df)
+    _validate_statistics_1d_timestamp_columns(df)
+    _validate_statistics_1d_required_event_timestamps(df)
+    _validate_statistics_1d_identity_columns(df)
+    _validate_statistics_1d_rtype(df)
+    _validate_statistics_1d_numeric_columns(df)
+    _validate_statistics_1d_boolean_columns(df)
+
+
+def _validate_statistics_1d_required_columns(df: pd.DataFrame) -> None:
     missing = _missing_columns(df, STATISTICS_1D.required)
     if missing:
         raise ValueError(f"statistics dataframe missing required columns: {missing}")
 
-    # Timestamps must be datetime64 and tz-aware UTC
-    for col in ("ts_recv", "ts_event", "ts_ref"):
-        ts = df[col]
-        if not pd.api.types.is_datetime64_any_dtype(ts):
+
+def _validate_statistics_1d_timestamp_columns(df: pd.DataFrame) -> None:
+    for column_name in ("ts_recv", "ts_event", "ts_ref"):
+        timestamp_series = df[column_name]
+
+        if not pd.api.types.is_datetime64_any_dtype(timestamp_series):
             raise ValueError(
-                f"statistics `{col}` must be datetime dtype, got {ts.dtype}"
+                f"statistics `{column_name}` must be datetime dtype, "
+                f"got {timestamp_series.dtype}"
             )
-        if not isinstance(ts.dtype, pd.DatetimeTZDtype):
+
+        if not isinstance(timestamp_series.dtype, pd.DatetimeTZDtype):
             raise ValueError(
-                f"statistics `{col}` must be timezone-aware (UTC). "
+                f"statistics `{column_name}` must be timezone-aware (UTC). "
                 "If you have naive timestamps, localize them to UTC."
             )
-        if str(ts.dtype.tz) != "UTC":
-            raise ValueError(f"statistics `{col}` must be UTC, got tz={ts.dtype.tz}")
 
-    # ts_recv / ts_event must never be null (they are true event/capture times)
-    for col in ("ts_recv", "ts_event"):
-        if df[col].isna().any():
-            raise ValueError(f"statistics `{col}` contains null values")
+        if str(timestamp_series.dtype.tz) != "UTC":
+            raise ValueError(
+                f"statistics `{column_name}` must be UTC, "
+                f"got tz={timestamp_series.dtype.tz}"
+            )
 
-    # trading_date must be present and non-null for daily stat-types (even if ts_ref is date-like).
-    # Normalization derives it from ts_ref, so it should always be populated.
-    DAILY_STAT_TYPES = {3, 6, 9, 10}
-    _ = DAILY_STAT_TYPES
 
-    # Identity / provenance fields must be non-null
-    for col in (
+def _validate_statistics_1d_required_event_timestamps(df: pd.DataFrame) -> None:
+    for column_name in ("ts_recv", "ts_event"):
+        if df[column_name].isna().any():
+            raise ValueError(f"statistics `{column_name}` contains null values")
+
+
+def _validate_statistics_1d_identity_columns(df: pd.DataFrame) -> None:
+    for column_name in (
         "publisher_id",
         "channel_id",
         "instrument_id",
@@ -162,36 +177,38 @@ def validate_statistics_1d(df: pd.DataFrame) -> None:
         "rtype",
         "stat_type",
     ):
-        if df[col].isna().any():
-            raise ValueError(f"statistics `{col}` contains null values")
+        if df[column_name].isna().any():
+            raise ValueError(f"statistics `{column_name}` contains null values")
 
-    # rtype must be 24 for statistics
+
+def _validate_statistics_1d_rtype(df: pd.DataFrame) -> None:
     bad_rtypes = df.loc[df["rtype"] != 24, "rtype"].unique()
     if len(bad_rtypes) > 0:
         raise ValueError(f"statistics `rtype` must be 24, saw {bad_rtypes}")
 
-    # Numeric constraints (lightweight)
-    for col in ("price", "quantity", "sequence", "ts_in_delta"):
-        if not pd.api.types.is_numeric_dtype(df[col]):
-            raise ValueError(f"statistics `{col}` must be numeric, got {df[col].dtype}")
 
-    # Boolean convenience flags must be boolean dtype (or pandas boolean)
-    for col in (
+def _validate_statistics_1d_numeric_columns(df: pd.DataFrame) -> None:
+    for column_name in ("price", "quantity", "sequence", "ts_in_delta"):
+        column = df[column_name]
+        if not pd.api.types.is_numeric_dtype(column):
+            raise ValueError(
+                f"statistics `{column_name}` must be numeric, got {column.dtype}"
+            )
+
+
+def _validate_statistics_1d_boolean_columns(df: pd.DataFrame) -> None:
+    for column_name in (
         "is_final",
         "is_actual",
         "is_trading_tick",
         "is_intraday",
         "is_null_set",
     ):
-        if df[col].dtype not in (bool, "bool") and str(df[col].dtype) != "boolean":
-            # Allow pandas BooleanDtype ("boolean") which supports NA.
+        column = df[column_name]
+        if column.dtype not in (bool, "bool") and str(column.dtype) != "boolean":
             raise ValueError(
-                f"statistics `{col}` must be boolean dtype, got {df[col].dtype}"
+                f"statistics `{column_name}` must be boolean dtype, got {column.dtype}"
             )
-
-    # We do not enforce any uniqueness. This is an event stream.
-    # We also do not enforce stat_flags semantics outside of settlement.
-    # If we got here, schema is acceptable.
 
 
 def coerce_statistics_1d(
@@ -206,55 +223,80 @@ def coerce_statistics_1d(
 
     Intended use:
     - vendor normalization step creates/renames fields and adds derived columns
-    - this function finalizes dtypes, utc timestamps, and column ordering
-
-    Args:
-        df: dataframe that already contains the required columns (or will after light coercion)
-        dataset: if provided, set/override `dataset` column
-        schema: set/override `schema` column (defaults to `statistics`)
-        ensure_column_order: reorder columns to canonical order if True
-
-    Returns:
-        A new dataframe coerced into canonical form (copy).
+    - this function finalizes dtypes, UTC timestamps, and column ordering
     """
     out = df.copy()
 
-    # Ensure timestamps are tz-aware UTC
-    for col in ("ts_recv", "ts_event", "ts_ref"):
-        out[col] = ensure_utc_datetime_series(out[col])
-
-    # Derive trading_date if missing (defensive). Expect normalize to have done this.
-    if "trading_date" not in out.columns:
-        out["trading_date"] = out["ts_ref"].dt.date
-
-    if dataset is not None:
-        out["dataset"] = dataset
-    out["schema"] = schema
-
-    # Coerce identity/provenance dtypes
-    for col, dtype in STATISTICS_1D.dtype_targets.items():
-        if col not in out.columns:
-            continue
-        try:
-            out[col] = out[col].astype(dtype)
-        except Exception as e:
-            raise ValueError(f"failed to coerce `{col}` to {dtype}: {e}") from e
-
-    # Keep numeric columns numeric (do not force float/int, just ensure parseable)
-    for col in ("price", "quantity", "sequence", "ts_in_delta", "rtype", "stat_type"):
-        if col in out.columns and not pd.api.types.is_numeric_dtype(out[col]):
-            out[col] = pd.to_numeric(out[col], errors="raise")
+    _coerce_statistics_1d_timestamps(out)
+    _ensure_statistics_1d_trading_date(out)
+    _set_statistics_1d_dataset_and_schema(out, dataset=dataset, schema=schema)
+    _coerce_statistics_1d_dtype_targets(out)
+    _coerce_statistics_1d_numeric_columns(out)
 
     if ensure_column_order:
-        missing = _missing_columns(out, STATISTICS_1D.required)
-        if missing:
-            raise ValueError(f"cannot coerce: missing required columns: {missing}")
-        out = out.loc[:, list(STATISTICS_1D.columns)]
+        out = _order_statistics_1d_columns(out)
 
-    # Final validation (loud fail if something is off)
     validate_statistics_1d(out)
 
     return out
+
+
+def _coerce_statistics_1d_timestamps(df: pd.DataFrame) -> None:
+    for column_name in ("ts_recv", "ts_event", "ts_ref"):
+        df[column_name] = ensure_utc_datetime_series(df[column_name])
+
+
+def _ensure_statistics_1d_trading_date(df: pd.DataFrame) -> None:
+    if "trading_date" not in df.columns:
+        df["trading_date"] = df["ts_ref"].dt.date
+
+
+def _set_statistics_1d_dataset_and_schema(
+    df: pd.DataFrame,
+    *,
+    dataset: str | None,
+    schema: str,
+) -> None:
+    if dataset is not None:
+        df["dataset"] = dataset
+
+    df["schema"] = schema
+
+
+def _coerce_statistics_1d_dtype_targets(df: pd.DataFrame) -> None:
+    for column_name, dtype_target in STATISTICS_1D.dtype_targets.items():
+        if column_name not in df.columns:
+            continue
+
+        try:
+            df[column_name] = df[column_name].astype(dtype_target)
+        except Exception as exc:
+            raise ValueError(
+                f"failed to coerce `{column_name}` to {dtype_target}: {exc}"
+            ) from exc
+
+
+def _coerce_statistics_1d_numeric_columns(df: pd.DataFrame) -> None:
+    for column_name in (
+        "price",
+        "quantity",
+        "sequence",
+        "ts_in_delta",
+        "rtype",
+        "stat_type",
+    ):
+        if column_name in df.columns and not pd.api.types.is_numeric_dtype(
+            df[column_name]
+        ):
+            df[column_name] = pd.to_numeric(df[column_name], errors="raise")
+
+
+def _order_statistics_1d_columns(df: pd.DataFrame) -> pd.DataFrame:
+    missing = _missing_columns(df, STATISTICS_1D.required)
+    if missing:
+        raise ValueError(f"cannot coerce: missing required columns: {missing}")
+
+    return df.loc[:, list(STATISTICS_1D.columns)]
 
 
 def hash_statistics_1d_content(df: pd.DataFrame) -> str:

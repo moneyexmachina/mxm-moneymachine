@@ -102,122 +102,152 @@ def canonical_product_spread_id(
     )
 
 
+_RC_GROUP = r"(RC::.+?)"
+
+
 def validate_synthetic_asset_canonical_id(canonical_id: str) -> None:
     """
     Validate the structural shape of a Synthetic Asset canonical id.
 
     V1 scope: structural validation only.
-
-    Important:
-    - SyntheticAsset canonical ids embed selector canonical ids (RC::...) which
-      themselves contain '::' tokens. Therefore we must not parse SA canonical ids
-      by naive splitting on '::'.
-    - SyntheticAsset canonical ids also embed weights_rule_id as an encoded payload
-      in the WR field:
-            ::WR=<percent-encoded canonical weights_rule_id>
-    - This validator is intentionally strict on top-level field order and presence.
-    - It does not parse RC internals; it only verifies that embedded selector fields
-      start with 'RC::'.
-    - It does parse and validate the decoded weights_rule_id.
     """
+    _validate_synthetic_asset_prefix(canonical_id)
 
+    kind = _parse_synthetic_asset_kind(canonical_id)
+    match kind:
+        case "CONT":
+            _validate_continuous_roll_canonical_id(canonical_id)
+        case "TS":
+            _validate_time_spread_canonical_id(canonical_id)
+        case "PS":
+            _validate_product_spread_canonical_id(canonical_id)
+        case _:
+            raise ValueError(
+                f"SyntheticAssetSpec.canonical_id has unknown KIND={kind!r}"
+            )
+
+
+def _validate_synthetic_asset_prefix(canonical_id: str) -> None:
     if not canonical_id.startswith("SA::"):
         raise ValueError("SyntheticAssetSpec.canonical_id must start with 'SA::'")
 
+
+def _parse_synthetic_asset_kind(canonical_id: str) -> str:
     m_kind = re.match(r"^SA::KIND=(?P<kind>[A-Z]+)", canonical_id)
     if not m_kind:
         raise ValueError("SyntheticAssetSpec.canonical_id missing KIND")
-    kind = m_kind.group("kind")
+    return m_kind.group("kind")
 
-    # Embedded selector ids (RC::...) may contain '::' internally.
-    rc = r"(RC::.+?)"
 
-    def _validate_wr_group(m: re.Match[str]) -> None:
-        wr_encoded = m.group("wr")
-        try:
-            wr = decode_canonical_id_component(wr_encoded)
-        except Exception as e:
-            raise ValueError(
-                "SyntheticAssetSpec.canonical_id contains invalid encoded WR payload"
-            ) from e
+def _validate_continuous_roll_canonical_id(canonical_id: str) -> None:
+    match = _match_continuous_roll_canonical_id(canonical_id)
+    _validate_selector_groups_start_with_rc(
+        match,
+        group_names=("cur", "nxt"),
+        error_message=(
+            "SyntheticAssetSpec.canonical_id CONT legs must be selector ids "
+            "starting with 'RC::'"
+        ),
+    )
+    _validate_wr_group(match)
 
-        try:
-            parse_weights_rule_id(wr)
-        except Exception as e:
-            raise ValueError(
-                "SyntheticAssetSpec.canonical_id contains invalid decoded weights_rule_id"
-            ) from e
 
-    if kind == "CONT":
-        # SA::KIND=CONT::P0=...::CUR=RC::...::NXT=RC::...::WR=<encoded WR>
-        pat = re.compile(
-            rf"^SA::KIND=CONT"
-            rf"::P0=(?P<p0>[^:]+)"
-            rf"::CUR=(?P<cur>{rc})(?=::NXT=)"
-            rf"::NXT=(?P<nxt>{rc})(?=::WR=)"
-            rf"::WR=(?P<wr>.+)$"
-        )
-        m = pat.match(canonical_id)
-        if not m:
-            raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=CONT")
+def _validate_time_spread_canonical_id(canonical_id: str) -> None:
+    match = _match_time_spread_canonical_id(canonical_id)
+    _validate_selector_groups_start_with_rc(
+        match,
+        group_names=("near_cur", "near_nxt", "far_cur", "far_nxt"),
+        error_message=(
+            "SyntheticAssetSpec.canonical_id TS legs must be selector ids "
+            "starting with 'RC::'"
+        ),
+    )
+    _validate_wr_group(match)
 
-        if not m.group("cur").startswith("RC::") or not m.group("nxt").startswith(
-            "RC::"
-        ):
-            raise ValueError(
-                "SyntheticAssetSpec.canonical_id CONT legs must be selector ids starting with 'RC::'"
-            )
 
-        _validate_wr_group(m)
-        return
+def _validate_product_spread_canonical_id(canonical_id: str) -> None:
+    match = _match_product_spread_canonical_id(canonical_id)
+    _validate_selector_groups_start_with_rc(
+        match,
+        group_names=("a_cur", "a_nxt", "b_cur", "b_nxt"),
+        error_message=(
+            "SyntheticAssetSpec.canonical_id PS legs must be selector ids "
+            "starting with 'RC::'"
+        ),
+    )
+    _validate_wr_group(match)
 
-    if kind == "TS":
-        # SA::KIND=TS::P0=...::NEAR_CUR=RC::...::NEAR_NXT=RC::...::FAR_CUR=RC::...::FAR_NXT=RC::...::WR=<encoded WR>
-        pat = re.compile(
-            rf"^SA::KIND=TS"
-            rf"::P0=(?P<p0>[^:]+)"
-            rf"::NEAR_CUR=(?P<near_cur>{rc})(?=::NEAR_NXT=)"
-            rf"::NEAR_NXT=(?P<near_nxt>{rc})(?=::FAR_CUR=)"
-            rf"::FAR_CUR=(?P<far_cur>{rc})(?=::FAR_NXT=)"
-            rf"::FAR_NXT=(?P<far_nxt>{rc})(?=::WR=)"
-            rf"::WR=(?P<wr>.+)$"
-        )
-        m = pat.match(canonical_id)
-        if not m:
-            raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=TS")
 
-        for k in ("near_cur", "near_nxt", "far_cur", "far_nxt"):
-            if not m.group(k).startswith("RC::"):
-                raise ValueError(
-                    "SyntheticAssetSpec.canonical_id TS legs must be selector ids starting with 'RC::'"
-                )
+def _match_continuous_roll_canonical_id(canonical_id: str) -> re.Match[str]:
+    pat = re.compile(
+        rf"^SA::KIND=CONT"
+        rf"::P0=(?P<p0>[^:]+)"
+        rf"::CUR=(?P<cur>{_RC_GROUP})(?=::NXT=)"
+        rf"::NXT=(?P<nxt>{_RC_GROUP})(?=::WR=)"
+        rf"::WR=(?P<wr>.+)$"
+    )
+    match = pat.match(canonical_id)
+    if not match:
+        raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=CONT")
+    return match
 
-        _validate_wr_group(m)
-        return
 
-    if kind == "PS":
-        # SA::KIND=PS::P0=...::P1=...::A_CUR=RC::...::A_NXT=RC::...::B_CUR=RC::...::B_NXT=RC::...::WR=<encoded WR>
-        pat = re.compile(
-            rf"^SA::KIND=PS"
-            rf"::P0=(?P<p0>[^:]+)"
-            rf"::P1=(?P<p1>[^:]+)"
-            rf"::A_CUR=(?P<a_cur>{rc})(?=::A_NXT=)"
-            rf"::A_NXT=(?P<a_nxt>{rc})(?=::B_CUR=)"
-            rf"::B_CUR=(?P<b_cur>{rc})(?=::B_NXT=)"
-            rf"::B_NXT=(?P<b_nxt>{rc})(?=::WR=)"
-            rf"::WR=(?P<wr>.+)$"
-        )
-        m = pat.match(canonical_id)
-        if not m:
-            raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=PS")
+def _match_time_spread_canonical_id(canonical_id: str) -> re.Match[str]:
+    pat = re.compile(
+        rf"^SA::KIND=TS"
+        rf"::P0=(?P<p0>[^:]+)"
+        rf"::NEAR_CUR=(?P<near_cur>{_RC_GROUP})(?=::NEAR_NXT=)"
+        rf"::NEAR_NXT=(?P<near_nxt>{_RC_GROUP})(?=::FAR_CUR=)"
+        rf"::FAR_CUR=(?P<far_cur>{_RC_GROUP})(?=::FAR_NXT=)"
+        rf"::FAR_NXT=(?P<far_nxt>{_RC_GROUP})(?=::WR=)"
+        rf"::WR=(?P<wr>.+)$"
+    )
+    match = pat.match(canonical_id)
+    if not match:
+        raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=TS")
+    return match
 
-        for k in ("a_cur", "a_nxt", "b_cur", "b_nxt"):
-            if not m.group(k).startswith("RC::"):
-                raise ValueError(
-                    "SyntheticAssetSpec.canonical_id PS legs must be selector ids starting with 'RC::'"
-                )
 
-        _validate_wr_group(m)
-        return
+def _match_product_spread_canonical_id(canonical_id: str) -> re.Match[str]:
+    pat = re.compile(
+        rf"^SA::KIND=PS"
+        rf"::P0=(?P<p0>[^:]+)"
+        rf"::P1=(?P<p1>[^:]+)"
+        rf"::A_CUR=(?P<a_cur>{_RC_GROUP})(?=::A_NXT=)"
+        rf"::A_NXT=(?P<a_nxt>{_RC_GROUP})(?=::B_CUR=)"
+        rf"::B_CUR=(?P<b_cur>{_RC_GROUP})(?=::B_NXT=)"
+        rf"::B_NXT=(?P<b_nxt>{_RC_GROUP})(?=::WR=)"
+        rf"::WR=(?P<wr>.+)$"
+    )
+    match = pat.match(canonical_id)
+    if not match:
+        raise ValueError("SyntheticAssetSpec.canonical_id malformed for KIND=PS")
+    return match
 
-    raise ValueError(f"SyntheticAssetSpec.canonical_id has unknown KIND={kind!r}")
+
+def _validate_selector_groups_start_with_rc(
+    match: re.Match[str],
+    *,
+    group_names: tuple[str, ...],
+    error_message: str,
+) -> None:
+    for group_name in group_names:
+        if not match.group(group_name).startswith("RC::"):
+            raise ValueError(error_message)
+
+
+def _validate_wr_group(match: re.Match[str]) -> None:
+    wr_encoded = match.group("wr")
+    try:
+        wr = decode_canonical_id_component(wr_encoded)
+    except Exception as e:
+        raise ValueError(
+            "SyntheticAssetSpec.canonical_id contains invalid encoded WR payload"
+        ) from e
+
+    try:
+        parse_weights_rule_id(wr)
+    except Exception as e:
+        raise ValueError(
+            "SyntheticAssetSpec.canonical_id contains invalid decoded weights_rule_id"
+        ) from e

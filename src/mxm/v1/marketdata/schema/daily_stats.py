@@ -120,7 +120,7 @@ def validate_daily_stats(df: pd.DataFrame) -> None:
 
     Contract (MXM V1)
     -----------------
-    - session_date is a *day label* represented as a tz-aware UTC timestamp
+    - session_date is a day label represented as a tz-aware UTC timestamp
       aligned to UTC midnight (00:00:00Z).
     - One row per (instrument_id, session_date).
     - Surfaces are per-instrument (instrument_id constant within a file/surface).
@@ -128,73 +128,103 @@ def validate_daily_stats(df: pd.DataFrame) -> None:
     Raises:
         ValueError: if the dataframe fails validation.
     """
+    _validate_daily_stats_required_columns(df)
+    _validate_daily_stats_session_date(df)
+    _validate_daily_stats_identity_provenance(df)
+    _validate_daily_stats_row_uniqueness(df)
+    _validate_daily_stats_surface_invariant(df)
+    _validate_daily_stats_sort_order(df)
+    _validate_daily_stats_boolean_columns(df)
+    _validate_daily_stats_numeric_columns(df)
+
+
+def _validate_daily_stats_required_columns(df: pd.DataFrame) -> None:
     missing = _missing_columns(df, DAILY_STATS.required)
     if missing:
         raise ValueError(f"daily_stats dataframe missing required columns: {missing}")
 
-    # session_date must be datetime64[ns, UTC] and UTC-midnight aligned
+
+def _validate_daily_stats_session_date(df: pd.DataFrame) -> None:
     if "session_date" not in df.columns:
         raise ValueError("daily_stats missing session_date")
 
-    s = df["session_date"]
-    if not pd.api.types.is_datetime64_any_dtype(s):
+    session_date = df["session_date"]
+
+    if not pd.api.types.is_datetime64_any_dtype(session_date):
         raise ValueError(
-            f"daily_stats `session_date` must be datetime dtype, got {s.dtype}"
+            "daily_stats `session_date` must be datetime dtype, "
+            f"got {session_date.dtype}"
         )
-    if not isinstance(s.dtype, pd.DatetimeTZDtype):
+
+    if not isinstance(session_date.dtype, pd.DatetimeTZDtype):
         raise ValueError(
             "daily_stats `session_date` must be tz-aware UTC (datetime64[ns, UTC])"
         )
-    if str(s.dtype.tz) != "UTC":
-        raise ValueError(f"daily_stats `session_date` must be UTC, got tz={s.dtype.tz}")
 
-    if s.isna().any():
+    if str(session_date.dtype.tz) != "UTC":
+        raise ValueError(
+            f"daily_stats `session_date` must be UTC, got tz={session_date.dtype.tz}"
+        )
+
+    if session_date.isna().any():
         raise ValueError("daily_stats `session_date` contains null values")
 
-    # Require UTC-midnight alignment (day-label semantics)
+    _validate_daily_stats_session_date_midnight_alignment(session_date)
+
+
+def _validate_daily_stats_session_date_midnight_alignment(
+    session_date: pd.Series,
+) -> None:
     midnight = (
-        (s.dt.hour == 0)
-        & (s.dt.minute == 0)
-        & (s.dt.second == 0)
-        & (s.dt.microsecond == 0)
+        (session_date.dt.hour == 0)
+        & (session_date.dt.minute == 0)
+        & (session_date.dt.second == 0)
+        & (session_date.dt.microsecond == 0)
     )
+
     if not bool(midnight.all()):
         raise ValueError(
             "daily_stats `session_date` must be UTC-midnight aligned (00:00:00Z)"
         )
 
-    # Identity/provenance must be non-null
-    for col in ("instrument_id", "publisher_id", "dataset"):
-        if df[col].isna().any():
-            raise ValueError(f"daily_stats `{col}` contains null values")
 
-    # raw_symbol: optional column, but if present it must be non-null
+def _validate_daily_stats_identity_provenance(df: pd.DataFrame) -> None:
+    for column_name in ("instrument_id", "publisher_id", "dataset"):
+        if df[column_name].isna().any():
+            raise ValueError(f"daily_stats `{column_name}` contains null values")
+
     if "raw_symbol" in df.columns and df["raw_symbol"].isna().any():
         raise ValueError("daily_stats `raw_symbol` contains null values")
 
-    # One row per (instrument_id, session_date)
+
+def _validate_daily_stats_row_uniqueness(df: pd.DataFrame) -> None:
     if df.duplicated(subset=["instrument_id", "session_date"]).any():
         raise ValueError(
             "daily_stats contains duplicate (instrument_id, session_date) rows"
         )
 
-    # Per-instrument surface invariant
+
+def _validate_daily_stats_surface_invariant(df: pd.DataFrame) -> None:
     if df["instrument_id"].nunique(dropna=False) != 1:
         raise ValueError("daily_stats surface must contain exactly one instrument_id")
 
-    # Sorted by session_date
+
+def _validate_daily_stats_sort_order(df: pd.DataFrame) -> None:
     if not df["session_date"].is_monotonic_increasing:
         raise ValueError("daily_stats `session_date` must be sorted increasing")
 
-    # Booleans (nullable allowed)
-    for col in ("settle_px_is_final", "fix_px_is_final"):
-        if col in df.columns and str(df[col].dtype) != "boolean":
+
+def _validate_daily_stats_boolean_columns(df: pd.DataFrame) -> None:
+    for column_name in ("settle_px_is_final", "fix_px_is_final"):
+        if column_name in df.columns and str(df[column_name].dtype) != "boolean":
             raise ValueError(
-                f"daily_stats `{col}` must be pandas boolean dtype, got {df[col].dtype}"
+                f"daily_stats `{column_name}` must be pandas boolean dtype, "
+                f"got {df[column_name].dtype}"
             )
 
-    # Numeric constraints (lightweight): allow NaNs, but must be numeric dtype if present
-    for col in (
+
+def _validate_daily_stats_numeric_columns(df: pd.DataFrame) -> None:
+    for column_name in (
         "settle_px",
         "fix_px",
         "open_px",
@@ -203,9 +233,12 @@ def validate_daily_stats(df: pd.DataFrame) -> None:
         "open_interest_qty",
         "cleared_volume_qty",
     ):
-        if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
+        if column_name in df.columns and not pd.api.types.is_numeric_dtype(
+            df[column_name]
+        ):
             raise ValueError(
-                f"daily_stats `{col}` must be numeric, got {df[col].dtype}"
+                f"daily_stats `{column_name}` must be numeric, "
+                f"got {df[column_name].dtype}"
             )
 
 

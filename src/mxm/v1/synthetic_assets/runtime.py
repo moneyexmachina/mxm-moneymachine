@@ -86,75 +86,27 @@ class SyntheticAsset:
         Validate that all realised datasets belong to the same synthetic asset
         and are mutually aligned.
         """
-        spec = self.spec
-
-        if self.component_contracts.asset_id != spec.asset_id:
-            raise ValueError(
-                f"component_contracts.asset_id={self.component_contracts.asset_id!r} "
-                f"does not match spec.asset_id={spec.asset_id!r}"
-            )
-
-        if self.component_contracts.canonical_id != spec.canonical_id:
-            raise ValueError(
-                f"component_contracts.canonical_id={self.component_contracts.canonical_id!r} "
-                f"does not match spec.canonical_id={spec.canonical_id!r}"
-            )
-
-        if self.component_weights.asset_id != spec.asset_id:
-            raise ValueError(
-                f"component_weights.asset_id={self.component_weights.asset_id!r} "
-                f"does not match spec.asset_id={spec.asset_id!r}"
-            )
-
-        if self.component_weights.canonical_id != spec.canonical_id:
-            raise ValueError(
-                f"component_weights.canonical_id={self.component_weights.canonical_id!r} "
-                f"does not match spec.canonical_id={spec.canonical_id!r}"
-            )
-
-        if self.component_weights.weights_rule_id != spec.weights_rule_id:
-            raise ValueError(
-                f"component_weights.weights_rule_id={self.component_weights.weights_rule_id!r} "
-                f"does not match spec.weights_rule_id={spec.weights_rule_id!r}"
-            )
-
-        if self.target_holdings.asset_id != spec.asset_id:
-            raise ValueError(
-                f"target_holdings.asset_id={self.target_holdings.asset_id!r} "
-                f"does not match spec.asset_id={spec.asset_id!r}"
-            )
-
-        if self.target_holdings.canonical_id != spec.canonical_id:
-            raise ValueError(
-                f"target_holdings.canonical_id={self.target_holdings.canonical_id!r} "
-                f"does not match spec.canonical_id={spec.canonical_id!r}"
-            )
-
-        spec_component_ids = list(spec.components.keys())
-        contract_component_ids = list(self.component_contracts.frame.columns)
-        weight_component_ids = list(self.component_weights.frame.columns)
-
-        if contract_component_ids != spec_component_ids:
-            raise ValueError(
-                "ComponentContracts columns do not match spec.components order: "
-                f"{contract_component_ids!r} != {spec_component_ids!r}"
-            )
-
-        if weight_component_ids != spec_component_ids:
-            raise ValueError(
-                "ComponentWeights columns do not match spec.components order: "
-                f"{weight_component_ids!r} != {spec_component_ids!r}"
-            )
-
-        contracts_index = self.component_contracts.frame.index
-        weights_index = self.component_weights.frame.index
-
-        if len(contracts_index) != len(weights_index) or not contracts_index.equals(
-            weights_index
-        ):
-            raise ValueError(
-                "ComponentContracts and ComponentWeights session indices do not match"
-            )
+        _validate_component_contracts_identity(
+            spec=self.spec,
+            component_contracts=self.component_contracts,
+        )
+        _validate_component_weights_identity(
+            spec=self.spec,
+            component_weights=self.component_weights,
+        )
+        _validate_target_holdings_identity(
+            spec=self.spec,
+            target_holdings=self.target_holdings,
+        )
+        _validate_component_column_alignment(
+            spec=self.spec,
+            component_contracts=self.component_contracts,
+            component_weights=self.component_weights,
+        )
+        _validate_component_session_alignment(
+            component_contracts=self.component_contracts,
+            component_weights=self.component_weights,
+        )
 
     def first_session(self) -> np.datetime64:
         """
@@ -167,6 +119,121 @@ class SyntheticAsset:
         Return the last realised session.
         """
         return self.component_contracts.frame.index[-1]
+
+
+def _validate_component_contracts_identity(
+    *,
+    spec: SyntheticAssetSpec,
+    component_contracts: ComponentContracts,
+) -> None:
+    _validate_field_matches(
+        lhs_name="component_contracts.asset_id",
+        lhs_value=component_contracts.asset_id,
+        rhs_name="spec.asset_id",
+        rhs_value=spec.asset_id,
+    )
+    _validate_field_matches(
+        lhs_name="component_contracts.canonical_id",
+        lhs_value=component_contracts.canonical_id,
+        rhs_name="spec.canonical_id",
+        rhs_value=spec.canonical_id,
+    )
+
+
+def _validate_component_weights_identity(
+    *,
+    spec: SyntheticAssetSpec,
+    component_weights: ComponentWeights,
+) -> None:
+    _validate_field_matches(
+        lhs_name="component_weights.asset_id",
+        lhs_value=component_weights.asset_id,
+        rhs_name="spec.asset_id",
+        rhs_value=spec.asset_id,
+    )
+    _validate_field_matches(
+        lhs_name="component_weights.canonical_id",
+        lhs_value=component_weights.canonical_id,
+        rhs_name="spec.canonical_id",
+        rhs_value=spec.canonical_id,
+    )
+    _validate_field_matches(
+        lhs_name="component_weights.weights_rule_id",
+        lhs_value=component_weights.weights_rule_id,
+        rhs_name="spec.weights_rule_id",
+        rhs_value=spec.weights_rule_id,
+    )
+
+
+def _validate_target_holdings_identity(
+    *,
+    spec: SyntheticAssetSpec,
+    target_holdings: TargetHoldings,
+) -> None:
+    _validate_field_matches(
+        lhs_name="target_holdings.asset_id",
+        lhs_value=target_holdings.asset_id,
+        rhs_name="spec.asset_id",
+        rhs_value=spec.asset_id,
+    )
+    _validate_field_matches(
+        lhs_name="target_holdings.canonical_id",
+        lhs_value=target_holdings.canonical_id,
+        rhs_name="spec.canonical_id",
+        rhs_value=spec.canonical_id,
+    )
+
+
+def _validate_field_matches(
+    *,
+    lhs_name: str,
+    lhs_value: str,
+    rhs_name: str,
+    rhs_value: str,
+) -> None:
+    if lhs_value != rhs_value:
+        raise ValueError(
+            f"{lhs_name}={lhs_value!r} does not match {rhs_name}={rhs_value!r}"
+        )
+
+
+def _validate_component_column_alignment(
+    *,
+    spec: SyntheticAssetSpec,
+    component_contracts: ComponentContracts,
+    component_weights: ComponentWeights,
+) -> None:
+    spec_component_ids = list(spec.components.keys())
+    contract_component_ids = list(component_contracts.frame.columns)
+    weight_component_ids = list(component_weights.frame.columns)
+
+    if contract_component_ids != spec_component_ids:
+        raise ValueError(
+            "ComponentContracts columns do not match spec.components order: "
+            f"{contract_component_ids!r} != {spec_component_ids!r}"
+        )
+
+    if weight_component_ids != spec_component_ids:
+        raise ValueError(
+            "ComponentWeights columns do not match spec.components order: "
+            f"{weight_component_ids!r} != {spec_component_ids!r}"
+        )
+
+
+def _validate_component_session_alignment(
+    *,
+    component_contracts: ComponentContracts,
+    component_weights: ComponentWeights,
+) -> None:
+    contracts_index = component_contracts.frame.index
+    weights_index = component_weights.frame.index
+
+    if len(contracts_index) != len(weights_index) or not contracts_index.equals(
+        weights_index
+    ):
+        raise ValueError(
+            "ComponentContracts and ComponentWeights session indices do not match"
+        )
 
 
 def build_synthetic_asset(
