@@ -40,7 +40,7 @@ For each session, total PnL is decomposed into two components:
 
    Conceptually:
 
-       initial_holdings × (mark_t − mark_{t−1})
+       initial_holdings x (mark_t - mark_{t-1})
 
 2. Trade PnL
 
@@ -49,7 +49,7 @@ For each session, total PnL is decomposed into two components:
 
    Conceptually:
 
-       realised_trades × (mark_t − fill_price)
+       realised_trades x (mark_t - fill_price)
 
 Total PnL is defined as:
 
@@ -63,9 +63,9 @@ PnL calculations must include the economic size of each contract.
 For each contract the PnL contribution is scaled by:
 
     contract_quantity
-    × contract_multiplier
-    × price_change
-    × fx_multiplier
+    x contract_multiplier
+    x price_change
+    x fx_multiplier
 
 The contract multiplier is obtained from reference data.
 

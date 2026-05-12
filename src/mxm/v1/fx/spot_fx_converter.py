@@ -36,7 +36,7 @@ Later implementations will need to support:
 - attribution of PnL into:
     - native price effect
     - FX effect
-    - price–FX interaction
+    - price-FX interaction
 """
 
 from __future__ import annotations

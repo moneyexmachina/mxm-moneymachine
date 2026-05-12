@@ -117,7 +117,7 @@ def us_full_closure_holidays_minimal(year: int) -> set[dt.date]:
     Includes:
     - New Year's Day
     - MLK Day (3rd Mon Jan)
-    - Presidents’ Day (3rd Mon Feb)
+    - Presidents' Day (3rd Mon Feb)
     - Good Friday
     - Memorial Day (last Mon May)
     - Juneteenth (from 2021 onward)

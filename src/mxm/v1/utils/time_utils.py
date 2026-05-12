@@ -3,7 +3,7 @@ MXM V1 time utilities (UTC-normalised, tz-aware, pandas-first).
 
 Authority
 ---------
-This module defines the **authoritative, MXM V1–wide semantics** for timestamp
+This module defines the **authoritative, MXM V1-wide semantics** for timestamp
 parsing, coercion, normalisation, and formatting.
 
 All MXM V1 code that handles timestamps or dates **must** use these helpers

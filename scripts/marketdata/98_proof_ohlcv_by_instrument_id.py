@@ -2,7 +2,7 @@
 scripts/marketdata/97_proof_ohlcv_by_instrument_id.py
 
 Proof 97 — Session 10
-Instrument-ID–based OHLCV ingestion from Databento with parquet persistence.
+Instrument-ID-based OHLCV ingestion from Databento with parquet persistence.
 
 Proves:
 1) FuturesContract -> DatabentoInstrumentIdentity via mapping table (no vendor calls)

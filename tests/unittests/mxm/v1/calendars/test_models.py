@@ -9,7 +9,7 @@ from mxm.v1.utils.date_utils import coerce_np_day
 
 def _synthetic_trading_days() -> np.ndarray:
     """
-    Two trading weeks (Mon–Fri) starting 2026-02-02.
+    Two trading weeks (Mon-Fri) starting 2026-02-02.
 
     Trading days:
       2026-02-02 .. 2026-02-06

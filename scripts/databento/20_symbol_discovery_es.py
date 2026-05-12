@@ -31,7 +31,7 @@ MONTH_CODES = ["H", "M", "U", "Z"]  # quarterly cycle; expand later if needed
 
 
 def generate_candidates(root: str, years: list[int], months: list[str]) -> list[str]:
-    # Databento/CME common shorthand uses 1–2 digit years in many contexts.
+    # Databento/CME common shorthand uses 1-2 digit years in many contexts.
     # We generate both 1-digit and 2-digit to see what resolves in your account.
     cands = []
     for y in years:

@@ -5,7 +5,7 @@ This module defines the declarative policy describing which synthetic assets
 should be constructed for each futures product.
 
 The policy is expressed as *families of synthetic assets*, where each family
-corresponds to a specific contract-selection rule applied to a product’s listed
+corresponds to a specific contract-selection rule applied to a product's listed
 contracts.
 
 Conceptually:

@@ -40,7 +40,7 @@ Session PnL is decomposed into two components:
    the session.
 
        price_move_pnl =
-           initial_holdings × contract_multiplier × (mark_t − mark_{t−1})
+           initial_holdings x contract_multiplier x (mark_t - mark_{t-1})
 
 2. Trade PnL
 
@@ -48,7 +48,7 @@ Session PnL is decomposed into two components:
    session mark.
 
        trade_pnl =
-           realised_trades × contract_multiplier × (mark_t − fill_price)
+           realised_trades x contract_multiplier x (mark_t - fill_price)
 
 Total PnL is defined as:
 
@@ -66,7 +66,7 @@ PnL calculations must include the economic size of each contract.
 
 Each contract-level contribution is scaled by:
 
-    quantity × contract_multiplier × price_change
+    quantity x contract_multiplier x price_change
 
 Contract multipliers are obtained from reference data.
 
@@ -93,12 +93,12 @@ PnL must account for FX movements between sessions.
 
 The economically correct target-currency value of a position is:
 
-    V_t = quantity × contract_multiplier × price_t × fx_rate_t
+    V_t = quantity x contract_multiplier x price_t x fx_rate_t
 
 Therefore the true target-currency PnL across a session is:
 
-    PnL = V_t − V_{t−1}
-        = quantity × multiplier × (price_t × fx_t − price_{t−1} × fx_{t−1})
+    PnL = V_t - V_{t-1}
+        = quantity x multiplier x (price_t x fx_t - price_{t-1} x fx_{t-1})
 
 This differs from simply translating native-currency PnL using a single
 end-of-period FX rate.
@@ -111,14 +111,14 @@ decomposed into:
 
     - native price movement
     - FX movement
-    - price–FX interaction term
+    - price-FX interaction term
 
 For example:
 
-    Δ(price × fx)
-        = Δprice × fx_{t−1}
-        + price_{t−1} × Δfx
-        + Δprice × Δfx
+    Δ(price x fx)
+        = Δprice x fx_{t-1}
+        + price_{t-1} x Δfx
+        + Δprice x Δfx
 
 Proper attribution will require FX marks at both session boundaries and,
 for trade attribution, potentially FX rates at fill time.
