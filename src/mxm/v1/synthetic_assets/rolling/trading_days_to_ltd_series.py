@@ -132,8 +132,6 @@ def build_trading_days_to_ltd_series(
     ltd: NDArray[np.datetime64] = np.empty(n, dtype="datetime64[D]")
     for i, cid in enumerate(series.contract_ids):
         contract = refdata_api.get_contract_by_id(cid)
-        if contract is None:
-            raise UnknownContractId(f"Unknown contract_id {cid!r} in ContractSeries")
         ltd[i] = coerce_np_day(contract.last_trading_day)
 
     # Force ndarray-return mode to keep types stable.

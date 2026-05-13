@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
 import numpy as np
 import pandas as pd
 
+from mxm.types import JSONScalar
 from mxm.v1.utils.time_utils import fmt_run_ts
 
 # ----------------------------
@@ -22,63 +23,85 @@ TABLE_CURRENT = "instrument_definition_current"
 # ----------------------------
 # JSON canonicalisation
 # ----------------------------
-
-
-def _json_safe_scalar(x: Any) -> Any:
+def _is_missing_scalar(x: object) -> bool:
     """
-    Convert pandas/numpy scalars and missing values into JSON-safe Python values.
+    Return True for scalar pandas/numpy missing values.
     """
-    # Missing values
     if x is None:
+        return True
+
+    if x is pd.NaT:
+        return True
+
+    if isinstance(x, float):
+        return bool(np.isnan(x))
+
+    if isinstance(x, np.floating):
+        value = cast(float, x)
+        return bool(np.isnan(value))
+
+    return False
+
+
+def _json_safe_scalar(x: object) -> JSONScalar:
+    """
+    Convert pandas/numpy scalar-like values into JSON-safe Python scalars.
+    """
+    if _is_missing_scalar(x):
         return None
 
-    # pandas missing / NaT / numpy NaN
-    try:
-        if pd.isna(x):
-            return None
-    except Exception:
-        # pd.isna can raise on some objects; ignore and continue.
-        pass
-
-    # Timestamps
     if isinstance(x, pd.Timestamp):
         return fmt_run_ts(x)
 
-    # numpy scalar -> python scalar
-    if isinstance(x, (np.generic,)):
-        return x.item()
+    if isinstance(x, np.datetime64):
+        dt64 = cast(object, x)
+        return fmt_run_ts(pd.Timestamp(str(dt64)))
 
-    # bytes -> decode (conservative)
-    if isinstance(x, (bytes, bytearray)):
-        return x.decode("utf-8", errors="replace")
+    if isinstance(x, np.generic):
+        value = cast(object, x.item())
 
-    return x
+        if _is_missing_scalar(value):
+            return None
+
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+
+        if isinstance(value, str | int | float | bool) or value is None:
+            return value
+
+        return repr(value)
+
+    if isinstance(x, bytes | bytearray):
+        return bytes(x).decode("utf-8", errors="replace")
+
+    if isinstance(x, str | int | float | bool):
+        return x
+
+    return repr(x)
 
 
-def canonicalise_record(record: dict[str, Any]) -> dict[str, Any]:
+def canonicalise_record(record: dict[str, object]) -> dict[str, JSONScalar]:
     """
-    Produce a JSON-serialisable, deterministic record suitable for hashing.
+    Produce a JSON-serialisable, deterministic flat record suitable for hashing.
 
     Rules:
     - timestamps -> ISO8601 UTC with Z
-    - numpy/pandas scalars -> python scalars
+    - numpy/pandas scalar values -> Python scalar values
     - NaN/NA/NaT -> None
+    - unsupported leaf values -> repr(value)
     - no transformation of field names or meaning
     """
-    out: dict[str, Any] = {}
-    for k, v in record.items():
-        out[k] = _json_safe_scalar(v)
-    return out
+    return {k: _json_safe_scalar(v) for k, v in record.items()}
 
 
-def canonical_json(record: dict[str, Any]) -> str:
+def canonical_json(record: dict[str, object]) -> str:
     """
     Deterministic JSON encoding used for event_uid hashing and SQLite payload_json.
 
     Rules:
     - sort_keys=True to stabilise order
     - separators=(',', ':') to remove whitespace variance
-    - ensure_ascii=False (payload may contain symbols)
+    - ensure_ascii=False because payloads may contain symbols
     - allow_nan=False to prevent NaN literals
     """
     rec = canonicalise_record(record)

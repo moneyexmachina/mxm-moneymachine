@@ -121,8 +121,6 @@ class DailyStatsStore:
         )
         if m is None:
             return None
-        if not isinstance(m, dict):
-            raise ValueError("daily_stats meta is not a dict")
         return m  # type: ignore[return-value]
 
     # -------------------------

@@ -40,6 +40,10 @@ def canonical_calendar_id(value: str) -> str:
     return value.strip().lower()
 
 
+def _empty_cache() -> dict[str, TradingCalendar]:
+    return {}
+
+
 @dataclass(slots=True)
 class TradingCalendarService:
     """
@@ -57,7 +61,7 @@ class TradingCalendarService:
 
     refdata_api: RefDataAPI
     calendars_root: Path | None = None
-    _cache: dict[str, TradingCalendar] = field(default_factory=dict)
+    _cache: dict[str, TradingCalendar] = field(default_factory=_empty_cache)
 
     def calendar_for_product(self, product_id: str) -> TradingCalendar:
         """

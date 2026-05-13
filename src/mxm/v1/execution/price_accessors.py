@@ -322,10 +322,6 @@ class _DailyStatsPriceAccessorBase:
             contract/session key.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
-        if contract is None:
-            raise ValueError(
-                f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
-            )
 
         product_id = contract.product_id
         trading_date = _session_to_trading_date_key(session)
@@ -641,10 +637,6 @@ class _DailyMarkPriceAccessorBase:
             given contract/session key.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
-        if contract is None:
-            raise ValueError(
-                f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
-            )
 
         product_id = contract.product_id
         session_day = coerce_np_day(session)

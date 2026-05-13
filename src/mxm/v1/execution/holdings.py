@@ -115,12 +115,6 @@ def prepare_initial_holdings(
     for contract_id in held_contract_ids:
         contract = ref_data_api.get_contract_by_id(contract_id)
 
-        if contract is None:
-            raise ValueError(
-                "prepare_initial_holdings() could not resolve held contract "
-                f"in refdata: {contract_id!r}"
-            )
-
         last_trading_day = contract.last_trading_day
         if session_date >= last_trading_day:
             invalid_contract_ids.append(contract_id)

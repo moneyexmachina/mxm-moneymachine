@@ -4,14 +4,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
-    AttemptsCoverageSnapshot,
-)
 from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
     complete_from_expected_and_observed,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
 from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
+    AttemptsCoverageSnapshot,
     Statistics1DAttemptRow,
 )
 

@@ -349,10 +349,6 @@ class OrderGenerator:
         intent to timestamped executable order instructions.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
-        if contract is None:
-            raise ValueError(
-                f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
-            )
 
         product_id = contract.product_id
         calendar = self.calendar_service.calendar_for_product(product_id)

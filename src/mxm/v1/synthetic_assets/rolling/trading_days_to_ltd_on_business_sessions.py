@@ -163,8 +163,6 @@ def build_trading_days_to_ltd_on_business_sessions(
     ltd: NDArray[np.datetime64] = np.empty(n, dtype="datetime64[D]")
     for i, cid in enumerate(contract_ids):
         contract = refdata_api.get_contract_by_id(cid)
-        if contract is None:
-            raise UnknownContractId(f"Unknown contract_id {cid!r}")
         ltd[i] = coerce_np_day(contract.last_trading_day)
 
     d_raw = cal.bdays_to_ltd(

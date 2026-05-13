@@ -22,31 +22,69 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import yaml
 
+from mxm.types import JSONMap, JSONValue
 from mxm.v1.utils.date_utils import coerce_np_day
 
+TABLE_EVENTS = "instrument_definition_events"
+TABLE_WATERMARKS = "instrument_definition_watermarks"
+TABLE_CURRENT = "instrument_definition_current"
 
-def _require_mapping(x: Any, *, where: str) -> dict[str, Any]:
-    if not isinstance(x, dict):
+
+class CalendarRegistryError(RuntimeError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message)
+
+
+def _coerce_json_value(x: object, *, where: str) -> JSONValue:
+    """
+    Validate and coerce a YAML-loaded Python object into MXM JSONValue.
+
+    The calendar registry is stored as YAML, but its semantic data model is a
+    JSON-compatible tree:
+    - scalar leaves
+    - lists
+    - dictionaries with string keys
+    """
+    if x is None or isinstance(x, str | int | float | bool):
+        return x
+
+    if isinstance(x, list):
+        xs = cast(list[object], x)
+        return [_coerce_json_value(v, where=f"{where}[{i}]") for i, v in enumerate(xs)]
+
+    if isinstance(x, dict):
+        raw = cast(dict[object, object], x)
+        out: JSONMap = {}
+
+        for k, v in raw.items():
+            if not isinstance(k, str):
+                raise CalendarRegistryError(
+                    f"{where} keys must be strings, got {type(k)!r}"
+                )
+            out[k] = _coerce_json_value(v, where=f"{where}.{k}")
+
+        return out
+
+    raise CalendarRegistryError(
+        f"{where} contains unsupported registry value type: {type(x).__name__}"
+    )
+
+
+def _require_mapping(x: object, *, where: str) -> JSONMap:
+    value = _coerce_json_value(x, where=where)
+
+    if not isinstance(value, dict):
         raise CalendarRegistryError(f"{where} must be a mapping")
 
-    raw = cast(dict[object, object], x)
-
-    out: dict[str, Any] = {}
-    for k, v in raw.items():
-        if not isinstance(k, str):
-            raise CalendarRegistryError(
-                f"{where} keys must be strings, got {type(k)!r}"
-            )
-        out[k] = v
-    return out
+    return value
 
 
-def _require_str(x: Any, *, where: str) -> str:
+def _require_str(x: object, *, where: str) -> str:
     if not isinstance(x, str) or not x.strip():
         raise CalendarRegistryError(f"{where} must be a non-empty string")
     return x.strip()
@@ -58,26 +96,22 @@ class SourceInfo:
     Source provenance for a calendar build.
 
     The registry is source-agnostic. The `kind` discriminator identifies the
-    source type (e.g. "exchange_calendars", "file_csv", "vendor_api", "manual_patchset"),
-    while `spec` stores source-specific, builder-relevant metadata.
+    source type, while `spec` stores source-specific builder metadata.
     """
 
     kind: str
-    spec: dict[str, Any]
+    spec: JSONMap
 
 
 @dataclass(frozen=True, slots=True)
 class BuilderInfo:
     """
     Provenance for the build process that produced the artifacts.
-
-    builder_id should be a stable identifier for the builder implementation
-    (e.g. a module path + function name). params are the explicit build parameters.
     """
 
     builder_id: str
     mxm_version: str | None
-    params: dict[str, Any] | None
+    params: JSONMap | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,13 +139,8 @@ class CalendarRegistryEntry:
     source: SourceInfo
     observed: ObservedSection
     projection: ProjectionSection
-    generated_at: str  # ISO-8601 string; keep as string in V1 for simplicity
+    generated_at: str
     builder: BuilderInfo | None = None
-
-
-class CalendarRegistryError(RuntimeError):
-    def __init__(self, message: str = "") -> None:
-        super().__init__(message)
 
 
 def load_calendar_registry(registry_path: Path) -> dict[str, CalendarRegistryEntry]:
@@ -123,19 +152,19 @@ def load_calendar_registry(registry_path: Path) -> dict[str, CalendarRegistryEnt
     return _parse_and_validate_registry_entries(entries)
 
 
-def _load_registry_yaml(registry_path: Path) -> Any:
+def _load_registry_yaml(registry_path: Path) -> JSONValue:
     if not registry_path.exists():
         raise CalendarRegistryError(f"Calendar registry not found: {registry_path}")
 
-    raw: Any = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
 
     if raw is None:
         raise CalendarRegistryError(f"Calendar registry is empty: {registry_path}")
 
-    return raw
+    return _coerce_json_value(raw, where="calendar_registry")
 
 
-def _normalize_registry_entries(raw: Any) -> dict[str, dict[str, Any]]:
+def _normalize_registry_entries(raw: JSONValue) -> dict[str, JSONMap]:
     if isinstance(raw, dict):
         return _normalize_registry_mapping(raw)
 
@@ -145,16 +174,14 @@ def _normalize_registry_entries(raw: Any) -> dict[str, dict[str, Any]]:
     raise CalendarRegistryError(f"Unsupported registry YAML type: {type(raw)!r}")
 
 
-def _normalize_registry_mapping(raw: dict[Any, Any]) -> dict[str, dict[str, Any]]:
+def _normalize_registry_mapping(raw: JSONMap) -> dict[str, JSONMap]:
     if "calendar_id" in raw:
         return _normalize_single_registry_entry_mapping(raw)
 
     return _normalize_registry_mapping_by_calendar_id(raw)
 
 
-def _normalize_single_registry_entry_mapping(
-    raw: dict[Any, Any],
-) -> dict[str, dict[str, Any]]:
+def _normalize_single_registry_entry_mapping(raw: JSONMap) -> dict[str, JSONMap]:
     calendar_id = raw.get("calendar_id")
 
     if not isinstance(calendar_id, str) or not calendar_id.strip():
@@ -162,51 +189,45 @@ def _normalize_single_registry_entry_mapping(
             "Registry single-entry mapping missing valid calendar_id"
         )
 
-    return {calendar_id: cast(dict[str, Any], raw)}
+    return {calendar_id: raw}
 
 
-def _normalize_registry_mapping_by_calendar_id(
-    raw: dict[Any, Any],
-) -> dict[str, dict[str, Any]]:
-    entries: dict[str, dict[str, Any]] = {}
+def _normalize_registry_mapping_by_calendar_id(raw: JSONMap) -> dict[str, JSONMap]:
+    entries: dict[str, JSONMap] = {}
 
     for key, value in raw.items():
-        if not isinstance(key, str):
-            raise CalendarRegistryError("Registry keys must be strings (calendar_id)")
-
         if not isinstance(value, dict):
             raise CalendarRegistryError(f"Registry entry for {key!r} must be a mapping")
 
-        entries[key] = cast(dict[str, Any], value)
+        entries[key] = value
 
     return entries
 
 
-def _normalize_registry_list(raw: list[Any]) -> dict[str, dict[str, Any]]:
-    entries: dict[str, dict[str, Any]] = {}
+def _normalize_registry_list(raw: list[JSONValue]) -> dict[str, JSONMap]:
+    entries: dict[str, JSONMap] = {}
 
     for item in raw:
         if not isinstance(item, dict):
             raise CalendarRegistryError("Registry list items must be mappings")
 
-        item_dict = cast(dict[str, Any], item)
-        calendar_id = item_dict.get("calendar_id")
+        calendar_id = item.get("calendar_id")
 
         if not isinstance(calendar_id, str) or not calendar_id.strip():
             raise CalendarRegistryError("Registry list item missing valid calendar_id")
 
-        entries[calendar_id] = item_dict
+        entries[calendar_id] = item
 
     return entries
 
 
 def _parse_and_validate_registry_entries(
-    entries: dict[str, dict[str, Any]],
+    entries: dict[str, JSONMap],
 ) -> dict[str, CalendarRegistryEntry]:
     registry: dict[str, CalendarRegistryEntry] = {}
 
     for calendar_id, entry_dict in entries.items():
-        parsed = _parse_entry(entry_dict, fallback_calendar_id=str(calendar_id))
+        parsed = _parse_entry(entry_dict, fallback_calendar_id=calendar_id)
         validate_registry_entry(parsed)
         registry[parsed.calendar_id] = parsed
 
@@ -224,13 +245,7 @@ def get_registry_entry(
 
 def validate_registry_entry(entry: CalendarRegistryEntry) -> None:
     """
-    Structural + semantic validation.
-
-    This enforces:
-    - observed.start <= observed.end
-    - projection.start <= projection.end
-    - observed.end < projection.end
-    - projection.start is strictly after observed.end
+    Structural and semantic validation.
     """
     _validate_observed_region(entry)
     _validate_projection_region(entry)
@@ -333,19 +348,19 @@ def validate_registry_files_exist(
 ) -> None:
     """
     Optional validation: ensure artifact files referenced by the registry exist.
-
-    This is separated from validate_registry_entry() because:
-    - registry structure validation is useful even before artifacts are built
-    - file existence checks are environment-dependent (user refdata)
     """
-    o = entry.observed
-    p = entry.projection
+    observed = entry.observed
+    projection = entry.projection
 
     cal_dir = calendar_root / entry.calendar_id
     missing: list[str] = []
 
-    for fn in (o.trading_days_artifact, o.schedule_artifact, p.trading_days_artifact):
-        path = cal_dir / fn
+    for filename in (
+        observed.trading_days_artifact,
+        observed.schedule_artifact,
+        projection.trading_days_artifact,
+    ):
+        path = cal_dir / filename
         if not path.exists():
             missing.append(str(path))
 
@@ -355,15 +370,18 @@ def validate_registry_files_exist(
         )
 
 
-def _parse_entry(
-    d: dict[str, Any], *, fallback_calendar_id: str
-) -> CalendarRegistryEntry:
+def _parse_entry(d: JSONMap, *, fallback_calendar_id: str) -> CalendarRegistryEntry:
     """
     Parse a single registry entry mapping into a CalendarRegistryEntry.
     """
-    calendar_id = str(d.get("calendar_id") or fallback_calendar_id)
-    src = _require_mapping(d.get("source"), where=f"{calendar_id}.source")
+    calendar_id_any = d.get("calendar_id")
+    calendar_id = (
+        calendar_id_any.strip()
+        if isinstance(calendar_id_any, str) and calendar_id_any.strip()
+        else fallback_calendar_id
+    )
 
+    src = _require_mapping(d.get("source"), where=f"{calendar_id}.source")
     kind = _require_str(src.get("kind"), where=f"{calendar_id}.source.kind")
 
     spec_any = src.get("spec")
@@ -372,7 +390,7 @@ def _parse_entry(
         if spec_any is None
         else _require_mapping(spec_any, where=f"{calendar_id}.source.spec")
     )
-    source = SourceInfo(kind=kind.strip(), spec=spec)
+    source = SourceInfo(kind=kind, spec=spec)
 
     obs = _require_mapping(d.get("observed"), where=f"{calendar_id}.observed")
     obs_sha = _require_mapping(
@@ -420,37 +438,9 @@ def _parse_entry(
             where=f"{calendar_id}.projection.sha256.trading_days",
         ),
     )
+
     generated_at = str(d.get("generated_at") or "")
-
-    builder: BuilderInfo | None = None
-    builder_any = d.get("builder")
-    if builder_any is not None:
-        b = _require_mapping(builder_any, where=f"{calendar_id}.builder")
-        builder_id = _require_str(
-            b.get("builder_id"), where=f"{calendar_id}.builder.builder_id"
-        )
-
-        mxm_version_any = b.get("mxm_version")
-        mxm_version = (
-            None
-            if mxm_version_any is None
-            else _require_str(
-                mxm_version_any, where=f"{calendar_id}.builder.mxm_version"
-            )
-        )
-
-        params_any = b.get("params")
-        params = (
-            None
-            if params_any is None
-            else _require_mapping(params_any, where=f"{calendar_id}.builder.params")
-        )
-
-        builder = BuilderInfo(
-            builder_id=builder_id, mxm_version=mxm_version, params=params
-        )
-
-        generated_at = str(d.get("generated_at") or "")
+    builder = _parse_builder(d.get("builder"), calendar_id=calendar_id)
 
     return CalendarRegistryEntry(
         calendar_id=calendar_id,
@@ -462,19 +452,51 @@ def _parse_entry(
     )
 
 
+def _parse_builder(
+    builder_any: JSONValue | None,
+    *,
+    calendar_id: str,
+) -> BuilderInfo | None:
+    if builder_any is None:
+        return None
+
+    b = _require_mapping(builder_any, where=f"{calendar_id}.builder")
+
+    builder_id = _require_str(
+        b.get("builder_id"), where=f"{calendar_id}.builder.builder_id"
+    )
+
+    mxm_version_any = b.get("mxm_version")
+    mxm_version = (
+        None
+        if mxm_version_any is None
+        else _require_str(mxm_version_any, where=f"{calendar_id}.builder.mxm_version")
+    )
+
+    params_any = b.get("params")
+    params = (
+        None
+        if params_any is None
+        else _require_mapping(params_any, where=f"{calendar_id}.builder.params")
+    )
+
+    return BuilderInfo(
+        builder_id=builder_id,
+        mxm_version=mxm_version,
+        params=params,
+    )
+
+
 def _day_to_iso(d: np.datetime64) -> str:
     """
-    Convert numpy datetime64 (any resolution) to ISO 'YYYY-MM-DD' at day precision.
-
-    Assumes the semantic contract that registry dates are day-precision.
+    Convert numpy datetime64 to ISO 'YYYY-MM-DD' at day precision.
     """
     dd = d.astype("datetime64[D]")
-    # numpy string form for datetime64[D] is 'YYYY-MM-DD'
     return str(dd)
 
 
-def _entry_to_yaml(entry: CalendarRegistryEntry) -> dict[str, Any]:
-    out: dict[str, Any] = {
+def _entry_to_yaml(entry: CalendarRegistryEntry) -> JSONMap:
+    out: JSONMap = {
         "calendar_id": entry.calendar_id,
         "source": {
             "kind": entry.source.kind,
@@ -501,12 +523,14 @@ def _entry_to_yaml(entry: CalendarRegistryEntry) -> dict[str, Any]:
         },
         "generated_at": entry.generated_at,
     }
+
     if entry.builder is not None:
         out["builder"] = {
             "builder_id": entry.builder.builder_id,
             "mxm_version": entry.builder.mxm_version,
             "params": entry.builder.params,
         }
+
     return out
 
 
@@ -515,14 +539,12 @@ def write_calendar_registry(
 ) -> None:
     """
     Write registry entries to disk as a mapping keyed by calendar_id.
-
-    This format is diff-friendly and stable.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    data: dict[str, Any] = {}
-    for cid, entry in registry.items():
-        data[cid] = _entry_to_yaml(entry)
+    data: JSONMap = {}
+    for calendar_id, entry in registry.items():
+        data[calendar_id] = _entry_to_yaml(entry)
 
     txt = yaml.safe_dump(data, sort_keys=True)
     path.write_text(txt, encoding="utf-8")
