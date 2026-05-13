@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from mxm.refdata.models.periods import PeriodType
-from mxm.v1.contracts.relative_ids import canonical_relative_id  # adjust import
 from mxm.v1.contracts.relative_ids import (
+    canonical_relative_id,
     parse_canonical_relative_id,
     short_rel_id,
 )

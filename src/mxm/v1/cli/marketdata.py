@@ -5,14 +5,10 @@ import json
 from pathlib import Path
 from typing import cast
 
-from mxm.v1.marketdata.datasets.instrument_definition_mappings.jobs import (
-    Mode as InstrumentDefinitionMappingsMode,
-    rebuild_instrument_definition_mappings_for_product,
+from mxm.v1.marketdata.datasets.instrument_definition_mappings import (
+    jobs as mappings_jobs,
 )
-from mxm.v1.marketdata.datasets.instrument_definitions.jobs import (
-    Mode as InstrumentDefinitionsMode,
-    update_instrument_definitions_for_product,
-)
+from mxm.v1.marketdata.datasets.instrument_definitions import jobs as definitions_jobs
 from mxm.v1.utils.json_normalise import json_value_from_obj
 
 
@@ -89,9 +85,9 @@ def dispatch_marketdata(args: argparse.Namespace) -> None:
         args.marketdata_command == "instrument-definitions"
         and args.instrument_definitions_action == "update"
     ):
-        report = update_instrument_definitions_for_product(
+        report = definitions_jobs.update_instrument_definitions_for_product(
             product_id=args.product_id,
-            mode=cast(InstrumentDefinitionsMode, args.mode),
+            mode=cast(definitions_jobs.Mode, args.mode),
             cost_cap_usd=args.cost_cap_usd,
             window_days=args.window_days,
             overlap=args.overlap,
@@ -107,9 +103,9 @@ def dispatch_marketdata(args: argparse.Namespace) -> None:
         args.marketdata_command == "instrument-definition-mappings"
         and args.instrument_definition_mappings_action == "rebuild"
     ):
-        report = rebuild_instrument_definition_mappings_for_product(
+        report = mappings_jobs.rebuild_instrument_definition_mappings_for_product(
             product_id=args.product_id,
-            mode=cast(InstrumentDefinitionMappingsMode, args.mode),
+            mode=cast(mappings_jobs.Mode, args.mode),
             reset=args.reset,
             root=args.root,
         )
