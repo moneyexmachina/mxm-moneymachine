@@ -230,60 +230,98 @@ def _load_schedule_observed_parquet(path: Path) -> pd.DataFrame:
     Load an observed schedule artifact from parquet.
 
     Expected columns:
-      - session (datetime-like; label at UTC-midnight)
-      - open_utc (datetime-like; UTC)
-      - close_utc (datetime-like; UTC)
+      - session
+      - open_utc
+      - close_utc
       - optional: break_start_utc, break_end_utc
-
-    Returns:
-      DataFrame indexed by session label as numpy datetime64[D], with tz-aware UTC
-      columns (open_utc/close_utc and optional break columns).
     """
+    df = _read_schedule_parquet(path)
+    _validate_schedule_required_columns(df, path=path)
+
+    sess_days = _coerce_schedule_session_days(df, path=path)
+
+    out = _build_schedule_frame_without_session(df, sess_days=sess_days)
+    _coerce_schedule_boundary_columns(out)
+    _validate_schedule_intervals(out, path=path)
+
+    return out
+
+
+def _read_schedule_parquet(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise CalendarRegistryError(f"Calendar schedule artifact not found: {path}")
 
-    df = pd.read_parquet(path)
+    return pd.read_parquet(path)
 
-    for col in ("session", "open_utc", "close_utc"):
-        if col not in df.columns:
+
+def _validate_schedule_required_columns(df: pd.DataFrame, *, path: Path) -> None:
+    for column_name in ("session", "open_utc", "close_utc"):
+        if column_name not in df.columns:
             raise CalendarRegistryError(
-                f"Schedule parquet missing required column {col!r}: {path}"
+                f"Schedule parquet missing required column {column_name!r}: {path}"
             )
 
-    # Coerce session labels to day labels (datetime64[D])
-    sess = pd.to_datetime(df["session"], errors="raise")
-    # If tz-aware, convert to UTC then drop tz; if tz-naive treat as label
-    if getattr(sess.dt, "tz", None) is not None:
-        sess = sess.dt.tz_convert("UTC").dt.tz_localize(None)
 
-    sess_days = sess.dt.normalize().to_numpy(dtype="datetime64[D]")
+def _coerce_schedule_session_days(
+    df: pd.DataFrame,
+    *,
+    path: Path,
+) -> np.ndarray:
+    session = pd.to_datetime(df["session"], errors="raise")
 
-    if sess_days.size == 0:
+    if getattr(session.dt, "tz", None) is not None:
+        session = session.dt.tz_convert("UTC").dt.tz_localize(None)
+
+    session_days = session.dt.normalize().to_numpy(dtype="datetime64[D]")
+    _validate_schedule_session_days(session_days, path=path)
+
+    return session_days
+
+
+def _validate_schedule_session_days(
+    session_days: np.ndarray,
+    *,
+    path: Path,
+) -> None:
+    if session_days.size == 0:
         raise CalendarRegistryError(f"Schedule parquet has zero rows: {path}")
 
-    if np.any(sess_days[1:] <= sess_days[:-1]):
+    if np.any(session_days[1:] <= session_days[:-1]):
         raise CalendarRegistryError(
             f"Schedule sessions must be strictly increasing (sorted, unique): {path}"
         )
 
+
+def _build_schedule_frame_without_session(
+    df: pd.DataFrame,
+    *,
+    sess_days: np.ndarray,
+) -> pd.DataFrame:
     out = df.copy()
     out.index = sess_days
-    out = out.drop(columns=["session"])
+    return out.drop(columns=["session"])
 
-    # Coerce boundary columns to tz-aware UTC pandas timestamps
-    def _as_utc(col: str) -> pd.Series:
-        return pd.to_datetime(out[col], utc=True, errors="raise")
 
-    out["open_utc"] = _as_utc("open_utc")
-    out["close_utc"] = _as_utc("close_utc")
+def _coerce_schedule_boundary_columns(out: pd.DataFrame) -> None:
+    out["open_utc"] = _coerce_utc_timestamp_column(out, "open_utc")
+    out["close_utc"] = _coerce_utc_timestamp_column(out, "close_utc")
 
-    if "break_start_utc" in out.columns:
-        out["break_start_utc"] = _as_utc("break_start_utc")
-    if "break_end_utc" in out.columns:
-        out["break_end_utc"] = _as_utc("break_end_utc")
+    for column_name in ("break_start_utc", "break_end_utc"):
+        if column_name in out.columns:
+            out[column_name] = _coerce_utc_timestamp_column(out, column_name)
 
-    # Interval sanity
+
+def _coerce_utc_timestamp_column(
+    df: pd.DataFrame,
+    column_name: str,
+) -> pd.Series:
+    return pd.to_datetime(df[column_name], utc=True, errors="raise")
+
+
+def _validate_schedule_intervals(
+    out: pd.DataFrame,
+    *,
+    path: Path,
+) -> None:
     if (out["open_utc"] >= out["close_utc"]).any():
         raise CalendarRegistryError(f"Schedule has open_utc >= close_utc rows: {path}")
-
-    return out

@@ -117,13 +117,13 @@ class CalendarRegistryError(RuntimeError):
 def load_calendar_registry(registry_path: Path) -> dict[str, CalendarRegistryEntry]:
     """
     Load calendar_registry.yaml and return mapping calendar_id -> CalendarRegistryEntry.
-
-    The YAML file may be structured as either:
-      (A) mapping at top-level: {calendar_id: {...entry...}, ...}
-      (B) list at top-level: [{calendar_id: "...", ...}, ...]
-
-    This loader normalizes to a dict keyed by calendar_id.
     """
+    raw = _load_registry_yaml(registry_path)
+    entries = _normalize_registry_entries(raw)
+    return _parse_and_validate_registry_entries(entries)
+
+
+def _load_registry_yaml(registry_path: Path) -> Any:
     if not registry_path.exists():
         raise CalendarRegistryError(f"Calendar registry not found: {registry_path}")
 
@@ -132,58 +132,85 @@ def load_calendar_registry(registry_path: Path) -> dict[str, CalendarRegistryEnt
     if raw is None:
         raise CalendarRegistryError(f"Calendar registry is empty: {registry_path}")
 
-    entries: dict[str, dict[str, Any]]
+    return raw
 
+
+def _normalize_registry_entries(raw: Any) -> dict[str, dict[str, Any]]:
     if isinstance(raw, dict):
-        raw_dict = cast(dict[Any, Any], raw)
+        return _normalize_registry_mapping(raw)
 
-        # If it looks like a single entry dict (has calendar_id), wrap it.
-        if "calendar_id" in raw_dict:
-            cid_any = raw_dict.get("calendar_id")
-            if not isinstance(cid_any, str) or not cid_any.strip():
-                raise CalendarRegistryError(
-                    "Registry single-entry mapping missing valid calendar_id"
-                )
-            entries = {cid_any: cast(dict[str, Any], raw_dict)}
-        else:
-            # Expect {calendar_id: entry_dict, ...}
-            tmp: dict[str, dict[str, Any]] = {}
-            for k, v in raw_dict.items():
-                if not isinstance(k, str):
-                    raise CalendarRegistryError(
-                        "Registry keys must be strings (calendar_id)"
-                    )
-                if not isinstance(v, dict):
-                    raise CalendarRegistryError(
-                        f"Registry entry for {k!r} must be a mapping"
-                    )
-                tmp[k] = cast(dict[str, Any], v)
-            entries = tmp
+    if isinstance(raw, list):
+        return _normalize_registry_list(raw)
 
-    elif isinstance(raw, list):
-        raw_list = cast(list[Any], raw)
-        tmp2: dict[str, dict[str, Any]] = {}
-        for item in raw_list:
-            if not isinstance(item, dict):
-                raise CalendarRegistryError("Registry list items must be mappings")
-            item_dict = cast(dict[str, Any], item)
-            cid = item_dict.get("calendar_id")
-            if not isinstance(cid, str) or not cid.strip():
-                raise CalendarRegistryError(
-                    "Registry list item missing valid calendar_id"
-                )
-            tmp2[cid] = item_dict
-        entries = tmp2
+    raise CalendarRegistryError(f"Unsupported registry YAML type: {type(raw)!r}")
 
-    else:
-        raise CalendarRegistryError(f"Unsupported registry YAML type: {type(raw)!r}")
-    out: dict[str, CalendarRegistryEntry] = {}
+
+def _normalize_registry_mapping(raw: dict[Any, Any]) -> dict[str, dict[str, Any]]:
+    if "calendar_id" in raw:
+        return _normalize_single_registry_entry_mapping(raw)
+
+    return _normalize_registry_mapping_by_calendar_id(raw)
+
+
+def _normalize_single_registry_entry_mapping(
+    raw: dict[Any, Any],
+) -> dict[str, dict[str, Any]]:
+    calendar_id = raw.get("calendar_id")
+
+    if not isinstance(calendar_id, str) or not calendar_id.strip():
+        raise CalendarRegistryError(
+            "Registry single-entry mapping missing valid calendar_id"
+        )
+
+    return {calendar_id: cast(dict[str, Any], raw)}
+
+
+def _normalize_registry_mapping_by_calendar_id(
+    raw: dict[Any, Any],
+) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            raise CalendarRegistryError("Registry keys must be strings (calendar_id)")
+
+        if not isinstance(value, dict):
+            raise CalendarRegistryError(f"Registry entry for {key!r} must be a mapping")
+
+        entries[key] = cast(dict[str, Any], value)
+
+    return entries
+
+
+def _normalize_registry_list(raw: list[Any]) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+
+    for item in raw:
+        if not isinstance(item, dict):
+            raise CalendarRegistryError("Registry list items must be mappings")
+
+        item_dict = cast(dict[str, Any], item)
+        calendar_id = item_dict.get("calendar_id")
+
+        if not isinstance(calendar_id, str) or not calendar_id.strip():
+            raise CalendarRegistryError("Registry list item missing valid calendar_id")
+
+        entries[calendar_id] = item_dict
+
+    return entries
+
+
+def _parse_and_validate_registry_entries(
+    entries: dict[str, dict[str, Any]],
+) -> dict[str, CalendarRegistryEntry]:
+    registry: dict[str, CalendarRegistryEntry] = {}
+
     for calendar_id, entry_dict in entries.items():
         parsed = _parse_entry(entry_dict, fallback_calendar_id=str(calendar_id))
         validate_registry_entry(parsed)
-        out[parsed.calendar_id] = parsed
+        registry[parsed.calendar_id] = parsed
 
-    return out
+    return registry
 
 
 def get_registry_entry(
