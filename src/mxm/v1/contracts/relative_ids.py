@@ -200,67 +200,106 @@ def parse_canonical_relative_id(s: str) -> SelectorRule:
     Required roundtrip invariant:
         parse_canonical_relative_id(canonical_relative_id(rule)) == rule
     """
+    kv = _parse_canonical_relative_id_tokens(s)
+
+    period_type = _parse_relative_id_period_type(kv["PT"])
+    _validate_relative_id_rank(kv["RANK"])
+    n = _parse_relative_id_n(kv["N"])
+    cycle_id, cycle_elements = _parse_cycle_repr(
+        kv["CYCLE"],
+        period_type=period_type,
+    )
+
+    return SelectorRule(
+        period_filter=PeriodFilter(
+            period_type=period_type,
+            cycle_id=cycle_id,
+            cycle_elements=cycle_elements,
+        ),
+        n=n,
+    )
+
+
+def _parse_canonical_relative_id_tokens(s: str) -> dict[str, str]:
     if not s.startswith(_RC_PREFIX):
         raise ValueError(f"Invalid relative id prefix; expected {_RC_PREFIX!r}")
 
-    # Split tokens, ignoring the leading "RC"
-    # "RC::PT=...::CYCLE=...::RANK=LTD::N=2"
     tokens = s.split("::")
-    if tokens[0] != "RC":
-        raise ValueError(f"Invalid relative id header; got {tokens[0]!r}")
+    _validate_relative_id_header(tokens)
 
+    kv = _parse_relative_id_key_values(tokens[1:])
+    _validate_relative_id_key_set(kv)
+
+    return kv
+
+
+def _validate_relative_id_header(tokens: list[str]) -> None:
+    if not tokens or tokens[0] != "RC":
+        got = tokens[0] if tokens else ""
+        raise ValueError(f"Invalid relative id header; got {got!r}")
+
+
+def _parse_relative_id_key_values(tokens: list[str]) -> dict[str, str]:
     kv: dict[str, str] = {}
-    for tok in tokens[1:]:
-        if "=" not in tok:
-            raise ValueError(f"Invalid token {tok!r} (expected KEY=VALUE)")
-        k, v = tok.split("=", 1)
-        if not k:
-            raise ValueError(f"Invalid empty key in token {tok!r}")
-        if k in kv:
-            raise ValueError(f"Duplicate key {k!r} in canonical_relative_id")
-        kv[k] = v
 
+    for token in tokens:
+        key, value = _parse_relative_id_token(token)
+        if key in kv:
+            raise ValueError(f"Duplicate key {key!r} in canonical_relative_id")
+        kv[key] = value
+
+    return kv
+
+
+def _parse_relative_id_token(token: str) -> tuple[str, str]:
+    if "=" not in token:
+        raise ValueError(f"Invalid token {token!r} (expected KEY=VALUE)")
+
+    key, value = token.split("=", 1)
+
+    if not key:
+        raise ValueError(f"Invalid empty key in token {token!r}")
+
+    return key, value
+
+
+def _validate_relative_id_key_set(kv: dict[str, str]) -> None:
     required = {"PT", "CYCLE", "RANK", "N"}
-    missing = required - set(kv.keys())
-    extra = set(kv.keys()) - required
+
+    missing = required - set(kv)
+    extra = set(kv) - required
+
     if missing:
         raise ValueError(f"Missing keys in canonical_relative_id: {sorted(missing)}")
+
     if extra:
         raise ValueError(f"Unexpected keys in canonical_relative_id: {sorted(extra)}")
 
-    # PT
-    pt_raw = kv["PT"]
-    try:
-        period_type = PeriodType[pt_raw]
-    except KeyError as e:
-        raise ValueError(f"Unknown PeriodType name {pt_raw!r}") from e
 
-    # RANK (Session 18 locked)
-    rank = kv["RANK"]
+def _parse_relative_id_period_type(raw: str) -> PeriodType:
+    try:
+        return PeriodType[raw]
+    except KeyError as e:
+        raise ValueError(f"Unknown PeriodType name {raw!r}") from e
+
+
+def _validate_relative_id_rank(rank: str) -> None:
     if rank != "LTD":
         raise ValueError(
             f"Unsupported RANK {rank!r}; Session 18 locks ranking to 'LTD'"
         )
 
-    # N
-    n_raw = kv["N"]
+
+def _parse_relative_id_n(raw: str) -> int:
     try:
-        n = int(n_raw)
+        n = int(raw)
     except ValueError as e:
-        raise ValueError(f"Invalid N value {n_raw!r} (expected int)") from e
+        raise ValueError(f"Invalid N value {raw!r} (expected int)") from e
+
     if n < 1:
         raise ValueError(f"Invalid N value {n} (must be >= 1)")
 
-    # CYCLE
-    cycle_repr = kv["CYCLE"]
-    cycle_id, cycle_elements = _parse_cycle_repr(cycle_repr, period_type=period_type)
-
-    pf = PeriodFilter(
-        period_type=period_type,
-        cycle_id=cycle_id,
-        cycle_elements=cycle_elements,
-    )
-    return SelectorRule(period_filter=pf, n=n)
+    return n
 
 
 def _parse_cycle_repr(

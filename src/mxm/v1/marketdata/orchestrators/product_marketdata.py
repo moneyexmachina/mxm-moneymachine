@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.build import (
@@ -114,18 +114,35 @@ class ProductMarketDataReport:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class ProductRunContext:
+    product_id: str
+    mode: Mode
+    dry_run: bool
+    reset: bool
+    reset_local: bool
+    cost_cap_usd: float
+    attempt_uid: str
+
+
+@dataclass(frozen=True)
+class ProductStageDecision:
+    should_stop: bool
+    status: ProductStatus
+    stop_reason: ProductStopReason
+    message: str | None
+
+
 # -------------------------
 # Public entry point
 # -------------------------
-
-
 def ingest_product_marketdata(
     *,
     product_id: str,
     mode: Mode,
     cost_cap_usd: float,
     stores: ProductMarketDataStores,
-    client: Any,  # databento.Historical; keep untyped to avoid hard dependency
+    client: Any,
     dry_run: bool = False,
     reset: bool = False,
     force_reset: bool = False,
@@ -134,358 +151,46 @@ def ingest_product_marketdata(
     run_ts_utc: str | None = None,
     allow_fallback_provenance: bool = False,
 ) -> ProductMarketDataReport:
-    """
-    Orchestrate end-to-end product ingestion:
-
-      1) instrument_definitions
-      2) instrument_definition_mappings
-      3) ohlcv_1d
-      4) statistics_1d
-      5) daily_stats
-
-    Control-plane only:
-    - budget propagation
-    - stage gating
-    - product-level attempt envelope
-    """
-
     if cost_cap_usd <= 0:
         raise ValueError("cost_cap_usd must be > 0")
 
-    # We prefer caller-provided run_ts_utc for reproducible logs; otherwise store uses started_at.
-    # In most MXM orchestrators, you already have a now_utc_iso() helper; wire it here.
-    ts_now = utc_now_run_ts()
-    run_ts = run_ts_utc or ts_now
-
     attempts = stores.product_attempts
-
-    attempt_uid = attempts.start_attempt(
-        run_ts_utc=run_ts,
+    run_ts = run_ts_utc or utc_now_run_ts()
+    attempt_uid = _start_product_marketdata_attempt(
+        attempts=attempts,
         product_id=product_id,
-        mode=str(mode),
+        mode=mode,
         dry_run=dry_run,
         reset=reset,
-        reset_local=bool(force_reset),
-        cost_cap_usd=float(cost_cap_usd),
-        started_at=ts_now,
-        summary={
-            "product_id": product_id,
-            "mode": str(mode),
-            "dry_run": dry_run,
-            "reset": reset,
-            "reset_local": force_reset,
-            "stages": {},
-        },
+        reset_local=force_reset,
+        cost_cap_usd=cost_cap_usd,
+        run_ts_utc=run_ts,
     )
 
-    remaining = float(cost_cap_usd)
+    context = ProductRunContext(
+        product_id=product_id,
+        mode=mode,
+        dry_run=dry_run,
+        reset=reset,
+        reset_local=force_reset,
+        cost_cap_usd=float(cost_cap_usd),
+        attempt_uid=attempt_uid,
+    )
+
     stages: list[StageEnvelope] = []
-    stop_reason: ProductStopReason = ProductStopReason.UNKNOWN
-    status: ProductStatus = ProductStatus.HALTED
-    message: str | None = None
+    remaining = float(cost_cap_usd)
 
     try:
-        # -------------------------
-        # Stage 1: instrument_definitions
-        # -------------------------
-        st1 = _run_stage_instrument_definitions(
-            product_id=product_id,
-            mode=mode,
-            remaining_usd=remaining,
+        remaining, decision = _run_product_marketdata_stages(
             stores=stores,
             client=client,
-            dry_run=dry_run,
-            reset=reset,
+            context=context,
+            stages=stages,
+            remaining=remaining,
             max_windows=max_windows,
-        )
-        stages.append(st1)
-        remaining = max(0.0, remaining - st1.cost_used_usd)
-
-        if st1.status is not StageStatus.OK:
-            stop_reason = _coerce_stop_reason(
-                st1, default=ProductStopReason.DOWNSTREAM_BLOCKED
-            )
-            status = (
-                ProductStatus.HALTED
-                if st1.status is StageStatus.HALTED
-                else ProductStatus.ERROR
-            )
-            message = f"stopped after instrument_definitions: {st1.status} ({st1.stop_reason})"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        if remaining <= 0.0:
-            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
-            status = ProductStatus.HALTED
-            message = "budget exhausted after instrument_definitions"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        # -------------------------
-        # Stage 2: instrument_definition_mappings
-        # -------------------------
-        st2 = _run_stage_instrument_definition_mappings(
-            product_id=product_id,
-            mode=mode,
-            remaining_usd=remaining,
-            stores=stores,
-            dry_run=dry_run,
-            reset=reset,
-            max_contracts=max_contracts,
-        )
-        stages.append(st2)
-        remaining = max(0.0, remaining - st2.cost_used_usd)
-
-        if st2.status is not StageStatus.OK:
-            stop_reason = _coerce_stop_reason(
-                st2, default=ProductStopReason.DOWNSTREAM_BLOCKED
-            )
-            status = (
-                ProductStatus.HALTED
-                if st2.status is StageStatus.HALTED
-                else ProductStatus.ERROR
-            )
-            message = f"stopped after instrument_definition_mappings: {st2.status} ({st2.stop_reason})"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        # Gate: mappings must declare ready for ohlcv
-        if st2.mapping_ready_for_ohlcv is False:
-            stop_reason = ProductStopReason.DOWNSTREAM_BLOCKED
-            status = ProductStatus.HALTED
-            message = "ohlcv_1d blocked: mappings not ready"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        if remaining <= 0.0:
-            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
-            status = ProductStatus.HALTED
-            message = "budget exhausted after instrument_definition_mappings"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        # -------------------------
-        # Stage 3: ohlcv_1d
-        # -------------------------
-        st3 = _run_stage_ohlcv_1d(
-            product_id=product_id,
-            mode=mode,
-            remaining_usd=remaining,
-            stores=stores,
-            client=client,
-            dry_run=dry_run,
-            reset=reset,
-            reset_local=force_reset,
-            max_windows=max_windows,
-            max_contracts=max_contracts,
-        )
-        stages.append(st3)
-
-        remaining = max(0.0, remaining - st3.cost_used_usd)
-        # If Stage 3 failed/halted, we stop here (do not run downstream stages).
-        if st3.status is not StageStatus.OK:
-            stop_reason = _coerce_stop_reason(st3, default=ProductStopReason.ERROR)
-            status = (
-                ProductStatus.HALTED
-                if st3.status is StageStatus.HALTED
-                else ProductStatus.ERROR
-            )
-            message = f"stopped after ohlcv_1d: {st3.status} ({st3.stop_reason})"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        if remaining <= 0.0:
-            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
-            status = ProductStatus.HALTED
-            message = "budget exhausted after ohlcv_1d"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        # -------------------------
-        # Stage 4: statistics_1d
-        # -------------------------
-        st4 = _run_stage_statistics_1d(
-            product_id=product_id,
-            mode=mode,
-            remaining_usd=remaining,
-            stores=stores,
-            client=client,
-            dry_run=dry_run,
-            reset=reset,
-            reset_local=force_reset,
-            max_windows=max_windows,
-            max_contracts=max_contracts,
-        )
-
-        stages.append(st4)
-        remaining = max(0.0, remaining - st4.cost_used_usd)
-        # If Stage 4 failed/halted, stop here (do not run downstream stages).
-        if st4.status is not StageStatus.OK:
-            stop_reason = _coerce_stop_reason(st4, default=ProductStopReason.ERROR)
-            status = (
-                ProductStatus.HALTED
-                if st4.status is StageStatus.HALTED
-                else ProductStatus.ERROR
-            )
-            message = f"stopped after statistics_1d: {st4.status} ({st4.stop_reason})"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        if remaining <= 0.0:
-            stop_reason = ProductStopReason.BUDGET_EXHAUSTED
-            status = ProductStatus.HALTED
-            message = "budget exhausted after statistics_1d"
-            return _finalize_attempt_and_report(
-                attempts=attempts,
-                attempt_uid=attempt_uid,
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                cost_cap_usd=float(cost_cap_usd),
-                stages=stages,
-                remaining_usd=remaining,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            )
-
-        # -------------------------
-        # Stage 5: daily_stats (derived)
-        # -------------------------
-        st5 = _run_stage_daily_stats(
-            product_id=product_id,
-            mode=mode,
-            remaining_usd=remaining,  # stage has no vendor calls; keep for symmetry
-            stores=stores,
-            dry_run=dry_run,
-            reset=reset,
-            reset_local=force_reset,
             max_contracts=max_contracts,
             allow_fallback_provenance=allow_fallback_provenance,
         )
-        stages.append(st5)
-        remaining = max(0.0, remaining - st5.cost_used_usd)
-
-        if st5.status is StageStatus.OK:
-            stop_reason = (
-                ProductStopReason.DRY_RUN_ONLY if dry_run else ProductStopReason.UNKNOWN
-            )
-            status = ProductStatus.SUCCESS
-            message = "completed all stages"
-        else:
-            stop_reason = _coerce_stop_reason(st5, default=ProductStopReason.ERROR)
-            status = (
-                ProductStatus.HALTED
-                if st5.status is StageStatus.HALTED
-                else ProductStatus.ERROR
-            )
-            message = f"stopped after daily_stats: {st5.status} ({st5.stop_reason})"
 
         return _finalize_attempt_and_report(
             attempts=attempts,
@@ -498,39 +203,282 @@ def ingest_product_marketdata(
             cost_cap_usd=float(cost_cap_usd),
             stages=stages,
             remaining_usd=remaining,
-            status=status,
-            stop_reason=stop_reason,
-            message=message,
+            status=decision.status,
+            stop_reason=decision.stop_reason,
+            message=decision.message,
         )
 
     except Exception as e:
-        # Terminalize attempt as error and re-raise.
-        stop_reason = ProductStopReason.ERROR
-        status = ProductStatus.ERROR
-        message = f"error: {type(e).__name__}: {e}"
-
-        attempts.finish_attempt(
+        _finish_product_marketdata_error_attempt(
+            attempts=attempts,
             attempt_uid=attempt_uid,
-            status="error",
-            stop_reason=stop_reason.value,
-            finished_at=utc_now_run_ts(),
-            cost_used_usd=_sum_costs(stages),
-            remaining_usd=max(0.0, float(cost_cap_usd) - _sum_costs(stages)),
-            summary=_summary_json(
-                product_id=product_id,
-                mode=mode,
-                dry_run=dry_run,
-                reset=reset,
-                reset_local=force_reset,
-                stages=stages,
-                status=status,
-                stop_reason=stop_reason,
-                message=message,
-            ),
-            error_type=type(e).__name__,
-            error_message=str(e),
+            product_id=product_id,
+            mode=mode,
+            dry_run=dry_run,
+            reset=reset,
+            reset_local=force_reset,
+            cost_cap_usd=cost_cap_usd,
+            stages=stages,
+            error=e,
         )
         raise
+
+
+def _run_product_marketdata_stages(
+    *,
+    stores: ProductMarketDataStores,
+    client: Any,
+    context: ProductRunContext,
+    stages: list[StageEnvelope],
+    remaining: float,
+    max_windows: int | None,
+    max_contracts: int | None,
+    allow_fallback_provenance: bool,
+) -> tuple[float, ProductStageDecision]:
+    remaining, decision = _run_and_gate_product_stage(
+        stage=_run_stage_instrument_definitions(
+            product_id=context.product_id,
+            mode=context.mode,
+            remaining_usd=remaining,
+            stores=stores,
+            client=client,
+            dry_run=context.dry_run,
+            reset=context.reset,
+            max_windows=max_windows,
+        ),
+        stages=stages,
+        remaining=remaining,
+        stage_label="instrument_definitions",
+        default_stop_reason=ProductStopReason.DOWNSTREAM_BLOCKED,
+    )
+    if decision.should_stop:
+        return remaining, decision
+
+    remaining, decision = _run_and_gate_product_stage(
+        stage=_run_stage_instrument_definition_mappings(
+            product_id=context.product_id,
+            mode=context.mode,
+            remaining_usd=remaining,
+            stores=stores,
+            dry_run=context.dry_run,
+            reset=context.reset,
+            max_contracts=max_contracts,
+        ),
+        stages=stages,
+        remaining=remaining,
+        stage_label="instrument_definition_mappings",
+        default_stop_reason=ProductStopReason.DOWNSTREAM_BLOCKED,
+    )
+    if decision.should_stop:
+        return remaining, decision
+
+    mapping_decision = _mapping_ready_decision(stages[-1])
+    if mapping_decision.should_stop:
+        return remaining, mapping_decision
+
+    remaining, decision = _run_and_gate_product_stage(
+        stage=_run_stage_ohlcv_1d(
+            product_id=context.product_id,
+            mode=context.mode,
+            remaining_usd=remaining,
+            stores=stores,
+            client=client,
+            dry_run=context.dry_run,
+            reset=context.reset,
+            reset_local=context.reset_local,
+            max_windows=max_windows,
+            max_contracts=max_contracts,
+        ),
+        stages=stages,
+        remaining=remaining,
+        stage_label="ohlcv_1d",
+        default_stop_reason=ProductStopReason.ERROR,
+    )
+    if decision.should_stop:
+        return remaining, decision
+
+    remaining, decision = _run_and_gate_product_stage(
+        stage=_run_stage_statistics_1d(
+            product_id=context.product_id,
+            mode=context.mode,
+            remaining_usd=remaining,
+            stores=stores,
+            client=client,
+            dry_run=context.dry_run,
+            reset=context.reset,
+            reset_local=context.reset_local,
+            max_windows=max_windows,
+            max_contracts=max_contracts,
+        ),
+        stages=stages,
+        remaining=remaining,
+        stage_label="statistics_1d",
+        default_stop_reason=ProductStopReason.ERROR,
+    )
+    if decision.should_stop:
+        return remaining, decision
+
+    remaining, decision = _run_and_gate_product_stage(
+        stage=_run_stage_daily_stats(
+            product_id=context.product_id,
+            mode=context.mode,
+            remaining_usd=remaining,
+            stores=stores,
+            dry_run=context.dry_run,
+            reset=context.reset,
+            reset_local=context.reset_local,
+            max_contracts=max_contracts,
+            allow_fallback_provenance=allow_fallback_provenance,
+        ),
+        stages=stages,
+        remaining=remaining,
+        stage_label="daily_stats",
+        default_stop_reason=ProductStopReason.ERROR,
+        gate_budget=False,
+    )
+    if decision.should_stop:
+        return remaining, decision
+
+    return remaining, ProductStageDecision(
+        should_stop=True,
+        status=ProductStatus.SUCCESS,
+        stop_reason=(
+            ProductStopReason.DRY_RUN_ONLY
+            if context.dry_run
+            else ProductStopReason.UNKNOWN
+        ),
+        message="completed all stages",
+    )
+
+
+def _run_and_gate_product_stage(
+    *,
+    stage: StageEnvelope,
+    stages: list[StageEnvelope],
+    remaining: float,
+    stage_label: str,
+    default_stop_reason: ProductStopReason,
+    gate_budget: bool = True,
+) -> tuple[float, ProductStageDecision]:
+    stages.append(stage)
+    remaining_after = max(0.0, remaining - stage.cost_used_usd)
+
+    if stage.status is not StageStatus.OK:
+        stop_reason = _coerce_stop_reason(stage, default=default_stop_reason)
+        status = (
+            ProductStatus.HALTED
+            if stage.status is StageStatus.HALTED
+            else ProductStatus.ERROR
+        )
+        return remaining_after, ProductStageDecision(
+            should_stop=True,
+            status=status,
+            stop_reason=stop_reason,
+            message=f"stopped after {stage_label}: {stage.status} ({stage.stop_reason})",
+        )
+
+    if gate_budget and remaining_after <= 0.0:
+        return remaining_after, ProductStageDecision(
+            should_stop=True,
+            status=ProductStatus.HALTED,
+            stop_reason=ProductStopReason.BUDGET_EXHAUSTED,
+            message=f"budget exhausted after {stage_label}",
+        )
+
+    return remaining_after, ProductStageDecision(
+        should_stop=False,
+        status=ProductStatus.HALTED,
+        stop_reason=ProductStopReason.UNKNOWN,
+        message=None,
+    )
+
+
+def _mapping_ready_decision(stage: StageEnvelope) -> ProductStageDecision:
+    if stage.mapping_ready_for_ohlcv is not False:
+        return ProductStageDecision(
+            should_stop=False,
+            status=ProductStatus.HALTED,
+            stop_reason=ProductStopReason.UNKNOWN,
+            message=None,
+        )
+
+    return ProductStageDecision(
+        should_stop=True,
+        status=ProductStatus.HALTED,
+        stop_reason=ProductStopReason.DOWNSTREAM_BLOCKED,
+        message="ohlcv_1d blocked: mappings not ready",
+    )
+
+
+def _start_product_marketdata_attempt(
+    *,
+    attempts: ProductMarketdataAttemptsStore,
+    product_id: str,
+    mode: Mode,
+    dry_run: bool,
+    reset: bool,
+    reset_local: bool,
+    cost_cap_usd: float,
+    run_ts_utc: str,
+) -> str:
+    return attempts.start_attempt(
+        run_ts_utc=run_ts_utc,
+        product_id=product_id,
+        mode=str(mode),
+        dry_run=dry_run,
+        reset=reset,
+        reset_local=bool(reset_local),
+        cost_cap_usd=float(cost_cap_usd),
+        started_at=utc_now_run_ts(),
+        summary={
+            "product_id": product_id,
+            "mode": str(mode),
+            "dry_run": dry_run,
+            "reset": reset,
+            "reset_local": reset_local,
+            "stages": {},
+        },
+    )
+
+
+def _finish_product_marketdata_error_attempt(
+    *,
+    attempts: ProductMarketdataAttemptsStore,
+    attempt_uid: str,
+    product_id: str,
+    mode: Mode,
+    dry_run: bool,
+    reset: bool,
+    reset_local: bool,
+    cost_cap_usd: float,
+    stages: list[StageEnvelope],
+    error: Exception,
+) -> None:
+    stop_reason = ProductStopReason.ERROR
+    status = ProductStatus.ERROR
+    message = f"error: {type(error).__name__}: {error}"
+
+    attempts.finish_attempt(
+        attempt_uid=attempt_uid,
+        status="error",
+        stop_reason=stop_reason.value,
+        finished_at=utc_now_run_ts(),
+        cost_used_usd=_sum_costs(stages),
+        remaining_usd=max(0.0, float(cost_cap_usd) - _sum_costs(stages)),
+        summary=_summary_json(
+            product_id=product_id,
+            mode=mode,
+            dry_run=dry_run,
+            reset=reset,
+            reset_local=reset_local,
+            stages=stages,
+            status=status,
+            stop_reason=stop_reason,
+            message=message,
+        ),
+        error_type=type(error).__name__,
+        error_message=str(error),
+    )
 
 
 # -------------------------
@@ -764,12 +712,7 @@ def _normalize_stage_report(
     stop_reason = getattr(report, "stop_reason", None)
 
     # counts (optional)
-    counts = getattr(report, "counts", None)
-    if counts is None:
-        # attempt common alternatives
-        counts = getattr(report, "summary", None) or {}
-    if not isinstance(counts, dict):
-        counts = {"_counts": counts}
+    counts = _coerce_stage_counts(report)
 
     return StageEnvelope(
         name=name,
@@ -795,6 +738,21 @@ def _coerce_stage_status(raw: Any) -> StageStatus:
     if s in ("error", "failed", "exception"):
         return StageStatus.ERROR
     return StageStatus.OK
+
+
+def _coerce_stage_counts(report: Any) -> dict[str, Any]:
+    raw_counts = getattr(report, "counts", None)
+
+    if isinstance(raw_counts, dict):
+        counts = cast(dict[object, object], raw_counts)
+        return {str(key): value for key, value in counts.items()}
+
+    raw_summary = getattr(report, "summary", None)
+
+    if raw_summary is None:
+        return {}
+
+    return {"_counts": raw_summary}
 
 
 def _coerce_stop_reason(

@@ -1,7 +1,31 @@
+# TODO(mxm-v1):
+# inspect/ohlcv_1d/product.py and inspect/statistics_1d/product.py now share
+# the same higher-level inspection/reporting structure:
+#
+# - enumerate latest per-contract inspection state
+# - aggregate product-level counters and drilldown lists
+# - derive authoritative product roll-up status via precedence rules
+# - project stable reporting summaries
+#
+# The remaining differences are primarily:
+# - completeness semantics
+# - contradiction/error semantics
+# - dataset-specific status buckets
+#
+# After MVP publication and CI stabilization, extract a generic product-level
+# inspection aggregation/reporting framework parameterized by:
+# - contract inspection model
+# - aggregation policy
+# - roll-up precedence semantics
+# - summary projection rules
+#
+# Keep dataset-specific completeness truth and contradiction semantics external
+# to the shared framework.
+
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -81,6 +105,32 @@ def _is_ok_terminal(st: AttemptStatus) -> bool:
     return True
 
 
+def _empty_str_list() -> list[str]:
+    return []
+
+
+@dataclass
+class ProductAttemptsAggregation:
+    contracts_total: int = 0
+    contracts_ok_terminal: int = 0
+    contracts_incomplete: int = 0
+    contracts_empty_expected: int = 0
+    contracts_vendor_final: int = 0
+    contracts_unmapped: int = 0
+    contracts_error: int = 0
+    contracts_blocked_cost: int = 0
+
+    last_run_ts: pd.Timestamp | None = None
+    last_run_ts_utc: str | None = None
+    last_mode: str | None = None
+
+    incomplete_contract_keys: list[str] = field(default_factory=_empty_str_list)
+    error_contract_keys: list[str] = field(default_factory=_empty_str_list)
+    unmapped_contract_keys: list[str] = field(default_factory=_empty_str_list)
+    blocked_cost_contract_keys: list[str] = field(default_factory=_empty_str_list)
+    empty_expected_contract_keys: list[str] = field(default_factory=_empty_str_list)
+
+
 def compute_product_status(
     contract_attempts: Iterable[Statistics1DContractAttempt],
 ) -> ProductStatus:
@@ -142,137 +192,196 @@ def get_product_attempts_report(
 ) -> ProductAttemptsReport:
     """
     Read-only attempts report for a product, based on the latest attempt per contract_key.
-
-    Normative discipline:
-    - Only attempt-ledger facts are used.
-    - No event-stream reads.
-    - status_detail is not used for bucketing.
     """
     contract_attempts = list_contract_attempts_for_product(
-        attempts=attempts, product_id=product_id
+        attempts=attempts,
+        product_id=product_id,
     )
 
     if len(contract_attempts) == 0:
-        summary = ProductAttemptsSummary(
-            product_id=product_id,
-            status=ProductStatus.never_run,
-            status_reason="no attempts recorded for product",
-            contracts_total=0,
-            contracts_ok_terminal=0,
-            contracts_incomplete=0,
-            contracts_empty_expected=0,
-            contracts_vendor_final=0,
-            contracts_unmapped=0,
-            contracts_error=0,
-            contracts_blocked_cost=0,
-            last_run_ts_utc=None,
-            last_mode=None,
-            incomplete_contract_keys=(),
-            error_contract_keys=(),
-            unmapped_contract_keys=(),
-            blocked_cost_contract_keys=(),
-            empty_expected_contract_keys=(),
-        )
-        return ProductAttemptsReport(summary=summary, contracts=())
+        return _empty_product_attempts_report(product_id)
 
-    # -------------------------
-    # Aggregate counts + drilldowns
-    # -------------------------
-    total = len(contract_attempts)
-
-    c_ok_terminal = 0
-    c_incomplete = 0
-    c_empty_expected = 0
-    c_vendor_final = 0
-    c_unmapped = 0
-    c_error = 0
-    c_blocked_cost = 0
-
-    incomplete_keys: list[str] = []
-    error_keys: list[str] = []
-    unmapped_keys: list[str] = []
-    blocked_cost_keys: list[str] = []
-    empty_expected_keys: list[str] = []
-
-    last_run_ts: pd.Timestamp | None = None
-    last_run_ts_utc: str | None = None
-    last_mode: str | None = None
-
-    for ca in contract_attempts:
-        la = ca.last_attempt
-        st = la.status
-
-        # Latest run timestamp (max)
-        rt = la.run_ts
-        if last_run_ts is None or rt > last_run_ts:
-            last_run_ts = rt
-            last_run_ts_utc = la.run_ts_utc
-            last_mode = la.mode
-
-        # Persisted descriptors
-        if la.is_empty:
-            c_empty_expected += 1
-            empty_expected_keys.append(ca.contract_key)
-        if la.vendor_final:
-            c_vendor_final += 1
-
-        # Status buckets
-        if _is_ok_terminal(st):
-            c_ok_terminal += 1
-
-        if _is_incomplete(st):
-            c_incomplete += 1
-            incomplete_keys.append(ca.contract_key)
-
-        if st == AttemptStatus.unmapped:
-            c_unmapped += 1
-            unmapped_keys.append(ca.contract_key)
-
-        if st == AttemptStatus.skipped_cost_cap:
-            c_blocked_cost += 1
-            blocked_cost_keys.append(ca.contract_key)
-
-        if _is_error(st):
-            c_error += 1
-            error_keys.append(ca.contract_key)
-
-    # -------------------------
-    # Roll-up status (authoritative precedence)
-    # -------------------------
+    aggregation = _aggregate_product_attempts(contract_attempts)
     status = compute_product_status(contract_attempts)
-
-    if status == ProductStatus.never_run:
-        reason = "no attempts recorded for product"
-    elif status == ProductStatus.done:
-        reason = "all contracts terminal with no incomplete, blockers, or errors"
-    elif status == ProductStatus.error:
-        reason = "one or more contracts error"
-    elif status == ProductStatus.blocked:
-        reason = "one or more contracts blocked (unmapped or cost cap) and no errors"
-    else:
-        reason = "some contracts non-terminal (e.g. incomplete) and no blockers/errors"
-
-    summary = ProductAttemptsSummary(
+    summary = _build_product_attempts_summary(
         product_id=product_id,
         status=status,
-        status_reason=reason,
-        contracts_total=total,
-        contracts_ok_terminal=c_ok_terminal,
-        contracts_incomplete=c_incomplete,
-        contracts_empty_expected=c_empty_expected,
-        contracts_vendor_final=c_vendor_final,
-        contracts_unmapped=c_unmapped,
-        contracts_error=c_error,
-        contracts_blocked_cost=c_blocked_cost,
-        last_run_ts_utc=last_run_ts_utc,
-        last_mode=last_mode,
-        incomplete_contract_keys=tuple(incomplete_keys),
-        error_contract_keys=tuple(error_keys),
-        unmapped_contract_keys=tuple(unmapped_keys),
-        blocked_cost_contract_keys=tuple(blocked_cost_keys),
-        empty_expected_contract_keys=tuple(empty_expected_keys),
+        status_reason=_product_status_reason(status),
+        aggregation=aggregation,
     )
 
-    # Stable ordering (nice for reports)
-    contracts_sorted = tuple(sorted(contract_attempts, key=lambda x: x.contract_key))
-    return ProductAttemptsReport(summary=summary, contracts=contracts_sorted)
+    return ProductAttemptsReport(
+        summary=summary,
+        contracts=_sort_contract_attempts(contract_attempts),
+    )
+
+
+def _empty_product_attempts_report(product_id: str) -> ProductAttemptsReport:
+    summary = ProductAttemptsSummary(
+        product_id=product_id,
+        status=ProductStatus.never_run,
+        status_reason="no attempts recorded for product",
+        contracts_total=0,
+        contracts_ok_terminal=0,
+        contracts_incomplete=0,
+        contracts_empty_expected=0,
+        contracts_vendor_final=0,
+        contracts_unmapped=0,
+        contracts_error=0,
+        contracts_blocked_cost=0,
+        last_run_ts_utc=None,
+        last_mode=None,
+        incomplete_contract_keys=(),
+        error_contract_keys=(),
+        unmapped_contract_keys=(),
+        blocked_cost_contract_keys=(),
+        empty_expected_contract_keys=(),
+    )
+    return ProductAttemptsReport(summary=summary, contracts=())
+
+
+def _aggregate_product_attempts(
+    contract_attempts: list[Statistics1DContractAttempt],
+) -> ProductAttemptsAggregation:
+    aggregation = ProductAttemptsAggregation(contracts_total=len(contract_attempts))
+
+    for contract_attempt in contract_attempts:
+        _aggregate_contract_attempt(
+            aggregation=aggregation,
+            contract_attempt=contract_attempt,
+        )
+
+    return aggregation
+
+
+def _aggregate_contract_attempt(
+    *,
+    aggregation: ProductAttemptsAggregation,
+    contract_attempt: Statistics1DContractAttempt,
+) -> None:
+    last_attempt = contract_attempt.last_attempt
+    status = last_attempt.status
+
+    _aggregate_latest_run_metadata(
+        aggregation=aggregation,
+        contract_attempt=contract_attempt,
+    )
+    _aggregate_persisted_descriptors(
+        aggregation=aggregation,
+        contract_attempt=contract_attempt,
+    )
+    _aggregate_status_buckets(
+        aggregation=aggregation,
+        contract_attempt=contract_attempt,
+        status=status,
+    )
+
+
+def _aggregate_latest_run_metadata(
+    *,
+    aggregation: ProductAttemptsAggregation,
+    contract_attempt: Statistics1DContractAttempt,
+) -> None:
+    last_attempt = contract_attempt.last_attempt
+
+    if (
+        aggregation.last_run_ts is not None
+        and last_attempt.run_ts <= aggregation.last_run_ts
+    ):
+        return
+
+    aggregation.last_run_ts = last_attempt.run_ts
+    aggregation.last_run_ts_utc = last_attempt.run_ts_utc
+    aggregation.last_mode = last_attempt.mode
+
+
+def _aggregate_persisted_descriptors(
+    *,
+    aggregation: ProductAttemptsAggregation,
+    contract_attempt: Statistics1DContractAttempt,
+) -> None:
+    last_attempt = contract_attempt.last_attempt
+
+    if last_attempt.is_empty:
+        aggregation.contracts_empty_expected += 1
+        aggregation.empty_expected_contract_keys.append(contract_attempt.contract_key)
+
+    if last_attempt.vendor_final:
+        aggregation.contracts_vendor_final += 1
+
+
+def _aggregate_status_buckets(
+    *,
+    aggregation: ProductAttemptsAggregation,
+    contract_attempt: Statistics1DContractAttempt,
+    status: AttemptStatus,
+) -> None:
+    if _is_ok_terminal(status):
+        aggregation.contracts_ok_terminal += 1
+
+    if _is_incomplete(status):
+        aggregation.contracts_incomplete += 1
+        aggregation.incomplete_contract_keys.append(contract_attempt.contract_key)
+
+    if status == AttemptStatus.unmapped:
+        aggregation.contracts_unmapped += 1
+        aggregation.unmapped_contract_keys.append(contract_attempt.contract_key)
+
+    if status == AttemptStatus.skipped_cost_cap:
+        aggregation.contracts_blocked_cost += 1
+        aggregation.blocked_cost_contract_keys.append(contract_attempt.contract_key)
+
+    if _is_error(status):
+        aggregation.contracts_error += 1
+        aggregation.error_contract_keys.append(contract_attempt.contract_key)
+
+
+def _product_status_reason(status: ProductStatus) -> str:
+    if status == ProductStatus.never_run:
+        return "no attempts recorded for product"
+
+    if status == ProductStatus.done:
+        return "all contracts terminal with no incomplete, blockers, or errors"
+
+    if status == ProductStatus.error:
+        return "one or more contracts error"
+
+    if status == ProductStatus.blocked:
+        return "one or more contracts blocked (unmapped or cost cap) and no errors"
+
+    return "some contracts non-terminal (e.g. incomplete) and no blockers/errors"
+
+
+def _build_product_attempts_summary(
+    *,
+    product_id: str,
+    status: ProductStatus,
+    status_reason: str,
+    aggregation: ProductAttemptsAggregation,
+) -> ProductAttemptsSummary:
+    return ProductAttemptsSummary(
+        product_id=product_id,
+        status=status,
+        status_reason=status_reason,
+        contracts_total=aggregation.contracts_total,
+        contracts_ok_terminal=aggregation.contracts_ok_terminal,
+        contracts_incomplete=aggregation.contracts_incomplete,
+        contracts_empty_expected=aggregation.contracts_empty_expected,
+        contracts_vendor_final=aggregation.contracts_vendor_final,
+        contracts_unmapped=aggregation.contracts_unmapped,
+        contracts_error=aggregation.contracts_error,
+        contracts_blocked_cost=aggregation.contracts_blocked_cost,
+        last_run_ts_utc=aggregation.last_run_ts_utc,
+        last_mode=aggregation.last_mode,
+        incomplete_contract_keys=tuple(aggregation.incomplete_contract_keys),
+        error_contract_keys=tuple(aggregation.error_contract_keys),
+        unmapped_contract_keys=tuple(aggregation.unmapped_contract_keys),
+        blocked_cost_contract_keys=tuple(aggregation.blocked_cost_contract_keys),
+        empty_expected_contract_keys=tuple(aggregation.empty_expected_contract_keys),
+    )
+
+
+def _sort_contract_attempts(
+    contract_attempts: list[Statistics1DContractAttempt],
+) -> tuple[Statistics1DContractAttempt, ...]:
+    return tuple(sorted(contract_attempts, key=lambda x: x.contract_key))

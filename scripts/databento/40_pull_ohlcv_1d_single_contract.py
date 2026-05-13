@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import databento as db
-from mxm_secrets import get_secret
+import pandas as pd
+
+from mxm.secrets import get_secret
 
 API_KEY_SECRET = "mxm/dev/databento/api-key"
 
@@ -36,15 +40,44 @@ START_DATE = "2026-01-03"
 END_DATE = "2026-01-13"  # exclusive per Databento conventions for most endpoints
 
 
+@dataclass(frozen=True)
+class DataFrameInspection:
+    columns: list[str]
+    dtypes: dict[str, str]
+    index_name: Any
+    index_type: str
+    row_count: int
+    min_ts: str | None
+    max_ts: str | None
+    identity_fields: list[str]
+    identity_sample: dict[str, list[str]]
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def main() -> int:
-    api_key = get_secret(API_KEY_SECRET)
-    client = db.Historical(api_key)
+    client = _make_client()
 
-    # --- Pull daily bars ---
+    try:
+        df = _pull_ohlcv_1d_dataframe(client)
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+    inspection = _inspect_dataframe(df)
+    _print_report(df=df, inspection=inspection)
+
+    return 0
+
+
+def _make_client() -> db.Historical:
+    api_key = get_secret(API_KEY_SECRET)
+    return db.Historical(api_key)
+
+
+def _pull_ohlcv_1d_dataframe(client: db.Historical):
     try:
         ts = client.timeseries.get_range(
             dataset=DATASET,
@@ -55,94 +88,180 @@ def main() -> int:
             stype_in=STYPE_IN,
         )
     except Exception as e:
-        print(f"ERROR: timeseries.get_range failed: {e}", file=sys.stderr)
-        return 1
+        raise RuntimeError(f"timeseries.get_range failed: {e}") from e
 
-    # Convert to DataFrame using Databento client helper
     try:
-        df = ts.to_df()
+        return ts.to_df()
     except Exception as e:
-        print(f"ERROR: failed to convert result to DataFrame: {e}", file=sys.stderr)
-        return 1
+        raise RuntimeError(f"failed to convert result to DataFrame: {e}") from e
 
-    # --- Basic inspections ---
-    cols = list(df.columns)
-    dtypes = {c: str(t) for c, t in df.dtypes.items()}
 
-    # ts_event may be either a column or the index depending on client behaviour.
-    idx_name = getattr(df.index, "name", None)
-    idx_type = str(getattr(df.index, "dtype", type(df.index)))
+def _inspect_dataframe(df: pd.DataFrame) -> DataFrameInspection:
+    identity_fields = _identity_fields_present(df)
 
-    # Row count and time bounds
-    row_count = len(df)
-    min_ts = None
-    max_ts = None
-    if row_count > 0:
-        # Try index first
-        try:
-            min_ts = str(df.index.min())
-            max_ts = str(df.index.max())
-        except Exception:
-            min_ts = None
-            max_ts = None
+    return DataFrameInspection(
+        columns=list(df.columns),
+        dtypes={str(column): str(dtype) for column, dtype in df.dtypes.items()},
+        index_name=getattr(df.index, "name", None),
+        index_type=str(getattr(df.index, "dtype", type(df.index))),
+        row_count=len(df),
+        min_ts=_min_timestamp_label(df),
+        max_ts=_max_timestamp_label(df),
+        identity_fields=identity_fields,
+        identity_sample=_identity_sample(df, identity_fields=identity_fields),
+    )
 
-        # If ts_event exists as a column, also compute its min/max
-        if "ts_event" in df.columns:
-            try:
-                min_ts = f"{min_ts} | ts_event(min)={df['ts_event'].min()}"
-                max_ts = f"{max_ts} | ts_event(max)={df['ts_event'].max()}"
-            except Exception:
-                pass
 
-    # Identify candidate identity fields present
-    identity_fields = [
-        c for c in ["publisher_id", "instrument_id", "symbol"] if c in df.columns
+def _min_timestamp_label(df: pd.DataFrame) -> str | None:
+    if len(df) == 0:
+        return None
+
+    label = _safe_index_min(df)
+
+    if "ts_event" in df.columns:
+        ts_event_min = _safe_column_min(df, "ts_event")
+        if ts_event_min is not None:
+            label = f"{label} | ts_event(min)={ts_event_min}"
+
+    return label
+
+
+def _max_timestamp_label(df: pd.DataFrame) -> str | None:
+    if len(df) == 0:
+        return None
+
+    label = _safe_index_max(df)
+
+    if "ts_event" in df.columns:
+        ts_event_max = _safe_column_max(df, "ts_event")
+        if ts_event_max is not None:
+            label = f"{label} | ts_event(max)={ts_event_max}"
+
+    return label
+
+
+def _safe_index_min(df: pd.DataFrame) -> str | None:
+    try:
+        return str(df.index.min())
+    except Exception:
+        return None
+
+
+def _safe_index_max(df: pd.DataFrame) -> str | None:
+    try:
+        return str(df.index.max())
+    except Exception:
+        return None
+
+
+def _safe_column_min(df: pd.DataFrame, column_name: str) -> str | None:
+    try:
+        return str(df[column_name].min())
+    except Exception:
+        return None
+
+
+def _safe_column_max(df: pd.DataFrame, column_name: str) -> str | None:
+    try:
+        return str(df[column_name].max())
+    except Exception:
+        return None
+
+
+def _identity_fields_present(df: pd.DataFrame) -> list[str]:
+    return [
+        column_name
+        for column_name in ("publisher_id", "instrument_id", "symbol")
+        if column_name in df.columns
     ]
 
-    # --- Output block ---
+
+def _identity_sample(
+    df: pd.DataFrame,
+    *,
+    identity_fields: list[str],
+) -> dict[str, list[str]]:
+    if not identity_fields or len(df) == 0:
+        return {}
+
+    return {
+        field_name: _identity_field_sample(df, field_name)
+        for field_name in identity_fields
+    }
+
+
+def _identity_field_sample(df: pd.DataFrame, field_name: str) -> list[str]:
+    try:
+        unique_values = df[field_name].unique()
+        return [str(value) for value in unique_values[:10]]
+    except Exception:
+        return ["<unavailable>"]
+
+
+def _print_report(
+    *,
+    df: pd.DataFrame,
+    inspection: DataFrameInspection,
+) -> None:
+    _print_header()
+    _print_metadata(inspection)
+    _print_columns(inspection)
+    _print_dtypes(inspection)
+    _print_identity_fields(inspection)
+    _print_head(df)
+    print("=" * 80)
+
+
+def _print_header() -> None:
     print("=" * 80)
     print("MXM V1 — Databento Proof 4: Pull ohlcv-1d for one contract")
     print("=" * 80)
+
+
+def _print_metadata(inspection: DataFrameInspection) -> None:
     print(f"Timestamp (UTC): {_utc_now_iso()}")
     print(f"Dataset:         {DATASET}")
     print(f"Schema:          {SCHEMA}")
     print(f"Symbol:          {SYMBOL} (stype_in={STYPE_IN})")
     print(f"Window:          {START_DATE} -> {END_DATE} (end is exclusive)")
     print("-" * 80)
-    print(f"Rows returned:   {row_count}")
-    print(f"Index:           name={idx_name!r} dtype={idx_type}")
-    print(f"Time bounds:     min={min_ts} max={max_ts}")
+    print(f"Rows returned:   {inspection.row_count}")
+    print(
+        f"Index:           name={inspection.index_name!r} dtype={inspection.index_type}"
+    )
+    print(f"Time bounds:     min={inspection.min_ts} max={inspection.max_ts}")
     print("-" * 80)
-    print("Columns:")
-    print(json.dumps(cols, indent=2))
-    print("-" * 80)
-    print("Dtypes:")
-    print(json.dumps(dtypes, indent=2, sort_keys=True))
-    print("-" * 80)
-    print(f"Identity fields present: {identity_fields}")
-    if identity_fields and row_count > 0:
-        sample_identity = {}
-        for f in identity_fields:
-            try:
-                # show unique values (capped) for sanity
-                uniq = df[f].unique()
-                sample_identity[f] = [str(x) for x in uniq[:10]]
-            except Exception:
-                sample_identity[f] = ["<unavailable>"]
-        print("Identity field sample (unique values, capped):")
-        print(json.dumps(sample_identity, indent=2, sort_keys=True))
-        print("-" * 80)
 
+
+def _print_columns(inspection: DataFrameInspection) -> None:
+    print("Columns:")
+    print(json.dumps(inspection.columns, indent=2))
+    print("-" * 80)
+
+
+def _print_dtypes(inspection: DataFrameInspection) -> None:
+    print("Dtypes:")
+    print(json.dumps(inspection.dtypes, indent=2, sort_keys=True))
+    print("-" * 80)
+
+
+def _print_identity_fields(inspection: DataFrameInspection) -> None:
+    print(f"Identity fields present: {inspection.identity_fields}")
+
+    if not inspection.identity_sample:
+        return
+
+    print("Identity field sample (unique values, capped):")
+    print(json.dumps(inspection.identity_sample, indent=2, sort_keys=True))
+    print("-" * 80)
+
+
+def _print_head(df: pd.DataFrame) -> None:
     print("Head (first 10 rows):")
-    # Print a small head, but avoid dumping huge floats if present
     try:
         print(df.head(10).to_string())
     except Exception:
         print(df.head(10))
-
-    print("=" * 80)
-
-    return 0
 
 
 if __name__ == "__main__":

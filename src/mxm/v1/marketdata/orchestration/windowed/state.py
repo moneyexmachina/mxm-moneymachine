@@ -190,52 +190,96 @@ def decide_action(
 
     This function is pure: it does not touch stores or vendors.
     """
-
-    # DONE/BLOCKED => noop
     if state == DerivedState.DONE:
-        return Decision(action="noop", reason="done")
+        return _decide_done()
 
     if state == DerivedState.BLOCKED:
-        # Preserve specific blocker reason if available
-        br = evidence.block_reason or "blocked_unknown"
-        return Decision(action="noop", reason=br)
+        return _decide_blocked(evidence)
 
-    # Budget-gated states
     if state == DerivedState.SKIPPED_BUDGET:
-        if budget.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted")
-        return Decision(action="attempt_ingest", reason="budget_available_retry")
+        return _decide_skipped_budget(budget)
 
     if state == DerivedState.NEEDS_INGEST:
-        if budget.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted")
-        return Decision(action="attempt_ingest", reason="needs_ingest")
+        return _decide_needs_ingest(budget)
 
-    # Error handling
     if state == DerivedState.RETRYABLE_ERROR:
-        lo = evidence.latest_outcome
+        return _decide_retryable_error(
+            evidence=evidence,
+            policy=policy,
+            budget=budget,
+        )
 
-        # Stop-run on systemic error (if policy enabled)
-        if (
-            lo is not None
-            and policy.stop_run_on_systemic_error
-            and is_systemic_error(
-                error_class=lo.error_class,
-                error_type=lo.error_type,
-                error_message=lo.error_message,
-            )
-        ):
-            return Decision(action="stop_run", reason="systemic_error")
-
-        # Retry cap (MVP approximation)
-        errs = consecutive_error_count(lo)
-        if errs >= policy.max_consecutive_errors:
-            return Decision(action="noop", reason="retry_limit_reached")
-
-        if budget.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted_after_error")
-
-        return Decision(action="attempt_ingest", reason="retryable_error")
-
-    # Defensive default
     return Decision(action="stop_run", reason="unknown_state")
+
+
+def _decide_done() -> Decision:
+    return Decision(action="noop", reason="done")
+
+
+def _decide_blocked(evidence: WindowedEvidence) -> Decision:
+    block_reason = evidence.block_reason or "blocked_unknown"
+    return Decision(action="noop", reason=block_reason)
+
+
+def _decide_skipped_budget(budget: BudgetContext) -> Decision:
+    if budget.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted")
+
+    return Decision(action="attempt_ingest", reason="budget_available_retry")
+
+
+def _decide_needs_ingest(budget: BudgetContext) -> Decision:
+    if budget.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted")
+
+    return Decision(action="attempt_ingest", reason="needs_ingest")
+
+
+def _decide_retryable_error(
+    *,
+    evidence: WindowedEvidence,
+    policy: RetryPolicy,
+    budget: BudgetContext,
+) -> Decision:
+    latest_outcome = evidence.latest_outcome
+
+    if _should_stop_on_systemic_error(
+        latest_outcome=latest_outcome,
+        policy=policy,
+    ):
+        return Decision(action="stop_run", reason="systemic_error")
+
+    if _retry_limit_reached(
+        latest_outcome=latest_outcome,
+        policy=policy,
+    ):
+        return Decision(action="noop", reason="retry_limit_reached")
+
+    if budget.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted_after_error")
+
+    return Decision(action="attempt_ingest", reason="retryable_error")
+
+
+def _should_stop_on_systemic_error(
+    *,
+    latest_outcome: AttemptOutcome | None,
+    policy: RetryPolicy,
+) -> bool:
+    return (
+        latest_outcome is not None
+        and policy.stop_run_on_systemic_error
+        and is_systemic_error(
+            error_class=latest_outcome.error_class,
+            error_type=latest_outcome.error_type,
+            error_message=latest_outcome.error_message,
+        )
+    )
+
+
+def _retry_limit_reached(
+    *,
+    latest_outcome: AttemptOutcome | None,
+    policy: RetryPolicy,
+) -> bool:
+    return consecutive_error_count(latest_outcome) >= policy.max_consecutive_errors
