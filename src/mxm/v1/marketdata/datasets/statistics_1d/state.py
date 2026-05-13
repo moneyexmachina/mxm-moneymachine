@@ -6,12 +6,14 @@ from typing import Literal
 
 from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
     AttemptsCoverageSnapshot,
-    OHLCV1DAttemptRow,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.coverage import (
     complete_from_expected_and_observed,
 )
 from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
+from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
+    Statistics1DAttemptRow,
+)
 
 
 class DerivedState(str, Enum):
@@ -87,7 +89,7 @@ def _is_systemic_error(error_type: str | None, error_message: str | None) -> boo
     return False
 
 
-def _consecutive_error_count(latest_attempt: OHLCV1DAttemptRow | None) -> int:
+def _consecutive_error_count(latest_attempt: Statistics1DAttemptRow | None) -> int:
     """
     MVP: we only have the latest attempt in hand.
     If you want true consecutive counts, you will extend attempts_store
@@ -113,7 +115,7 @@ def _has_any_local_data(cov: AttemptsCoverageSnapshot | None) -> bool:
 # -------------------------
 def derive_state(
     *,
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
     ew: ExpectedWindow,
     coverage_now: AttemptsCoverageSnapshot | None,
     is_mapped: bool,
@@ -206,7 +208,7 @@ def _has_observed_range(coverage_now: AttemptsCoverageSnapshot) -> bool:
 
 
 def _derive_latest_attempt_state(
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
 ) -> DerivedState | None:
     if latest_attempt is None:
         return None
@@ -236,7 +238,7 @@ def decide_action(
     state: DerivedState,
     policy: RetryPolicy,
     budgets: BudgetContext,
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
 ) -> Decision:
     """
     Pure decision. No vendor calls. No IO.
@@ -289,7 +291,7 @@ def _decide_retryable_error(
     *,
     policy: RetryPolicy,
     budgets: BudgetContext,
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
 ) -> Decision:
     if _should_stop_on_systemic_error(
         policy=policy,
@@ -312,7 +314,7 @@ def _decide_retryable_error(
 def _should_stop_on_systemic_error(
     *,
     policy: RetryPolicy,
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
 ) -> bool:
     return (
         latest_attempt is not None
@@ -327,6 +329,6 @@ def _should_stop_on_systemic_error(
 def _retry_limit_reached(
     *,
     policy: RetryPolicy,
-    latest_attempt: OHLCV1DAttemptRow | None,
+    latest_attempt: Statistics1DAttemptRow | None,
 ) -> bool:
     return _consecutive_error_count(latest_attempt) >= policy.max_consecutive_errors

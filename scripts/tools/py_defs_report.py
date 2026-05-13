@@ -27,57 +27,92 @@ def _unparse(node: ast.AST) -> str:
 
 
 def _format_args(args: ast.arguments) -> str:
-    # Build a readable signature string from an ast.arguments object.
-    # Note: this does not preserve exact original formatting, but is stable.
+    """
+    Build a readable, stable signature string from an ast.arguments object.
+
+    This does not preserve exact original formatting.
+    """
     parts: list[str] = []
 
-    def fmt_arg(a: ast.arg, default: ast.AST | None = None) -> str:
-        s = a.arg
-        if a.annotation is not None:
-            s += f": {_unparse(a.annotation)}"
-        if default is not None:
-            s += f" = {_unparse(default)}"
-        return s
-
-    # pos-only (Python 3.8+)
-    posonly = getattr(args, "posonlyargs", [])
-    n_posonly = len(posonly)
-
-    # defaults align to the LAST len(defaults) of (posonlyargs + args.args)
-    all_pos = list(posonly) + list(args.args)
-    defaults = list(args.defaults)
-    pad = len(all_pos) - len(defaults)
-    defaults = [None] * max(pad, 0) + defaults
-
-    for a, d in zip(all_pos, defaults, strict=False):
-        parts.append(fmt_arg(a, d))
-
-    if n_posonly:
-        parts.insert(n_posonly, "/")
-
-    # vararg
-    if args.vararg is not None:
-        s = "*" + args.vararg.arg
-        if args.vararg.annotation is not None:
-            s += f": {_unparse(args.vararg.annotation)}"
-        parts.append(s)
-    else:
-        # kw-only marker if there are kw-only args
-        if args.kwonlyargs:
-            parts.append("*")
-
-    # kw-only args (defaults in kw_defaults)
-    for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=False):
-        parts.append(fmt_arg(a, d))
-
-    # kwarg
-    if args.kwarg is not None:
-        s = "**" + args.kwarg.arg
-        if args.kwarg.annotation is not None:
-            s += f": {_unparse(args.kwarg.annotation)}"
-        parts.append(s)
+    parts.extend(_format_positional_args(args))
+    parts.extend(_format_vararg_marker(args))
+    parts.extend(_format_keyword_only_args(args))
+    parts.extend(_format_kwarg(args))
 
     return ", ".join(parts)
+
+
+def _format_arg(arg: ast.arg, default: ast.AST | None = None) -> str:
+    text = arg.arg
+
+    if arg.annotation is not None:
+        text += f": {_unparse(arg.annotation)}"
+
+    if default is not None:
+        text += f" = {_unparse(default)}"
+
+    return text
+
+
+def _format_positional_args(args: ast.arguments) -> list[str]:
+    posonly = list(getattr(args, "posonlyargs", []))
+    all_positional = posonly + list(args.args)
+    defaults = _align_positional_defaults(
+        positional_args=all_positional,
+        defaults=list(args.defaults),
+    )
+
+    parts = [
+        _format_arg(arg, default)
+        for arg, default in zip(all_positional, defaults, strict=False)
+    ]
+
+    if posonly:
+        parts.insert(len(posonly), "/")
+
+    return parts
+
+
+def _align_positional_defaults(
+    *,
+    positional_args: list[ast.arg],
+    defaults: list[ast.AST],
+) -> list[ast.AST | None]:
+    pad = len(positional_args) - len(defaults)
+    return [None] * max(pad, 0) + defaults
+
+
+def _format_vararg_marker(args: ast.arguments) -> list[str]:
+    if args.vararg is not None:
+        return [_format_prefixed_arg("*", args.vararg)]
+
+    if args.kwonlyargs:
+        return ["*"]
+
+    return []
+
+
+def _format_keyword_only_args(args: ast.arguments) -> list[str]:
+    return [
+        _format_arg(arg, default)
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False)
+    ]
+
+
+def _format_kwarg(args: ast.arguments) -> list[str]:
+    if args.kwarg is None:
+        return []
+
+    return [_format_prefixed_arg("**", args.kwarg)]
+
+
+def _format_prefixed_arg(prefix: str, arg: ast.arg) -> str:
+    text = prefix + arg.arg
+
+    if arg.annotation is not None:
+        text += f": {_unparse(arg.annotation)}"
+
+    return text
 
 
 def _format_signature(fn: ast.AST) -> str:
