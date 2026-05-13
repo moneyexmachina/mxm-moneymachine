@@ -7,14 +7,10 @@ from typing import cast
 
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.jobs import (
     Mode as InstrumentDefinitionMappingsMode,
-)
-from mxm.v1.marketdata.datasets.instrument_definition_mappings.jobs import (
     rebuild_instrument_definition_mappings_for_product,
 )
 from mxm.v1.marketdata.datasets.instrument_definitions.jobs import (
     Mode as InstrumentDefinitionsMode,
-)
-from mxm.v1.marketdata.datasets.instrument_definitions.jobs import (
     update_instrument_definitions_for_product,
 )
 from mxm.v1.utils.json_normalise import json_value_from_obj

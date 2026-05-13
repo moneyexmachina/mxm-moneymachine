@@ -320,7 +320,9 @@ def _save_cumulative_pnl_plot(
     ax.plot(  # pyright: ignore[reportUnknownMemberType]
         df["session"], df["cumulative_trade_pnl"], label="Trade"
     )
-    ax.set_title(f"Cumulative PnL — {asset_id}")  # pyright: ignore[reportUnknownMemberType]
+    ax.set_title(
+        f"Cumulative PnL — {asset_id}"
+    )  # pyright: ignore[reportUnknownMemberType]
     ax.set_xlabel("Session")  # pyright: ignore[reportUnknownMemberType]
     ax.set_ylabel("PnL")  # pyright: ignore[reportUnknownMemberType]
     ax.legend()  # pyright: ignore[reportUnknownMemberType]

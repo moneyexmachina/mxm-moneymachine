@@ -1,4 +1,3 @@
-
 import pytest
 
 from mxm.v1.synthetic_assets.weights_rules import (
