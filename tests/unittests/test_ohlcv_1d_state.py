@@ -1,4 +1,3 @@
-# mxm-v1/tests/unittests/test_ohlcv_1d_state.py
 
 from __future__ import annotations
 

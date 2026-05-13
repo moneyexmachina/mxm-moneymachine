@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/datasets/instrument_definition_mappings/jobs.py
 #
 # MXM V1 — Instrument definition mappings jobs.
 #

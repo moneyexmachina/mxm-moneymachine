@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/datasets/daily_stats/store.py
 from __future__ import annotations
 
 import json

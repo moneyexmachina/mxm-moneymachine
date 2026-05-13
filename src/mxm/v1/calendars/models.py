@@ -606,8 +606,6 @@ class TradingCalendar:
 
         return self.trading_days[lo : hi + 1].copy()
 
-    # ---------- bdays_to_ltd (labels) ----------
-
     def bdays_to_ltd(
         self,
         asof: str | np.datetime64 | np.ndarray | Sequence[str | np.datetime64],
@@ -618,75 +616,139 @@ class TradingCalendar:
         normalize_ltd: NormalizeHow = "raise",
         return_projected_flag: bool = False,
     ):
-        # Original implementation preserved (label arithmetic).
         asof_arr = np.asarray(asof)
         ltd_arr = np.asarray(ltd)
-
         scalar = asof_arr.shape == () and ltd_arr.shape == ()
 
-        def _to_days_array(x: np.ndarray) -> np.ndarray:
-            if x.shape == ():
-                return np.array([coerce_np_day(x.item())], dtype="datetime64[D]")
-            out = np.empty(x.size, dtype="datetime64[D]")
-            for k, v in enumerate(x.ravel()):
-                out[k] = coerce_np_day(v)
-            return out.reshape(x.shape)
-
-        as_of_days = _to_days_array(asof_arr)
+        asof_days = _to_days_array(asof_arr)
         ltd_days = _to_days_array(ltd_arr)
-
-        if as_of_days.shape != ltd_days.shape:
-            raise ValueError(
-                f"asof and ltd must have same shape, got {as_of_days.shape} vs {ltd_days.shape}"
-            )
+        _validate_matching_shapes(asof_days, ltd_days)
 
         if not strict:
-            as_of_days_broad = np.empty_like(as_of_days)
-            ltd_days_broad = np.empty_like(ltd_days)
-            it = np.nditer(as_of_days, flags=["multi_index", "refs_ok"])
-            for _ in it:
-                idx = it.multi_index
-                as_of_days_broad[idx] = self.normalize(
-                    as_of_days[idx], how=normalize_asof
-                )
-                ltd_days_broad[idx] = self.normalize(ltd_days[idx], how=normalize_ltd)
-            as_of_days, ltd_days = as_of_days_broad, ltd_days_broad
+            asof_days, ltd_days = self._normalize_bdays_to_ltd_inputs(
+                asof_days=asof_days,
+                ltd_days=ltd_days,
+                normalize_asof=normalize_asof,
+                normalize_ltd=normalize_ltd,
+            )
 
-        out = np.empty_like(as_of_days, dtype=np.int64)
-        projected_flag = np.zeros_like(as_of_days, dtype=bool)
+        out, projected_flag = self._compute_bdays_to_ltd_arrays(
+            asof_days=asof_days,
+            ltd_days=ltd_days,
+            strict=strict,
+            return_projected_flag=return_projected_flag,
+        )
 
-        it2 = np.nditer(as_of_days, flags=["multi_index", "refs_ok"])
-        for _ in it2:
-            idx = it2.multi_index
-            ai = searchsorted_exact(self.trading_days, as_of_days[idx])
-            li = searchsorted_exact(self.trading_days, ltd_days[idx])
-            if strict:
-                if ai is None:
-                    raise ValueError(
-                        f"asof {as_of_days[idx]} is not a trading day (strict=True)"
-                    )
-                if li is None:
-                    raise ValueError(
-                        f"ltd {ltd_days[idx]} is not a trading day (strict=True)"
-                    )
-            else:
-                assert ai is not None and li is not None
-            out[idx] = int(li - ai)
-            if return_projected_flag:
-                projected_flag[idx] = (as_of_days[idx] > self.observed_end) or (
-                    ltd_days[idx] > self.observed_end
-                )
+        return _format_bdays_to_ltd_result(
+            out=out,
+            projected_flag=projected_flag,
+            scalar=scalar,
+            return_projected_flag=return_projected_flag,
+        )
 
-        if scalar:
-            out_val = int(out.reshape(-1)[0])
-            if return_projected_flag:
-                flag_val = bool(projected_flag.reshape(-1)[0])
-                return out_val, flag_val
-            return out_val
+    def _normalize_bdays_to_ltd_inputs(
+        self,
+        *,
+        asof_days: np.ndarray,
+        ltd_days: np.ndarray,
+        normalize_asof: NormalizeHow,
+        normalize_ltd: NormalizeHow,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        asof_days_normalized = np.empty_like(asof_days)
+        ltd_days_normalized = np.empty_like(ltd_days)
+
+        iterator = np.nditer(asof_days, flags=["multi_index", "refs_ok"])
+        for _ in iterator:
+            index = iterator.multi_index
+            asof_days_normalized[index] = self.normalize(
+                asof_days[index],
+                how=normalize_asof,
+            )
+            ltd_days_normalized[index] = self.normalize(
+                ltd_days[index],
+                how=normalize_ltd,
+            )
+
+        return asof_days_normalized, ltd_days_normalized
+
+    def _compute_bdays_to_ltd_arrays(
+        self,
+        *,
+        asof_days: np.ndarray,
+        ltd_days: np.ndarray,
+        strict: bool,
+        return_projected_flag: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        out = np.empty_like(asof_days, dtype=np.int64)
+        projected_flag = np.zeros_like(asof_days, dtype=bool)
+
+        iterator = np.nditer(asof_days, flags=["multi_index", "refs_ok"])
+        for _ in iterator:
+            index = iterator.multi_index
+            self._compute_bdays_to_ltd_at_index(
+                asof_days=asof_days,
+                ltd_days=ltd_days,
+                out=out,
+                projected_flag=projected_flag,
+                index=index,
+                strict=strict,
+                return_projected_flag=return_projected_flag,
+            )
+
+        return out, projected_flag
+
+    def _compute_bdays_to_ltd_at_index(
+        self,
+        *,
+        asof_days: np.ndarray,
+        ltd_days: np.ndarray,
+        out: np.ndarray,
+        projected_flag: np.ndarray,
+        index: tuple[int, ...],
+        strict: bool,
+        return_projected_flag: bool,
+    ) -> None:
+        asof_index = searchsorted_exact(self.trading_days, asof_days[index])
+        ltd_index = searchsorted_exact(self.trading_days, ltd_days[index])
+
+        if strict:
+            self._validate_bdays_to_ltd_strict_index(
+                asof_days=asof_days,
+                ltd_days=ltd_days,
+                index=index,
+                asof_index=asof_index,
+                ltd_index=ltd_index,
+            )
+        else:
+            assert asof_index is not None and ltd_index is not None
+
+        if asof_index is None or ltd_index is None:
+            raise AssertionError("validated trading-day indices must not be None")
+        out[index] = int(ltd_index - asof_index)
 
         if return_projected_flag:
-            return out, projected_flag
-        return out
+            projected_flag[index] = (asof_days[index] > self.observed_end) or (
+                ltd_days[index] > self.observed_end
+            )
+
+    def _validate_bdays_to_ltd_strict_index(
+        self,
+        *,
+        asof_days: np.ndarray,
+        ltd_days: np.ndarray,
+        index: tuple[int, ...],
+        asof_index: int | None,
+        ltd_index: int | None,
+    ) -> None:
+        if asof_index is None:
+            raise ValueError(
+                f"asof {asof_days[index]} is not a trading day (strict=True)"
+            )
+
+        if ltd_index is None:
+            raise ValueError(
+                f"ltd {ltd_days[index]} is not a trading day (strict=True)"
+            )
 
     # ---------- session label -> schedule boundary mapping (schedule mode) ----------
 
@@ -820,3 +882,43 @@ class TradingCalendar:
         open_ts = to_utc_ts(pd.Timestamp(cache.opens[idx]))
         close_ts = to_utc_ts(pd.Timestamp(cache.closes[idx]))
         return open_ts, close_ts
+
+
+def _to_days_array(x: np.ndarray) -> np.ndarray:
+    if x.shape == ():
+        return np.array([coerce_np_day(x.item())], dtype="datetime64[D]")
+
+    out = np.empty(x.size, dtype="datetime64[D]")
+    for index, value in enumerate(x.ravel()):
+        out[index] = coerce_np_day(value)
+    return out.reshape(x.shape)
+
+
+def _validate_matching_shapes(
+    asof_days: np.ndarray,
+    ltd_days: np.ndarray,
+) -> None:
+    if asof_days.shape != ltd_days.shape:
+        raise ValueError(
+            "asof and ltd must have same shape, "
+            f"got {asof_days.shape} vs {ltd_days.shape}"
+        )
+
+
+def _format_bdays_to_ltd_result(
+    *,
+    out: np.ndarray,
+    projected_flag: np.ndarray,
+    scalar: bool,
+    return_projected_flag: bool,
+):
+    if scalar:
+        out_val = int(out.reshape(-1)[0])
+        if return_projected_flag:
+            flag_val = bool(projected_flag.reshape(-1)[0])
+            return out_val, flag_val
+        return out_val
+
+    if return_projected_flag:
+        return out, projected_flag
+    return out

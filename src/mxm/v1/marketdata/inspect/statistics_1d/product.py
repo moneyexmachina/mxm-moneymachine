@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/inspect/statistics_1d/product.py
 from __future__ import annotations
 
 from collections.abc import Iterable

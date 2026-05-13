@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/databento/timeseries_api_adapter.py
 from __future__ import annotations
 
 import time

@@ -1,4 +1,3 @@
-# scripts/synthetic_assets/ops/synthetic_asset_spec_inspect.py
 from __future__ import annotations
 
 import argparse

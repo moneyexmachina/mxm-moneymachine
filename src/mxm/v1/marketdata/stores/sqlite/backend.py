@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/stores/sqlite/backend.py
 from __future__ import annotations
 
 import sqlite3

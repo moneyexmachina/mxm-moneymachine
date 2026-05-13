@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/marketdata/orchestrators/test_product_marketdata.py
 from __future__ import annotations
 
 from dataclasses import dataclass

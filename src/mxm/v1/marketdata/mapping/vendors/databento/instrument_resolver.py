@@ -1,4 +1,3 @@
-# mxm-v1/src/mxm_v1/marketdata/mapping/vendors/databento/instrument_resolver.py
 
 from __future__ import annotations
 

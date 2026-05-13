@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/vendors/databento/normalize/instrument_definitions.py
 from __future__ import annotations
 
 import pandas as pd

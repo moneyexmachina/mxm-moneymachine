@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/synthetic_assets/test_component_weights.py
 from __future__ import annotations
 
 from types import SimpleNamespace

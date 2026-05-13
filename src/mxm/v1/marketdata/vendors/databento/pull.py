@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/databento/pull.py
 """
 Databento Timeseries Pull Layer (DataIO-backed)
 

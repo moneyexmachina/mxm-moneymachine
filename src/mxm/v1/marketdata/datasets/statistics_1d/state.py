@@ -1,5 +1,3 @@
-# mxm/v1/marketdata/datasets/ohlcv_1d/state.py
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -110,8 +108,6 @@ def _has_any_local_data(cov: AttemptsCoverageSnapshot | None) -> bool:
 # -------------------------
 # Core: derive state
 # -------------------------
-
-
 def derive_state(
     *,
     latest_attempt: OHLCV1DAttemptRow | None,
@@ -122,73 +118,109 @@ def derive_state(
 ) -> DerivedState:
     """
     Pure, deterministic state derivation.
-
-    Principle:
-      - Blockers first.
-      - coverage_now vs ew dominates for DONE vs NEEDS_INGEST.
-      - vendor_final only allows DONE-for-partial when we have evidence of any local data.
-      - force_reset is an operator override that forces re-ingest (i.e. prevents DONE short-circuits).
-      - latest_attempt is consulted for budget/error classification only after coverage-based checks.
     """
-    # Blockers first
+    blocker_state = _derive_blocker_state(
+        ew=ew,
+        is_mapped=is_mapped,
+    )
+    if blocker_state is not None:
+        return blocker_state
+
+    if force_reset:
+        return DerivedState.NEEDS_INGEST
+
+    coverage_state = _derive_coverage_state(
+        ew=ew,
+        coverage_now=coverage_now,
+    )
+    if coverage_state is not None:
+        return coverage_state
+
+    attempt_state = _derive_latest_attempt_state(latest_attempt)
+    if attempt_state is not None:
+        return attempt_state
+
+    return DerivedState.NEEDS_INGEST
+
+
+def _derive_blocker_state(
+    *,
+    ew: ExpectedWindow,
+    is_mapped: bool,
+) -> DerivedState | None:
     if not is_mapped:
         return DerivedState.BLOCKED_UNMAPPED
 
     if ew.is_empty:
         return DerivedState.BLOCKED_EMPTY_EXPECTED
 
-    # Operator override: if they reset local, they explicitly want to ingest again
-    # (except for empty expected, already handled above).
-    if force_reset:
+    return None
+
+
+def _derive_coverage_state(
+    *,
+    ew: ExpectedWindow,
+    coverage_now: AttemptsCoverageSnapshot | None,
+) -> DerivedState | None:
+    if not _has_any_local_data(coverage_now):
+        return None
+
+    if coverage_now is None:
         return DerivedState.NEEDS_INGEST
 
-    has_data_now = _has_any_local_data(coverage_now)
-    # Coverage-based evaluation
-    if has_data_now:
-        # pyright narrowing: we are about to access fields
-        if coverage_now is None:
-            # defensive: should be impossible given has_data_now, but keeps types strict
-            return DerivedState.NEEDS_INGEST
+    if _coverage_proves_complete(ew=ew, coverage_now=coverage_now):
+        return DerivedState.DONE
 
-        # Only compute completeness if we have a trustworthy observed range
-        has_observed_range = (
-            int(coverage_now.row_count) > 0
-            and coverage_now.min_ts is not None
-            and coverage_now.max_ts is not None
-        )
-
-        if has_observed_range:
-            is_complete_now = complete_from_expected_and_observed(
-                expected_start=ew.expected_start,
-                expected_end=ew.expected_end,
-                row_count=int(coverage_now.row_count),
-                min_ts=coverage_now.min_ts,
-                max_ts=coverage_now.max_ts,
-            )
-            if is_complete_now:
-                return DerivedState.DONE
-
-        # Not complete (or cannot prove complete). Vendor-final partial acceptance
-        if ew.vendor_final:
-            return DerivedState.DONE
-
-        return DerivedState.NEEDS_INGEST
-
-    # No local data now (empty coverage): vendor_final does NOT imply DONE.
-    # We still need to attempt ingest at least once.
-    # Fall through to attempt-based signals (budget/error), otherwise NEEDS_INGEST.
-
-    if latest_attempt is not None:
-        if latest_attempt.status == "skipped_cost_cap":
-            return DerivedState.SKIPPED_BUDGET
-        if latest_attempt.status == "error":
-            return DerivedState.RETRYABLE_ERROR
-        if latest_attempt.status == "unmapped":
-            return DerivedState.BLOCKED_UNMAPPED
-        if latest_attempt.status == "skipped_empty_expected_window":
-            return DerivedState.BLOCKED_EMPTY_EXPECTED
+    if ew.vendor_final:
+        return DerivedState.DONE
 
     return DerivedState.NEEDS_INGEST
+
+
+def _coverage_proves_complete(
+    *,
+    ew: ExpectedWindow,
+    coverage_now: AttemptsCoverageSnapshot,
+) -> bool:
+    if not _has_observed_range(coverage_now):
+        return False
+
+    return complete_from_expected_and_observed(
+        expected_start=ew.expected_start,
+        expected_end=ew.expected_end,
+        row_count=int(coverage_now.row_count),
+        min_ts=coverage_now.min_ts,
+        max_ts=coverage_now.max_ts,
+    )
+
+
+def _has_observed_range(coverage_now: AttemptsCoverageSnapshot) -> bool:
+    return (
+        int(coverage_now.row_count) > 0
+        and coverage_now.min_ts is not None
+        and coverage_now.max_ts is not None
+    )
+
+
+def _derive_latest_attempt_state(
+    latest_attempt: OHLCV1DAttemptRow | None,
+) -> DerivedState | None:
+    if latest_attempt is None:
+        return None
+
+    if latest_attempt.status == "skipped_cost_cap":
+        return DerivedState.SKIPPED_BUDGET
+
+    if latest_attempt.status == "error":
+        return DerivedState.RETRYABLE_ERROR
+
+    if latest_attempt.status == "unmapped":
+        return DerivedState.BLOCKED_UNMAPPED
+
+    if latest_attempt.status == "skipped_empty_expected_window":
+        return DerivedState.BLOCKED_EMPTY_EXPECTED
+
+    return None
 
 
 # -------------------------
@@ -206,48 +238,92 @@ def decide_action(
     """
     Pure decision. No vendor calls. No IO.
     """
-
-    if state in (
-        DerivedState.DONE,
-        DerivedState.BLOCKED_UNMAPPED,
-        DerivedState.BLOCKED_EMPTY_EXPECTED,
-    ):
+    if _is_terminal_noop_state(state):
         return Decision(action="noop", reason=state.value)
 
     if state == DerivedState.SKIPPED_BUDGET:
-        # Budget was insufficient on a previous attempt.
-        # If budget is now available, we should try again.
-        if budgets.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted")
-        return Decision(action="attempt_ingest", reason="budget_available_retry")
+        return _decide_budget_retry(budgets)
+
     if state == DerivedState.UNKNOWN:
         return Decision(action="stop_run", reason="unknown_state")
 
     if state == DerivedState.NEEDS_INGEST:
-        if budgets.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted")
-        return Decision(action="attempt_ingest", reason="needs_ingest")
+        return _decide_needs_ingest(budgets)
 
     if state == DerivedState.RETRYABLE_ERROR:
-        # systemic error detection
-        if (
-            latest_attempt is not None
-            and policy.stop_run_on_systemic_error
-            and _is_systemic_error(
-                latest_attempt.error_type, latest_attempt.error_message
-            )
-        ):
-            return Decision(action="stop_run", reason="systemic_error")
+        return _decide_retryable_error(
+            policy=policy,
+            budgets=budgets,
+            latest_attempt=latest_attempt,
+        )
 
-        # retry cap (MVP: only counts the latest attempt; refine later)
-        errs = _consecutive_error_count(latest_attempt)
-        if errs >= policy.max_consecutive_errors:
-            return Decision(action="noop", reason="retry_limit_reached")
-
-        if budgets.remaining_usd <= 0:
-            return Decision(action="noop", reason="budget_exhausted_after_error")
-
-        return Decision(action="attempt_ingest", reason="retryable_error")
-
-    # Defensive default
     return Decision(action="stop_run", reason="unhandled_state")
+
+
+def _is_terminal_noop_state(state: DerivedState) -> bool:
+    return state in (
+        DerivedState.DONE,
+        DerivedState.BLOCKED_UNMAPPED,
+        DerivedState.BLOCKED_EMPTY_EXPECTED,
+    )
+
+
+def _decide_budget_retry(budgets: BudgetContext) -> Decision:
+    if budgets.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted")
+
+    return Decision(action="attempt_ingest", reason="budget_available_retry")
+
+
+def _decide_needs_ingest(budgets: BudgetContext) -> Decision:
+    if budgets.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted")
+
+    return Decision(action="attempt_ingest", reason="needs_ingest")
+
+
+def _decide_retryable_error(
+    *,
+    policy: RetryPolicy,
+    budgets: BudgetContext,
+    latest_attempt: OHLCV1DAttemptRow | None,
+) -> Decision:
+    if _should_stop_on_systemic_error(
+        policy=policy,
+        latest_attempt=latest_attempt,
+    ):
+        return Decision(action="stop_run", reason="systemic_error")
+
+    if _retry_limit_reached(
+        policy=policy,
+        latest_attempt=latest_attempt,
+    ):
+        return Decision(action="noop", reason="retry_limit_reached")
+
+    if budgets.remaining_usd <= 0:
+        return Decision(action="noop", reason="budget_exhausted_after_error")
+
+    return Decision(action="attempt_ingest", reason="retryable_error")
+
+
+def _should_stop_on_systemic_error(
+    *,
+    policy: RetryPolicy,
+    latest_attempt: OHLCV1DAttemptRow | None,
+) -> bool:
+    return (
+        latest_attempt is not None
+        and policy.stop_run_on_systemic_error
+        and _is_systemic_error(
+            latest_attempt.error_type,
+            latest_attempt.error_message,
+        )
+    )
+
+
+def _retry_limit_reached(
+    *,
+    policy: RetryPolicy,
+    latest_attempt: OHLCV1DAttemptRow | None,
+) -> bool:
+    return _consecutive_error_count(latest_attempt) >= policy.max_consecutive_errors

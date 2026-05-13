@@ -1,4 +1,3 @@
-# mxm/v1/utils/date_utils.py
 from __future__ import annotations
 
 from datetime import date, datetime

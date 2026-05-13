@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/synthetic_assets/test_weights_rules.py
 
 import pytest
 

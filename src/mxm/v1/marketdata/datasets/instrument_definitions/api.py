@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/datasets/instrument_definitions/api.py
 from __future__ import annotations
 
 from dataclasses import dataclass

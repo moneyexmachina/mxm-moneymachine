@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/synthetic_assets/rolling/test_linear_roll.py
 from __future__ import annotations
 
 import numpy as np

@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/datasets/daily_stats/api.py
 from __future__ import annotations
 
 from pathlib import Path

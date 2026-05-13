@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/datasets/instrument_definition_mappings/api.py
 from __future__ import annotations
 
 from collections.abc import Iterable

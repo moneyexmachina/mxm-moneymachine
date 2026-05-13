@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/synthetic_assets/test_target_holdings.py
 from __future__ import annotations
 
 from dataclasses import dataclass

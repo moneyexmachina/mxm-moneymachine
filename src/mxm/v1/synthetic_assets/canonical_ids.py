@@ -1,4 +1,3 @@
-# src/mxm/v1/synthetic_assets/canonical_ids.py
 from __future__ import annotations
 
 import re

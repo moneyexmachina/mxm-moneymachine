@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/datasets/statistics_1d/attempts_store.py
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/stores/parquet/statistics_1d.py
 from __future__ import annotations
 
 import json

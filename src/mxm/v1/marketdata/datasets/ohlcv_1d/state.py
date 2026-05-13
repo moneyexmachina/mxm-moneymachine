@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/datasets/ohlcv_1d/state.py
 
 from __future__ import annotations
 

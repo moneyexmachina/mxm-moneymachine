@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/synthetic_assets/test_spec_registry.py
 from __future__ import annotations
 
 from pathlib import Path

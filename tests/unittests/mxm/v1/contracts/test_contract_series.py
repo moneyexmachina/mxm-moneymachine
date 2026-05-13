@@ -1,4 +1,3 @@
-# tests/unittests/mxm/v1/contracts/test_contract_series.py
 from __future__ import annotations
 
 from dataclasses import dataclass

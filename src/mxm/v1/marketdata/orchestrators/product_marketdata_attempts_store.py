@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/orchestrators/product_marketdata_attempts_store.py
 
 from __future__ import annotations
 

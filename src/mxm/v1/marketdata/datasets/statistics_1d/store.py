@@ -1,4 +1,3 @@
-# src/mxm/v1/marketdata/datasets/statistics_1d/store.py
 from __future__ import annotations
 
 from dataclasses import dataclass

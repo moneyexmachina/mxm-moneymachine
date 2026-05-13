@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/schema/instrument_definitions.py
 from __future__ import annotations
 
 import hashlib

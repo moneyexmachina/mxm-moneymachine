@@ -1,4 +1,3 @@
-# scripts/marketdata/ops/statistics_1d_backfill_meta.py
 from __future__ import annotations
 
 import argparse

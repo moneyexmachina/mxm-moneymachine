@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/orchestrators/product_marketdata.py
 #
 # MXM V1 — Product-level market data meta-orchestrator.
 #

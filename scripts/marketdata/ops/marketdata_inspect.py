@@ -1,4 +1,3 @@
-# scripts/marketdata/ops/marketdata_inspect.py
 from __future__ import annotations
 
 import argparse

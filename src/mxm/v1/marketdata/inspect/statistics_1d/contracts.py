@@ -1,4 +1,3 @@
-# mxm/v1/marketdata/inspect/statistics_1d/contracts.py
 """
 Inspection adapter for contract-level statistics_1d attempts.
 
