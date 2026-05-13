@@ -202,54 +202,103 @@ def validate_registry_entry(entry: CalendarRegistryEntry) -> None:
     This enforces:
     - observed.start <= observed.end
     - projection.start <= projection.end
-    - observed.end < projection.end (projection horizon extends beyond observed)
-    - projection.start is strictly after observed.end (projection region does not overlap observed)
+    - observed.end < projection.end
+    - projection.start is strictly after observed.end
     """
-    o = entry.observed
-    p = entry.projection
+    _validate_observed_region(entry)
+    _validate_projection_region(entry)
+    _validate_observed_projection_boundary(entry)
+    _validate_source_provenance(entry)
+    _validate_builder_provenance(entry)
+    _validate_projection_rule(entry)
+    _validate_artifact_filenames(entry)
 
-    if o.start > o.end:
+
+def _validate_observed_region(entry: CalendarRegistryEntry) -> None:
+    observed = entry.observed
+
+    if observed.start > observed.end:
         raise CalendarRegistryError(
-            f"{entry.calendar_id}: observed.start after observed.end: {o.start} > {o.end}"
+            f"{entry.calendar_id}: observed.start after observed.end: "
+            f"{observed.start} > {observed.end}"
         )
 
-    if p.start > p.end:
+
+def _validate_projection_region(entry: CalendarRegistryEntry) -> None:
+    projection = entry.projection
+
+    if projection.start > projection.end:
         raise CalendarRegistryError(
-            f"{entry.calendar_id}: projection.start after projection.end: {p.start} > {p.end}"
+            f"{entry.calendar_id}: projection.start after projection.end: "
+            f"{projection.start} > {projection.end}"
         )
 
-    if p.start <= o.end:
+
+def _validate_observed_projection_boundary(entry: CalendarRegistryEntry) -> None:
+    observed = entry.observed
+    projection = entry.projection
+
+    if projection.start <= observed.end:
         raise CalendarRegistryError(
-            f"{entry.calendar_id}: projection.start must be strictly after observed.end "
-            f"(got {p.start} <= {o.end})"
+            f"{entry.calendar_id}: projection.start must be strictly after "
+            f"observed.end (got {projection.start} <= {observed.end})"
         )
 
-    if p.end <= o.end:
+    if projection.end <= observed.end:
         raise CalendarRegistryError(
-            f"{entry.calendar_id}: projection.end must extend beyond observed.end "
-            f"(got {p.end} <= {o.end})"
+            f"{entry.calendar_id}: projection.end must extend beyond "
+            f"observed.end (got {projection.end} <= {observed.end})"
         )
 
-    # source provenance sanity
+
+def _validate_source_provenance(entry: CalendarRegistryEntry) -> None:
     if not entry.source.kind or not entry.source.kind.strip():
         raise CalendarRegistryError(f"{entry.calendar_id}: source.kind is required")
 
-    if entry.builder is not None:
-        if not entry.builder.builder_id or not entry.builder.builder_id.strip():
-            raise CalendarRegistryError(
-                f"{entry.calendar_id}: builder.builder_id is required if builder block is present"
-            )
+
+def _validate_builder_provenance(entry: CalendarRegistryEntry) -> None:
+    if entry.builder is None:
+        return
+
+    if not entry.builder.builder_id or not entry.builder.builder_id.strip():
+        raise CalendarRegistryError(
+            f"{entry.calendar_id}: builder.builder_id is required "
+            "if builder block is present"
+        )
+
+
+def _validate_projection_rule(entry: CalendarRegistryEntry) -> None:
     if not entry.projection.rule_id:
         raise CalendarRegistryError(
             f"{entry.calendar_id}: projection.rule_id is required"
         )
 
-    # artifact naming sanity (do not check existence here unless asked)
-    for name in (o.trading_days_artifact, o.schedule_artifact, p.trading_days_artifact):
-        if "/" in name or "\\" in name:
-            raise CalendarRegistryError(
-                f"{entry.calendar_id}: artifact paths must be relative filenames, got {name!r}"
-            )
+
+def _validate_artifact_filenames(entry: CalendarRegistryEntry) -> None:
+    observed = entry.observed
+    projection = entry.projection
+
+    for artifact_name in (
+        observed.trading_days_artifact,
+        observed.schedule_artifact,
+        projection.trading_days_artifact,
+    ):
+        _validate_artifact_filename(
+            calendar_id=entry.calendar_id,
+            artifact_name=artifact_name,
+        )
+
+
+def _validate_artifact_filename(
+    *,
+    calendar_id: str,
+    artifact_name: str,
+) -> None:
+    if "/" in artifact_name or "\\" in artifact_name:
+        raise CalendarRegistryError(
+            f"{calendar_id}: artifact paths must be relative filenames, "
+            f"got {artifact_name!r}"
+        )
 
 
 def validate_registry_files_exist(
