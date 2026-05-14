@@ -132,6 +132,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 
@@ -209,8 +210,8 @@ class SessionPnL:
         contract-level total_pnl values.
     """
 
-    previous_session: pd.Timestamp | None
-    session: pd.Timestamp
+    previous_session: np.datetime64 | None
+    session: np.datetime64
     contract_pnls: tuple[ContractPnL, ...]
     price_move_pnl: float
     trade_pnl: float

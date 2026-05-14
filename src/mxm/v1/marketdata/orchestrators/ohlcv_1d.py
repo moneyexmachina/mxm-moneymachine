@@ -107,13 +107,25 @@ class ContractRun:
     bars_path: str | None = None
 
 
+def _empty_gates() -> list[GateResult]:
+    return []
+
+
+def _empty_contract_runs() -> list[ContractRun]:
+    return []
+
+
+def _empty_counts() -> dict[str, Any]:
+    return {}
+
+
 @dataclass
 class OHLCV1DOrchestratorReport:
     product_id: str
     mode: Mode
     ts_utc: str
 
-    gates: list[GateResult] = field(default_factory=list)
+    gates: list[GateResult] = field(default_factory=_empty_gates)
 
     cost_cap_usd: float = 0.0
     cost_usd_total: float = 0.0
@@ -127,12 +139,12 @@ class OHLCV1DOrchestratorReport:
     contracts_considered: int = 0
     dataset_range_start: str | None = None
     dataset_range_end: str | None = None
-    runs: list[ContractRun] = field(default_factory=list)
+    runs: list[ContractRun] = field(default_factory=_empty_contract_runs)
 
     stopped_reason: str = ""  # ok | cost_cap | max_contracts
 
     # Meta-orchestrator fields:
-    counts: dict[str, Any] = field(default_factory=dict)
+    counts: dict[str, Any] = field(default_factory=_empty_counts)
     cost_used_usd: float = 0.0
     stage_status: str = ""
     stop_reason: str = ""
@@ -341,6 +353,7 @@ def ingest_ohlcv_1d_for_product(
             product_id=product_id,
             mode=mode,
             cost_cap_usd=cost_cap_usd,
+            client=client,
             dry_run=dry_run,
             reset_local=reset_local,
             context=context,
@@ -666,6 +679,18 @@ def _require_ohlcv_1d_expected_window(contract_context: OHLCV1DContractContext) 
     return contract_context.ew
 
 
+def _require_ohlcv_1d_expected_window_bounds(
+    contract_context: OHLCV1DContractContext,
+) -> tuple[str, str]:
+    start = contract_context.exp_start_s
+    end = contract_context.exp_end_s
+
+    if start is None or end is None:
+        raise RuntimeError("ohlcv_1d expected window bounds have not been derived")
+
+    return start, end
+
+
 def _apply_ohlcv_1d_reset_if_requested(
     *,
     store: OHLCV1DStore,
@@ -878,14 +903,14 @@ def _vendor_pull_normalize_write_ohlcv_1d(
 ) -> None:
     ident = _require_ohlcv_1d_identity(contract_context)
     ew = _require_ohlcv_1d_expected_window(contract_context)
-
+    exp_start_s, exp_end_s = _require_ohlcv_1d_expected_window_bounds(contract_context)
     est = estimate_cost_ohlcv_1d(
         client=client,
         dataset=ident.dataset,
         symbols=str(ident.instrument_id),
         stype_in="instrument_id",
-        start=contract_context.exp_start_s,
-        end=contract_context.exp_end_s,
+        start=exp_start_s,
+        end=exp_end_s,
     )
     cost_estimated_usd = float(est.estimated_cost_usd)
     contract_context.cost_estimated_usd = cost_estimated_usd
@@ -898,8 +923,8 @@ def _vendor_pull_normalize_write_ohlcv_1d(
     df_raw = pull_ohlcv_1d_by_instrument_id(
         dataset=ident.dataset,
         instrument_id=ident.instrument_id,
-        start=contract_context.exp_start_s,
-        end=contract_context.exp_end_s,
+        start=exp_start_s,
+        end=exp_end_s,
         source="databento",
     )
     df = normalize_ohlcv_1d(

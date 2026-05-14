@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
 
 from mxm.refdata.api.ref_data_api import RefDataAPI
@@ -239,8 +240,8 @@ def _build_contract_pnl(
 def _compute_contract_price_move_pnl(
     *,
     contract_id: str,
-    previous_session: pd.Timestamp | None,
-    session: pd.Timestamp,
+    previous_session: np.datetime64 | None,
+    session: np.datetime64,
     initial_quantity: int,
     contract_multiplier: float,
     fx_multiplier: float,
@@ -277,7 +278,7 @@ def _compute_contract_price_move_pnl(
 def _compute_contract_trade_pnl(
     *,
     contract_id: str,
-    session: pd.Timestamp,
+    session: np.datetime64,
     trade_quantity: int,
     contract_multiplier: float,
     fx_multiplier: float,
@@ -362,18 +363,13 @@ def _get_contract_multiplier(
     """
     contract = ref_data_api.get_contract_by_id(contract_id)
 
-    if contract is None:
-        raise ValueError(
-            f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
-        )
-
     return float(contract.contract_size)
 
 
 def _get_fx_multiplier(
     *,
     contract_id: str,
-    session: pd.Timestamp,
+    session: np.datetime64,
     target_currency: str,
     ref_data_api: RefDataAPI,
     spot_fx_converter: SpotFXConverter,
@@ -404,16 +400,11 @@ def _get_fx_multiplier(
     NotImplementedError
         If contract currency differs from target currency.
     """
-    contract = ref_data_api.get_contract_by_id(contract_id)
-
-    if contract is None:
-        raise ValueError(
-            f"Unknown contract_id={contract_id!r}: could not resolve contract in refdata."
-        )
+    currency = ref_data_api.get_contract_by_id(contract_id).currency
     return float(
         spot_fx_converter.get_fx_multiplier(
-            from_currency=contract.currency,
+            from_currency=currency,
             to_currency=target_currency,
-            timestamp=session,
+            session=session,
         )
     )

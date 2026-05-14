@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.periods import Period
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import utc_now_ts
 
@@ -76,7 +77,7 @@ class RefdataPeriodLookupError(DatabentoInstrumentResolutionError):
 
 
 @lru_cache(maxsize=1)
-def period_by_id() -> dict[str, object]:
+def period_by_id() -> dict[str, Period]:
     """
     Cache Period objects by period_id for this process lifetime.
     Uses RefDataAPI().get_periods(), as in Proof 96.
@@ -91,12 +92,11 @@ def contract_year_month(contract: FuturesContract) -> tuple[int, int]:
     MVP mapping key extraction:
       FuturesContract.period_id -> Period.first_date.year/month
     """
-    p = period_by_id().get(contract.period_id)
-    if p is None:
+    period = period_by_id().get(contract.period_id)
+    if period is None:
         raise RefdataPeriodLookupError(period_id=contract.period_id)
 
-    # Assumes Period has .first_date as in Proof 96.
-    return (int(p.first_date.year), int(p.first_date.month))
+    return (int(period.first_date.year), int(period.first_date.month))
 
 
 # ---------------------------------------------------------------------

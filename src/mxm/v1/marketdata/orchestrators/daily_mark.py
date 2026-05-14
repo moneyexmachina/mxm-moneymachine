@@ -57,7 +57,10 @@ from mxm.refdata.models.contracts.futures_contract import (  # type: ignore
     FuturesContract,
 )
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
-from mxm.v1.marketdata.datasets.daily_mark.builder import build_daily_mark
+from mxm.v1.marketdata.datasets.daily_mark.builder import (
+    DailyMarkBuildDiagnostics,
+    build_daily_mark,
+)
 from mxm.v1.marketdata.datasets.daily_mark.store import (
     DailyMarkStore,
     DailyMarkWriteResult,
@@ -822,7 +825,7 @@ def _daily_mark_built_run(
     context: DailyMarkRunContext,
     contract_context: DailyMarkContractContext,
     wmeta: DailyMarkWriteResult,
-    diag: object,
+    diag: DailyMarkBuildDiagnostics,
 ) -> ContractRun:
     min_session_id = wmeta["min_session_id"]
     max_session_id = wmeta["max_session_id"]

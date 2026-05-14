@@ -17,12 +17,62 @@ Design:
 
 from __future__ import annotations
 
-# mxm/v1/marketdata/inspect/statistics_1d/instrument.py
-from typing import Any
+import math
+from datetime import date, datetime
 
 import pandas as pd
 
+from mxm.types import JSONMap, JSONScalar, JSONValue
 from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
+
+
+def _require_dataset(dataset: str | None) -> str:
+    if dataset is None or not dataset:
+        raise ValueError("statistics_1d inspection requires dataset")
+    return dataset
+
+
+def _optional_utc_timestamp(value: str | None) -> pd.Timestamp | None:
+    if value is None:
+        return None
+
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def _is_missing_scalar(value: object) -> bool:
+    if value is None:
+        return True
+
+    if value is pd.NaT:
+        return True
+
+    if value is pd.NA:
+        return True
+
+    if isinstance(value, float):
+        return math.isnan(value)
+
+    return False
+
+
+def _json_safe_scalar(value: object) -> JSONScalar:
+    if _is_missing_scalar(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+
+    if isinstance(value, str | int | float | bool):
+        return value
+
+    return repr(value)
+
 
 # -------------------------
 # Public API
@@ -38,15 +88,16 @@ def inspect_statistics_1d_instrument(
     start: str | None = None,
     end: str | None = None,
     sample_n: int = 5,
-) -> dict[str, Any]:
+) -> JSONMap:
     """
     Inspect a single (publisher_id, instrument_id) event stream.
 
     Assumes the store returns the canonical schema (coerced/validated).
     """
+    dataset_required = _require_dataset(dataset)
     df = _read_statistics_1d_events(
         store=store,
-        dataset=dataset,
+        dataset=dataset_required,
         publisher_id=publisher_id,
         instrument_id=instrument_id,
         start=start,
@@ -56,7 +107,7 @@ def inspect_statistics_1d_instrument(
     return describe_statistics_1d_events_df(
         df=df,
         identity={
-            "dataset": dataset,
+            "dataset": dataset_required,
             "publisher_id": int(publisher_id),
             "instrument_id": int(instrument_id),
         },
@@ -72,22 +123,18 @@ def inspect_statistics_1d_instrument(
 def _read_statistics_1d_events(
     *,
     store: Statistics1DStore,
-    dataset: str | None,
+    dataset: str,
     publisher_id: int,
     instrument_id: int,
     start: str | None,
     end: str | None,
 ) -> pd.DataFrame:
-    """
-    Adapter wrapper around Statistics1DStore read API.
-
-    """
     return store.read(
         dataset=dataset,
         publisher_id=publisher_id,
         instrument_id=instrument_id,
-        start=start,
-        end=end,
+        start=_optional_utc_timestamp(start),
+        end=_optional_utc_timestamp(end),
     )
 
 
@@ -99,9 +146,9 @@ def _read_statistics_1d_events(
 def describe_statistics_1d_events_df(
     *,
     df: pd.DataFrame,
-    identity: dict[str, Any],
+    identity: JSONMap,
     sample_n: int = 5,
-) -> dict[str, Any]:
+) -> JSONMap:
     """
     Pure descriptive inspection of a statistics_1d events dataframe.
 
@@ -113,7 +160,7 @@ def describe_statistics_1d_events_df(
       - is_final, is_actual, stat_flags
       - price, quantity, sequence, rtype, ts_in_delta
     """
-    if df is None or len(df) == 0:
+    if len(df) == 0:
         return {
             "identity": identity,
             "rows": {
@@ -153,11 +200,11 @@ def describe_statistics_1d_events_df(
 
     # Distributions
     vc = d["stat_type"].value_counts(dropna=False)
-    stat_type_counts = {str(k): int(v) for k, v in vc.items()}
+    stat_type_counts: JSONMap = {str(k): int(v) for k, v in vc.items()}
 
     # Settlement diagnostics (descriptive only)
-    settlement_report: dict[str, Any] | None = None
-    per_trading_date_report: dict[str, Any] | None = None
+    settlement_report: JSONMap | None = None
+    per_trading_date_report: JSONMap | None = None
 
     settlement_df = d[d["stat_type"] == 3]
     if len(settlement_df) > 0:
@@ -169,18 +216,23 @@ def describe_statistics_1d_events_df(
             "is_actual_counts": _value_counts_json(settlement_df, "is_actual"),
             "stat_flags_topk": _topk_json(settlement_df, "stat_flags", k=10),
         }
-
         # Per-trading-date density and multi-event patterns
         # trading_date is expected to be date-like; normalise to ISO date strings.
         td = pd.to_datetime(settlement_df["trading_date"], errors="coerce").dt.date
         counts_by_date = td.value_counts(dropna=False)
+        non_null_dates = [
+            dt_ for dt_ in counts_by_date.index if not _is_missing_scalar(dt_)
+        ]
 
-        unique_dates = int(counts_by_date.index.notna().sum())
+        unique_dates = len(non_null_dates)
         max_events_per_date = int(counts_by_date.max()) if len(counts_by_date) else 0
         dates_with_multiple_events = int(
-            (counts_by_date[counts_by_date.index.notna()] > 1).sum()
+            sum(
+                1
+                for dt_, count in counts_by_date.items()
+                if not _is_missing_scalar(dt_) and int(count) > 1
+            )
         )
-
         multiple_finals_same_date = None
         dates_without_final = None
 
@@ -194,11 +246,15 @@ def describe_statistics_1d_events_df(
             finals_counts = finals_td.value_counts(dropna=False)
 
             multiple_finals_same_date = int(
-                (finals_counts[finals_counts.index.notna()] > 1).sum()
+                sum(
+                    1
+                    for dt_, count in finals_counts.items()
+                    if not _is_missing_scalar(dt_) and int(count) > 1
+                )
             )
-
-            # among dates with settlement events, how many have zero finals?
-            final_date_set = set(finals_counts.index[finals_counts.index.notna()])
+            final_date_set = {
+                dt_ for dt_ in finals_counts.index if not _is_missing_scalar(dt_)
+            }
             dates_without_final = int(
                 sum(
                     1
@@ -216,7 +272,7 @@ def describe_statistics_1d_events_df(
         }
 
     # Quality: null fractions for key columns
-    null_fracs: dict[str, float] = {}
+    null_fracs: JSONMap = {}
     key_cols = [
         "ts_recv",
         "ts_event",
@@ -239,38 +295,50 @@ def describe_statistics_1d_events_df(
 
     # Quality: simple ordering sanity (descriptive)
     # We do NOT enforce monotonicity (event streams can be out-of-order), but we report it.
-    ordering = {
+    ordering: JSONMap = {
         "ts_event_non_decreasing_fraction": _non_decreasing_fraction(d["ts_event"]),
         "ts_recv_non_decreasing_fraction": _non_decreasing_fraction(d["ts_recv"]),
         "ts_ref_non_decreasing_fraction": _non_decreasing_fraction(d["ts_ref"]),
     }
 
     # Samples: JSON-friendly head/tail
-    head = _rows_to_json(d.head(sample_n))
-    tail = _rows_to_json(d.tail(sample_n))
-
-    return {
-        "identity": identity,
-        "rows": {
-            "row_count": len(d),
-            "min_ts_event": min_ts_event,
-            "max_ts_event": max_ts_event,
-            "min_ts_recv": min_ts_recv,
-            "max_ts_recv": max_ts_recv,
-            "min_ts_ref": min_ts_ref,
-            "max_ts_ref": max_ts_ref,
-        },
-        "distributions": {
-            "stat_type_counts": stat_type_counts,
-            "settlement": settlement_report,
-        },
-        "quality": {
-            "null_fractions": null_fracs,
-            "ordering": ordering,
-        },
-        "per_trading_date": per_trading_date_report,
-        "samples": {"head": head, "tail": tail},
+    head: list[JSONValue] = list(_rows_to_json(d.head(sample_n)))
+    tail: list[JSONValue] = list(_rows_to_json(d.tail(sample_n)))
+    rows: JSONMap = {
+        "row_count": len(d),
+        "min_ts_event": min_ts_event,
+        "max_ts_event": max_ts_event,
+        "min_ts_recv": min_ts_recv,
+        "max_ts_recv": max_ts_recv,
+        "min_ts_ref": min_ts_ref,
+        "max_ts_ref": max_ts_ref,
     }
+
+    distributions: JSONMap = {
+        "stat_type_counts": stat_type_counts,
+        "settlement": settlement_report,
+    }
+
+    quality: JSONMap = {
+        "null_fractions": null_fracs,
+        "ordering": ordering,
+    }
+
+    samples: JSONMap = {
+        "head": head,
+        "tail": tail,
+    }
+
+    report: JSONMap = {
+        "identity": identity,
+        "rows": rows,
+        "distributions": distributions,
+        "quality": quality,
+        "per_trading_date": per_trading_date_report,
+        "samples": samples,
+    }
+
+    return report
 
 
 # -------------------------
@@ -278,52 +346,55 @@ def describe_statistics_1d_events_df(
 # -------------------------
 
 
-def _value_counts_json(df: pd.DataFrame, col: str) -> dict[str, int] | None:
+def _value_counts_json(df: pd.DataFrame, col: str) -> JSONMap | None:
     if col not in df.columns:
         return None
     vc = df[col].value_counts(dropna=False)
     return {str(k): int(v) for k, v in vc.items()}
 
 
-def _topk_json(df: pd.DataFrame, col: str, k: int) -> list[dict[str, Any]] | None:
+def _topk_json(df: pd.DataFrame, col: str, k: int) -> list[JSONValue] | None:
     if col not in df.columns:
         return None
+
     vc = df[col].value_counts(dropna=False).head(k)
+
     return [
-        {"value": (None if pd.isna(idx) else str(idx)), "count": int(cnt)}
+        {
+            "value": _json_safe_scalar(idx),
+            "count": int(cnt),
+        }
         for idx, cnt in vc.items()
     ]
 
 
-def _rows_to_json(df: pd.DataFrame) -> list[dict[str, Any]]:
-    if df is None or len(df) == 0:
+def _rows_to_json(df: pd.DataFrame) -> list[JSONMap]:
+    if len(df) == 0:
         return []
-    out: list[dict[str, Any]] = []
+
+    out: list[JSONMap] = []
+
     for _, row in df.iterrows():
-        rec: dict[str, Any] = {}
-        for k, v in row.items():
-            if pd.isna(v):
-                rec[str(k)] = None
-            elif isinstance(v, pd.Timestamp):
-                rec[str(k)] = v.isoformat()
-            else:
-                rec[str(k)] = v
+        rec: JSONMap = {}
+        for key, value in row.items():
+            rec[str(key)] = _json_safe_scalar(value)
         out.append(rec)
+
     return out
 
 
 def _non_decreasing_fraction(series: pd.Series) -> float:
     """
-    Fraction of adjacent pairs that are non-decreasing (after coercion to UTC).
+    Fraction of adjacent pairs that are non-decreasing after coercion to UTC.
+
     Returns 1.0 for length < 2.
     """
-    if series is None or len(series) < 2:
+    if len(series) < 2:
         return 1.0
+
     s = pd.to_datetime(series, errors="coerce", utc=True)
-    # If many NaT, the comparison becomes noisy; keep it descriptive.
-    # We treat NaT pairs as False by default; then normalize by total pairs.
     a = s.iloc[:-1].reset_index(drop=True)
     b = s.iloc[1:].reset_index(drop=True)
-    ok = b >= a
-    ok = ok.fillna(False)
+
+    ok = (b >= a).fillna(False)
     return float(ok.mean())

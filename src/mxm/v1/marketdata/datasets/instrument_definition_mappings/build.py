@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm.refdata.models.periods import Period  # type: ignore
 from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
     BuildResult,
     InstrumentDefinitionMappingsStore,
@@ -328,7 +327,6 @@ def _load_refdata_maturities(*, product_id: str) -> list[tuple[int, int]]:
         if p is None:
             missing.append(str(c.period_id))
             continue
-        p = cast(Period, p)
         pairs.add((int(p.first_date.year), int(p.first_date.month)))
 
     if missing:
