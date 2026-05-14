@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import TypedDict
 
 import pandas as pd
 
+from mxm.types import JSONMap
 from mxm.v1.marketdata.schema.instrument_definitions import (
     TABLE_CURRENT,
     TABLE_EVENTS,
@@ -20,31 +22,93 @@ from mxm.v1.utils.time_utils import (
     fmt_run_ts,
 )
 
+SQLiteValue = str | int | float | bytes | None
+SQLiteParams = tuple[object, ...]
+
+
+class InstrumentDefinitionEventRow(TypedDict):
+    event_uid: str
+    feed: str
+    publisher_id: int
+    instrument_id: int
+    ts_event: str
+    ts_recv: str
+    security_update_action: str
+    rtype: int | None
+    payload_json: str
+
 
 # ---------------------------------------------------------------------------
 # Result models
 # ---------------------------------------------------------------------------
-def _as_nullable_scalar(v: Any) -> Any:
+def _as_nullable_scalar(v: object) -> SQLiteValue:
     if v is None:
         return None
+
+    if v is pd.NA or v is pd.NaT:
+        return None
+
+    if isinstance(v, bytes | bytearray):
+        return bytes(v).decode("utf-8", errors="replace")
+
+    if isinstance(v, str | int | float):
+        return v
+
+    item = getattr(v, "item", None)
+    if callable(item):
+        value = item()
+        if isinstance(value, str | int | float | bytes) or value is None:
+            return value
+
+    return str(v)
+
+
+def _as_optional_int(v: object) -> int | None:
+    scalar = _as_nullable_scalar(v)
+    if scalar is None:
+        return None
+    return int(scalar)
+
+
+def _require_record_value(record: dict[str, object], key: str) -> object:
     try:
-        if pd.isna(v):  # type: ignore[arg-type]
-            return None
-    except Exception:
-        pass
-    # sqlite can return bytes sometimes
-    if isinstance(v, (bytes, bytearray)):
-        try:
-            return v.decode("utf-8")
-        except Exception:
-            return str(v)
-    # normalize pandas/numpy scalars
-    if hasattr(v, "item"):
-        try:
-            return v.item()
-        except Exception:
-            pass
-    return v
+        return record[key]
+    except KeyError as exc:
+        raise KeyError(
+            f"instrument definition row missing required key {key!r}"
+        ) from exc
+
+
+def _require_record_int(record: dict[str, object], key: str) -> int:
+    value = _require_record_value(record, key)
+    scalar = _as_nullable_scalar(value)
+
+    if scalar is None:
+        raise ValueError(f"instrument definition row `{key}` is null")
+
+    return int(scalar)
+
+
+def _require_record_run_ts(record: dict[str, object], key: str) -> str:
+    value = _require_record_value(record, key)
+
+    if isinstance(value, pd.Timestamp | str | int):
+        return fmt_run_ts(value)
+
+    raise TypeError(
+        f"instrument definition row `{key}` must be timestamp-like; "
+        f"got {type(value).__name__}"
+    )
+
+
+def _optional_record_int(record: dict[str, object], key: str) -> int | None:
+    value = record.get(key)
+    scalar = _as_nullable_scalar(value)
+
+    if scalar is None:
+        return None
+
+    return int(scalar)
 
 
 @dataclass(frozen=True)
@@ -340,9 +404,7 @@ class InstrumentDefinitionsStore:
             out.add((int(r["maturity_year"]), int(r["maturity_month"])))
         return out
 
-    def get_current(
-        self, *, publisher_id: int, instrument_id: int
-    ) -> dict[str, Any] | None:
+    def get_current(self, *, publisher_id: int, instrument_id: int) -> JSONMap | None:
         """
         Backwards-compatible point lookup (not feed-scoped).
         """
@@ -398,10 +460,8 @@ class InstrumentDefinitionsStore:
 
         activation = row["activation"]
         expiration = row["expiration"]
-
-        activation_ns = None if activation is None else _as_nullable_scalar(activation)
-        expiration_ns = None if expiration is None else _as_nullable_scalar(expiration)
-
+        activation_ns = _as_optional_int(activation)
+        expiration_ns = _as_optional_int(expiration)
         return (activation_ns, expiration_ns)
 
     def list_current(
@@ -463,7 +523,7 @@ class InstrumentDefinitionsStore:
 
     def read_current_by_feed(
         self, *, feed: str, limit: int = 1000, newest_first: bool = True
-    ) -> list[dict[str, Any]]:
+    ) -> list[JSONMap]:
         """
         Bounded read for operational diagnostics.
         Returns list[dict] to keep it lightweight and avoid pandas dependency in callers.
@@ -526,15 +586,17 @@ class InstrumentDefinitionsStore:
         return df
 
     @staticmethod
-    def _build_event_rows(feed: str, df: pd.DataFrame) -> list[dict[str, Any]]:
-        events: list[dict[str, Any]] = []
+    def _build_event_rows(
+        feed: str, df: pd.DataFrame
+    ) -> list[InstrumentDefinitionEventRow]:
+        events: list[InstrumentDefinitionEventRow] = []
 
         # Iterate row-wise; this is metadata-scale, correctness-first.
         for _, row in df.iterrows():
             # Construct a raw record dict that includes all columns + ts_recv
-            record: dict[str, Any] = row.to_dict()
-            ts_recv_z = fmt_run_ts(record["ts_recv"])
-            ts_event_z = fmt_run_ts(record["ts_event"])
+            record: dict[str, object] = {str(k): v for k, v in row.items()}
+            ts_recv_z = _require_record_run_ts(record, "ts_recv")
+            ts_event_z = _require_record_run_ts(record, "ts_event")
 
             # Canonical JSON payload for hashing; include ts_recv explicitly
             payload = canonical_json(record)
@@ -544,14 +606,12 @@ class InstrumentDefinitionsStore:
                 {
                     "event_uid": uid,
                     "feed": feed,
-                    "publisher_id": int(record["publisher_id"]),
-                    "instrument_id": int(record["instrument_id"]),
+                    "publisher_id": _require_record_int(record, "publisher_id"),
+                    "instrument_id": _require_record_int(record, "instrument_id"),
                     "ts_event": ts_event_z,
                     "ts_recv": ts_recv_z,
                     "security_update_action": str(record.get("security_update_action")),
-                    "rtype": (
-                        None if pd.isna(record.get("rtype")) else int(record["rtype"])
-                    ),
+                    "rtype": _optional_record_int(record, "rtype"),
                     "payload_json": payload,
                 }
             )
@@ -569,7 +629,10 @@ class InstrumentDefinitionsStore:
         return events
 
     @staticmethod
-    def _insert_events(conn, events: Iterable[dict[str, Any]]) -> int:
+    def _insert_events(
+        conn: sqlite3.Connection,
+        events: Iterable[InstrumentDefinitionEventRow],
+    ) -> int:
         sql = f"""
             INSERT OR IGNORE INTO {TABLE_EVENTS} (
                 event_uid, feed, publisher_id, instrument_id,
@@ -618,7 +681,11 @@ class InstrumentDefinitionsStore:
         """
         return a > b
 
-    def _update_current_view(self, conn, events: list[dict[str, Any]]) -> None:
+    def _update_current_view(
+        self,
+        conn: sqlite3.Connection,
+        events: list[InstrumentDefinitionEventRow],
+    ) -> None:
         """
         Materialise the latest state per (publisher_id, instrument_id) using
         ordering key (ts_recv, ts_event, publisher_id, instrument_id).
@@ -626,7 +693,7 @@ class InstrumentDefinitionsStore:
         We update per key touched; metadata-scale, correctness-first.
         """
         # Reduce to latest event per key in this batch
-        latest_by_key: dict[tuple[int, int], dict[str, Any]] = {}
+        latest_by_key: dict[tuple[int, int], InstrumentDefinitionEventRow] = {}
         for e in events:
             key = (e["publisher_id"], e["instrument_id"])
             if key not in latest_by_key:
@@ -664,7 +731,7 @@ class InstrumentDefinitionsStore:
         for (publisher_id, instrument_id), e in latest_by_key.items():
             row = conn.execute(select_sql, (publisher_id, instrument_id)).fetchone()
             if row is not None:
-                existing = (row["ts_recv"], row["ts_event"])
+                existing = (str(row["ts_recv"]), str(row["ts_event"]))
                 incoming = (e["ts_recv"], e["ts_event"])
                 if not self._is_newer(incoming, existing):
                     continue
@@ -685,7 +752,12 @@ class InstrumentDefinitionsStore:
             )
 
     @staticmethod
-    def _upsert_watermark(conn, *, feed: str, ts_recv_last: str) -> None:
+    def _upsert_watermark(
+        conn: sqlite3.Connection,
+        *,
+        feed: str,
+        ts_recv_last: str,
+    ) -> None:
         sql = f"""
             INSERT INTO {TABLE_WATERMARKS} (feed, ts_recv_last)
             VALUES (?, ?)

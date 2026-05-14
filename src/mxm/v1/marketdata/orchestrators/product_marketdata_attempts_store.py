@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
+from mxm.types import JSONMap, JSONValue
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 
 TABLE = "marketdata_product_attempts"
@@ -33,7 +35,7 @@ class ProductMarketdataAttemptRow:
     started_at: str
     finished_at: str | None
 
-    summary: dict[str, Any]
+    summary: JSONMap
 
     error_type: str | None
     error_message: str | None
@@ -58,15 +60,14 @@ class ProductMarketdataAttemptsStore:
         reset_local: bool,
         cost_cap_usd: float,
         started_at: str,
-        summary: dict[str, Any] | None = None,
+        summary: JSONMap | None = None,
     ) -> str:
         """
         Insert a "running" attempt row and return attempt_uid.
         """
         self._backend.ensure_migrated()
         attempt_uid = str(uuid.uuid4())
-
-        summary_json = json.dumps(summary or {}, separators=(",", ":"), sort_keys=True)
+        summary_json = _json_summary_dumps(summary)
 
         row = {
             "attempt_uid": attempt_uid,
@@ -106,7 +107,7 @@ class ProductMarketdataAttemptsStore:
         finished_at: str,
         cost_used_usd: float,
         remaining_usd: float,
-        summary: dict[str, Any],
+        summary: JSONMap,
         error_type: str | None = None,
         error_message: str | None = None,
     ) -> None:
@@ -115,7 +116,7 @@ class ProductMarketdataAttemptsStore:
         """
         self._backend.ensure_migrated()
 
-        summary_json = json.dumps(summary or {}, separators=(",", ":"), sort_keys=True)
+        summary_json = _json_summary_dumps(summary)
 
         with self._backend.transaction() as conn:
             conn.execute(
@@ -202,33 +203,94 @@ class ProductMarketdataAttemptsStore:
         return [_row_to_attempt(r) for r in rows]
 
 
-def _row_to_attempt(row) -> ProductMarketdataAttemptRow:
-    # sqlite3.Row supports dict-style access
-    summary_raw = row["summary_json"] or "{}"
+def _json_summary_dumps(summary: JSONMap | None) -> str:
+    return json.dumps(summary or {}, separators=(",", ":"), sort_keys=True)
+
+
+def _json_summary_loads(raw: str) -> JSONMap:
     try:
-        summary = json.loads(summary_raw)
-        if not isinstance(summary, dict):
-            summary = {"_summary": summary}
+        loaded = json.loads(raw)
     except Exception:
-        summary = {"_summary_parse_error": True, "_raw": summary_raw}
+        return {"_summary_parse_error": True, "_raw": raw}
+
+    if isinstance(loaded, dict):
+        loaded_map = cast(dict[object, object], loaded)
+        return _coerce_json_map(loaded_map)
+
+    return {"_summary": _coerce_json_value(cast(object, loaded))}
+
+
+def _coerce_json_map(raw: dict[object, object]) -> JSONMap:
+    out: JSONMap = {}
+    for key, value in raw.items():
+        out[str(key)] = _coerce_json_value(value)
+    return out
+
+
+def _coerce_json_value(value: object) -> JSONValue:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+
+    if isinstance(value, list):
+        values = cast(list[object], value)
+        return [_coerce_json_value(v) for v in values]
+
+    if isinstance(value, dict):
+        value_map = cast(dict[object, object], value)
+        return _coerce_json_map(value_map)
+
+    return repr(value)
+
+
+def _row_str(row: sqlite3.Row, key: str) -> str:
+    value = row[key]
+    if not isinstance(value, str):
+        raise TypeError(
+            f"Expected sqlite column {key!r} to be str, got {type(value).__name__}"
+        )
+    return value
+
+
+def _row_optional_str(row: sqlite3.Row, key: str) -> str | None:
+    value = row[key]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(
+            f"Expected sqlite column {key!r} to be str | None, got {type(value).__name__}"
+        )
+    return value
+
+
+def _row_bool(row: sqlite3.Row, key: str) -> bool:
+    return bool(row[key])
+
+
+def _row_float(row: sqlite3.Row, key: str) -> float:
+    return float(row[key])
+
+
+def _row_to_attempt(row: sqlite3.Row) -> ProductMarketdataAttemptRow:
+    summary_raw = _row_optional_str(row, "summary_json") or "{}"
+    summary = _json_summary_loads(summary_raw)
 
     return ProductMarketdataAttemptRow(
-        attempt_uid=row["attempt_uid"],
-        created_at=row["created_at"],
-        run_ts_utc=row["run_ts_utc"],
-        mode=row["mode"],
-        dry_run=bool(row["dry_run"]),
-        reset=bool(row["reset"]),
-        reset_local=bool(row["reset_local"]),
-        product_id=row["product_id"],
-        cost_cap_usd=float(row["cost_cap_usd"]),
-        cost_used_usd=float(row["cost_used_usd"]),
-        remaining_usd=float(row["remaining_usd"]),
-        status=row["status"],
-        stop_reason=row["stop_reason"],
-        started_at=row["started_at"],
-        finished_at=row["finished_at"],
+        attempt_uid=_row_str(row, "attempt_uid"),
+        created_at=_row_str(row, "created_at"),
+        run_ts_utc=_row_str(row, "run_ts_utc"),
+        mode=_row_str(row, "mode"),
+        dry_run=_row_bool(row, "dry_run"),
+        reset=_row_bool(row, "reset"),
+        reset_local=_row_bool(row, "reset_local"),
+        product_id=_row_str(row, "product_id"),
+        cost_cap_usd=_row_float(row, "cost_cap_usd"),
+        cost_used_usd=_row_float(row, "cost_used_usd"),
+        remaining_usd=_row_float(row, "remaining_usd"),
+        status=_row_str(row, "status"),
+        stop_reason=_row_optional_str(row, "stop_reason"),
+        started_at=_row_str(row, "started_at"),
+        finished_at=_row_optional_str(row, "finished_at"),
         summary=summary,
-        error_type=row["error_type"],
-        error_message=row["error_message"],
+        error_type=_row_optional_str(row, "error_type"),
+        error_message=_row_optional_str(row, "error_message"),
     )

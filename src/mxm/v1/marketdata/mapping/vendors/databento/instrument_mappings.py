@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
+from sqlite3 import Connection
 
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.utils.time_utils import utc_now_run_ts
@@ -58,12 +59,11 @@ def _mapping_uid(
 
 
 def load_databento_outright_candidates(
-    conn,
+    conn: Connection,
     *,
     feed: str,
     dataset: str,
 ) -> list[MappingCandidate]:
-    # NOTE: relies on SQLite JSON1 functions.
     rows = conn.execute(
         """
         SELECT
@@ -111,7 +111,7 @@ def load_databento_outright_candidates(
 
 
 def upsert_mappings_append_only(
-    conn,
+    conn: Connection,
     *,
     product_id: str,
     contract_year: int,
@@ -227,7 +227,7 @@ def build_mappings_for_product(
                 ambiguous.append((y, m, len(matches)))
                 continue
 
-            did_insert, _uid = upsert_mappings_append_only(
+            did_insert, _ = upsert_mappings_append_only(
                 conn,
                 product_id=product_id,
                 contract_year=y,
