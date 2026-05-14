@@ -216,6 +216,27 @@ class InstrumentDefinitionMappingsStore:
             ).fetchone()
             return int(row["n"])
 
+    def get_latest_created_at(self, *, product_id: str) -> str | None:
+        """
+        Return the latest mapping-row creation timestamp for this product_id.
+
+        This is audit metadata for coverage/reporting; it does not imply that the
+        mapping is valid as of that timestamp.
+        """
+        self._backend.ensure_migrated()
+        with self._backend.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(created_at) AS latest_created_at
+                FROM instrument_definition_mappings
+                WHERE product_id = ?;
+                """,
+                (product_id,),
+            ).fetchone()
+
+        value = row["latest_created_at"]
+        return None if value is None else str(value)
+
     def list_mapped_contracts(self, *, product_id: str) -> set[tuple[int, int]]:
         """
         Return the set of (contract_year, contract_month) keys present for product_id.

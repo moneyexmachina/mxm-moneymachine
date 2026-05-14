@@ -85,7 +85,7 @@ def list_mapped_maturities(
     """
     Return the set of (year, month) keys that have at least one mapping row.
     """
-    return set(store.list_mapped_maturities(product_id=product_id))
+    return set(store.list_mapped_contracts(product_id=product_id))
 
 
 def get_mapping_coverage(
