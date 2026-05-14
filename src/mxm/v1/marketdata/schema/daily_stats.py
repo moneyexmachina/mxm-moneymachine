@@ -12,14 +12,29 @@ Notes:
 - Missing values are allowed for value columns (outer-join semantics).
 """
 
+# TODO(mxm-v2):
+# Consider replacing the parallel hand-written schema/coercion modules for
+# daily_mark, daily_stats, and ohlcv_1d with a shared dataframe schema layer,
+# potentially Pandera-backed. These modules now show repeated structure:
+# required/optional columns, dtype coercion, nullable semantics, categorical
+# constraints, numeric parsing, column ordering, and dataset-specific semantic
+# invariants.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import pandas as pd
 
 from mxm.v1.utils.hashing import sha256_df_content
+
+DailyStatsDType = Literal[
+    "int32",
+    "int64",
+    "string",
+    "boolean",
+]
 
 
 @dataclass(frozen=True)
@@ -72,25 +87,55 @@ class DailyStatsSchema:
     )
 
     optional: tuple[str, ...] = ("raw_symbol",)
-
-    dtype_targets: dict[str, str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dtype_targets",
-            {
-                "dataset": "string",
-                "publisher_id": "int32",
-                "instrument_id": "int64",
-                "raw_symbol": "string",
-                "settle_px_is_final": "boolean",
-                "fix_px_is_final": "boolean",
-            },
-        )
+    dtype_targets: dict[str, DailyStatsDType] = field(
+        default_factory=lambda: {
+            "dataset": "string",
+            "publisher_id": "int32",
+            "instrument_id": "int64",
+            "raw_symbol": "string",
+            "settle_px_is_final": "boolean",
+            "fix_px_is_final": "boolean",
+        }
+    )
 
 
 DAILY_STATS = DailyStatsSchema()
+
+
+def _coerce_daily_stats_dtypes(df: pd.DataFrame) -> None:
+    for column_name, dtype_target in DAILY_STATS.dtype_targets.items():
+        _coerce_daily_stats_optional_column(df, column_name, dtype_target)
+
+
+def _coerce_daily_stats_optional_column(
+    df: pd.DataFrame,
+    column_name: str,
+    dtype_target: DailyStatsDType,
+) -> None:
+    if column_name not in df.columns:
+        return
+
+    try:
+        if dtype_target == "int32":
+            df[column_name] = df[column_name].astype("int32")
+            return
+
+        if dtype_target == "int64":
+            df[column_name] = df[column_name].astype("int64")
+            return
+
+        if dtype_target == "string":
+            df[column_name] = df[column_name].astype(pd.StringDtype())
+            return
+
+        if dtype_target == "boolean":
+            df[column_name] = df[column_name].astype(pd.BooleanDtype())
+            return
+
+    except Exception as exc:
+        raise ValueError(
+            f"failed to coerce `{column_name}` to {dtype_target}: {exc}"
+        ) from exc
 
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
@@ -247,32 +292,32 @@ def coerce_daily_stats(
     *,
     ensure_column_order: bool = True,
 ) -> pd.DataFrame:
-    """
-    Coerce a dataframe into canonical daily_stats surface form.
-
-    Intended use:
-    - selection step produces an outer-joined daily surface
-    - this function finalizes dtypes, session_date precision, and column ordering
-
-    Returns:
-        A new dataframe coerced into canonical form (copy).
-    """
     out = df.copy()
 
-    # session_date -> datetime64[D]
     out["session_date"] = _coerce_session_date_series(out["session_date"])
 
-    # Coerce identity/provenance and boolean dtypes where applicable
-    for col, dtype in DAILY_STATS.dtype_targets.items():
-        if col not in out.columns:
-            continue
-        try:
-            out[col] = out[col].astype(dtype)
-        except Exception as e:
-            raise ValueError(f"failed to coerce `{col}` to {dtype}: {e}") from e
+    _coerce_daily_stats_dtypes(out)
+    _coerce_daily_stats_numeric_columns(out)
 
-    # Keep numeric columns numeric (do not force float/int, just ensure parseable)
-    for col in (
+    out = out.sort_values(["session_date"], kind="mergesort").reset_index(drop=True)
+
+    if ensure_column_order:
+        missing = _missing_columns(out, DAILY_STATS.required)
+        if missing:
+            raise ValueError(
+                f"cannot coerce daily_stats: missing required columns: {missing}"
+            )
+
+        cols = [c for c in DAILY_STATS.columns if c in out.columns]
+        out = out.loc[:, cols]
+
+    validate_daily_stats(out)
+
+    return out
+
+
+def _coerce_daily_stats_numeric_columns(df: pd.DataFrame) -> None:
+    for column_name in (
         "settle_px",
         "fix_px",
         "open_px",
@@ -281,28 +326,10 @@ def coerce_daily_stats(
         "open_interest_qty",
         "cleared_volume_qty",
     ):
-        if col in out.columns and not pd.api.types.is_numeric_dtype(out[col]):
-            out[col] = pd.to_numeric(out[col], errors="raise")
-
-    # Canonical sort
-    out = out.sort_values(["session_date"], kind="mergesort").reset_index(drop=True)
-
-    if ensure_column_order:
-        # We only require the required columns; optional ones may be absent.
-        missing = _missing_columns(out, DAILY_STATS.required)
-        if missing:
-            raise ValueError(
-                f"cannot coerce daily_stats: missing required columns: {missing}"
-            )
-
-        # Keep canonical order, dropping optional columns not present.
-        cols = [c for c in DAILY_STATS.columns if c in out.columns]
-        out = out.loc[:, cols]
-
-    # Final validation
-    validate_daily_stats(out)
-
-    return out
+        if column_name in df.columns and not pd.api.types.is_numeric_dtype(
+            df[column_name]
+        ):
+            df[column_name] = pd.to_numeric(df[column_name], errors="raise")
 
 
 def hash_daily_stats_content(df: pd.DataFrame) -> str:

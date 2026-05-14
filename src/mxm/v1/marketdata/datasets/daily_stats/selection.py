@@ -331,8 +331,9 @@ def build_daily_stats_surface(
         selected: pd.DataFrame, *, prefix: str, value_col: str, keep_final: bool
     ) -> pd.DataFrame:
         cols = ["session_date", *ident_cols]
-        out = selected[*cols, value_col].copy()
-        out = out.rename(columns={value_col: f"{prefix}"})
+        selected_cols = [*cols, value_col]
+        out = selected.loc[:, selected_cols].copy()
+        out.columns = [*cols, prefix]
         if keep_final and "is_final" in selected.columns:
             out[f"{prefix}_is_final"] = selected["is_final"].astype("boolean")
         return out

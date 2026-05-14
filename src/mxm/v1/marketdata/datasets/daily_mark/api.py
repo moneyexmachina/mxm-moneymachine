@@ -47,11 +47,6 @@ def read_daily_mark_contract(
     api = RefDataAPI()
 
     contract = api.get_contract_by_id(contract_id)
-    if contract is None:
-        raise ValueError(
-            f"unknown contract_id={contract_id!r} (no refdata contract found)"
-        )
-
     product_id = contract.product_id
 
     df = store.read(
@@ -93,11 +88,6 @@ def read_daily_mark_contract_meta(
     api = RefDataAPI()
 
     contract = api.get_contract_by_id(contract_id)
-    if contract is None:
-        raise ValueError(
-            f"unknown contract_id={contract_id!r} (no refdata contract found)"
-        )
-
     product_id = contract.product_id
 
     meta = store.read_meta(

@@ -30,6 +30,7 @@ Out of scope
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -235,10 +236,9 @@ def _stack_component_contracts(component_contracts: ComponentContracts) -> pd.Da
 
         session | component | contract_id
     """
-    series = component_contracts.frame.stack()
+    series = cast(pd.Series, component_contracts.frame.stack())
     series.index = series.index.set_names(["session", "component"])
-    out = series.rename("contract_id").reset_index()
-    return out
+    return series.reset_index(name="contract_id")
 
 
 def _stack_component_weights(component_weights: ComponentWeights) -> pd.DataFrame:
@@ -247,10 +247,9 @@ def _stack_component_weights(component_weights: ComponentWeights) -> pd.DataFram
 
         session | component | weight
     """
-    series = component_weights.frame.stack()
+    series = cast(pd.Series, component_weights.frame.stack())
     series.index = series.index.set_names(["session", "component"])
-    out = series.rename("weight").reset_index()
-    return out
+    return series.reset_index(name="weight")
 
 
 def _build_contract_metadata_frame(

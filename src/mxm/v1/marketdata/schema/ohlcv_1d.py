@@ -12,14 +12,28 @@ Notes:
 - We do not over-constrain price/volume dtypes in Session 4; we only require they are numeric.
 """
 
+# TODO(mxm-v2):
+# Consider replacing the parallel hand-written schema/coercion modules for
+# ohlcv_1d, statistics_1d, daily_stats, and daily_mark with a shared dataframe
+# schema layer, potentially Pandera-backed. These modules now repeat the same
+# structure: required columns, dtype coercion, nullable semantics, categorical
+# constraints, numeric parsing, column ordering, and dataset-specific semantic
+# invariants.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import pandas as pd
 
 from mxm.v1.utils.time_utils import ensure_utc_datetime_series
+
+Ohlcv1DDType = Literal[
+    "int32",
+    "int64",
+    "string",
+]
 
 
 @dataclass(frozen=True)
@@ -53,20 +67,15 @@ class Ohlcv1dSchema:
 
     # Dtype targets for identity/provenance fields.
     # Prices and volume are validated as numeric but not forcibly downcast.
-    dtype_targets: dict[str, str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dtype_targets",
-            {
-                "dataset": "string",
-                "schema": "string",
-                "publisher_id": "int32",
-                "instrument_id": "int64",
-                "raw_symbol": "string",
-            },
-        )
+    dtype_targets: dict[str, Ohlcv1DDType] = field(
+        default_factory=lambda: {
+            "dataset": "string",
+            "schema": "string",
+            "publisher_id": "int32",
+            "instrument_id": "int64",
+            "raw_symbol": "string",
+        }
+    )
 
 
 OHLCV_1D = Ohlcv1dSchema()
@@ -84,8 +93,6 @@ def validate_ohlcv_1d(df: pd.DataFrame) -> None:
     Raises:
         ValueError: if the dataframe fails validation.
     """
-    if df is None:
-        raise ValueError("ohlcv-1d dataframe is None")
 
     missing = _missing_columns(df, OHLCV_1D.required)
     if missing:
@@ -146,41 +153,63 @@ def coerce_ohlcv_1d(
     Returns:
         A new dataframe coerced into canonical form (copy).
     """
-    if df is None:
-        raise ValueError("cannot coerce: df is None")
-
     out = df.copy()
 
-    # Ensure ts_event is tz-aware UTC
-    # If already tz-aware, convert; if naive, localize.
     out["ts_event"] = ensure_utc_datetime_series(out["ts_event"])
 
     if dataset is not None:
         out["dataset"] = dataset
     out["schema"] = schema
 
-    # Coerce identity/provenance dtypes
-    for col, dtype in OHLCV_1D.dtype_targets.items():
-        if col not in out.columns:
-            continue
-        try:
-            out[col] = out[col].astype(dtype)
-        except Exception as e:
-            raise ValueError(f"failed to coerce `{col}` to {dtype}: {e}") from e
-
-    # Keep numeric columns numeric (do not force float/int, just ensure parseable)
-    for col in ("open", "high", "low", "close", "volume"):
-        if col in out.columns and not pd.api.types.is_numeric_dtype(out[col]):
-            out[col] = pd.to_numeric(out[col], errors="raise")
+    _coerce_ohlcv_1d_dtype_targets(out)
+    _coerce_ohlcv_1d_numeric_columns(out)
 
     if ensure_column_order:
-        # Ensure required columns exist before reordering to avoid KeyError surprises.
         missing = _missing_columns(out, OHLCV_1D.required)
         if missing:
             raise ValueError(f"cannot coerce: missing required columns: {missing}")
         out = out.loc[:, list(OHLCV_1D.columns)]
 
-    # Final validation (loud fail if something is off)
     validate_ohlcv_1d(out)
 
     return out
+
+
+def _coerce_ohlcv_1d_dtype_targets(df: pd.DataFrame) -> None:
+    for column_name, dtype_target in OHLCV_1D.dtype_targets.items():
+        _coerce_ohlcv_1d_optional_column(df, column_name, dtype_target)
+
+
+def _coerce_ohlcv_1d_optional_column(
+    df: pd.DataFrame,
+    column_name: str,
+    dtype_target: Ohlcv1DDType,
+) -> None:
+    if column_name not in df.columns:
+        return
+
+    try:
+        if dtype_target == "int32":
+            df[column_name] = df[column_name].astype("int32")
+            return
+
+        if dtype_target == "int64":
+            df[column_name] = df[column_name].astype("int64")
+            return
+
+        if dtype_target == "string":
+            df[column_name] = df[column_name].astype(pd.StringDtype())
+            return
+
+    except Exception as exc:
+        raise ValueError(
+            f"failed to coerce `{column_name}` to {dtype_target}: {exc}"
+        ) from exc
+
+
+def _coerce_ohlcv_1d_numeric_columns(df: pd.DataFrame) -> None:
+    for column_name in ("open", "high", "low", "close", "volume"):
+        if column_name in df.columns and not pd.api.types.is_numeric_dtype(
+            df[column_name]
+        ):
+            df[column_name] = pd.to_numeric(df[column_name], errors="raise")

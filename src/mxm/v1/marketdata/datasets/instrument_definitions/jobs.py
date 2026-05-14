@@ -28,9 +28,9 @@ from pathlib import Path
 from typing import Literal, cast
 
 import databento as db
-from mxm_secrets import get_secret
 
 from mxm.dataio.registry import list_registered, register
+from mxm.secrets import get_secret
 from mxm.v1.marketdata.datasets.instrument_definitions.ingest import (
     InstrumentDefinitionsIngestReport,
     ingest_instrument_definitions,
@@ -41,7 +41,10 @@ from mxm.v1.marketdata.datasets.instrument_definitions.store import (
 from mxm.v1.marketdata.stores.layout import MarketdataLayout
 from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.v1.marketdata.types import InstrumentDefinitionsClient
-from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
+from mxm.v1.marketdata.vendors.databento.timeseries import (
+    DatabentoClient,
+    DatabentoTimeseriesFetcher,
+)
 
 Mode = Literal["bootstrap", "update"]
 
@@ -118,7 +121,10 @@ def update_instrument_definitions_for_product(
 
     # Register DataIO adapter once per runtime if needed.
     if "databento" not in list_registered():
-        register("databento", DatabentoTimeseriesFetcher(client=client))
+        register(
+            "databento",
+            DatabentoTimeseriesFetcher(client=cast(DatabentoClient, client)),
+        )
     def_client = cast(InstrumentDefinitionsClient, client)
     return ingest_instrument_definitions(
         store=store,

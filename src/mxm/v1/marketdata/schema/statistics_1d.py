@@ -25,15 +25,31 @@ Notes:
 
 """
 
+# TODO(mxm-v2):
+# Consider replacing the parallel hand-written schema/coercion modules for
+# ohlcv_1d, statistics_1d, daily_stats, and daily_mark with a shared dataframe
+# schema layer, potentially Pandera-backed. These modules now repeat the same
+# structure: required columns, dtype coercion, nullable semantics, categorical
+# constraints, numeric parsing, column ordering, and dataset-specific semantic
+# invariants.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import pandas as pd
 
 from mxm.v1.utils.hashing import sha256_df_content
 from mxm.v1.utils.time_utils import ensure_utc_datetime_series
+
+Statistics1DDType = Literal[
+    "int16",
+    "int32",
+    "int64",
+    "string",
+    "boolean",
+]
 
 
 @dataclass(frozen=True)
@@ -79,32 +95,27 @@ class Statistics1dSchema:
 
     # Dtype targets for identity/provenance fields and small integers.
     # We keep price/quantity numeric but do not over-constrain their exact dtype.
-    dtype_targets: dict[str, str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dtype_targets",
-            {
-                "dataset": "string",
-                "schema": "string",
-                "publisher_id": "int32",
-                "channel_id": "int32",
-                "instrument_id": "int64",
-                "raw_symbol": "string",
-                "rtype": "int16",
-                "stat_type": "int32",
-                "sequence": "int64",
-                "ts_in_delta": "int32",
-                "update_action": "int16",
-                "stat_flags": "int32",
-                "is_final": "boolean",
-                "is_actual": "boolean",
-                "is_trading_tick": "boolean",
-                "is_intraday": "boolean",
-                "is_null_set": "boolean",
-            },
-        )
+    dtype_targets: dict[str, Statistics1DDType] = field(
+        default_factory=lambda: {
+            "dataset": "string",
+            "schema": "string",
+            "publisher_id": "int32",
+            "channel_id": "int32",
+            "instrument_id": "int64",
+            "raw_symbol": "string",
+            "rtype": "int16",
+            "stat_type": "int32",
+            "sequence": "int64",
+            "ts_in_delta": "int32",
+            "update_action": "int16",
+            "stat_flags": "int32",
+            "is_final": "boolean",
+            "is_actual": "boolean",
+            "is_trading_tick": "boolean",
+            "is_intraday": "boolean",
+            "is_null_set": "boolean",
+        }
+    )
 
 
 STATISTICS_1D = Statistics1dSchema()
@@ -265,15 +276,42 @@ def _set_statistics_1d_dataset_and_schema(
 
 def _coerce_statistics_1d_dtype_targets(df: pd.DataFrame) -> None:
     for column_name, dtype_target in STATISTICS_1D.dtype_targets.items():
-        if column_name not in df.columns:
-            continue
+        _coerce_statistics_1d_optional_column(df, column_name, dtype_target)
 
-        try:
-            df[column_name] = df[column_name].astype(dtype_target)
-        except Exception as exc:
-            raise ValueError(
-                f"failed to coerce `{column_name}` to {dtype_target}: {exc}"
-            ) from exc
+
+def _coerce_statistics_1d_optional_column(
+    df: pd.DataFrame,
+    column_name: str,
+    dtype_target: Statistics1DDType,
+) -> None:
+    if column_name not in df.columns:
+        return
+
+    try:
+        if dtype_target == "int16":
+            df[column_name] = df[column_name].astype("int16")
+            return
+
+        if dtype_target == "int32":
+            df[column_name] = df[column_name].astype("int32")
+            return
+
+        if dtype_target == "int64":
+            df[column_name] = df[column_name].astype("int64")
+            return
+
+        if dtype_target == "string":
+            df[column_name] = df[column_name].astype(pd.StringDtype())
+            return
+
+        if dtype_target == "boolean":
+            df[column_name] = df[column_name].astype(pd.BooleanDtype())
+            return
+
+    except Exception as exc:
+        raise ValueError(
+            f"failed to coerce `{column_name}` to {dtype_target}: {exc}"
+        ) from exc
 
 
 def _coerce_statistics_1d_numeric_columns(df: pd.DataFrame) -> None:

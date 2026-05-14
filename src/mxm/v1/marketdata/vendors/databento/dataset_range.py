@@ -1,26 +1,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
-from mxm.v1.marketdata.types import InstrumentDefinitionsClient
+from mxm.v1.marketdata.types import (
+    DatasetRangeResponse,
+    DatasetRangeSchema,
+    InstrumentDefinitionsClient,
+)
+
+# TODO(mxm-v1):
+# Add runtime contract tests for Databento metadata responses.
+#
+# Current guarantees are static only:
+# - DatasetMetadataClient protocol
+# - DatasetRangeResponse TypedDict
+#
+# Missing:
+# 1. Structural unit tests validating parsing logic against representative
+#    payload fixtures.
+# 2. Integration smoke tests against the real Databento Historical client to
+#    confirm runtime compatibility and detect upstream API shape drift.
+#
+# Suggested future tests:
+# - tests/unittests/.../test_dataset_range_parsing.py
+# - tests/integration/.../test_databento_dataset_range_contract.py
+#
+# Deferred during pyright cleanup phase to avoid scope expansion.
 
 
 @dataclass(frozen=True)
 class DatasetRange:
-    """
-    Databento dataset availability.
-
-    Semantics (per Databento metadata.get_dataset_range):
-      - start is inclusive
-      - end is exclusive
-    """
-
     start: str
     end: str
 
 
-def _range_from_payload(payload: dict[str, Any]) -> DatasetRange:
+def _range_from_payload(payload: DatasetRangeSchema) -> DatasetRange:
     return DatasetRange(start=payload["start"], end=payload["end"])
 
 
@@ -30,38 +44,21 @@ def get_dataset_range(
     dataset: str,
     schema: str | None = None,
 ) -> DatasetRange:
-    """
-    Entitlement-aware availability range for dataset, schema-aware if available.
+    payload: DatasetRangeResponse = client.metadata.get_dataset_range(dataset=dataset)
 
-    Uses: client.metadata.get_dataset_range(dataset=...)
-    """
-    payload: dict[str, str | dict[str, str]] = client.metadata.get_dataset_range(
-        dataset=dataset
-    )
-
-    if schema:
-        schema_map = payload.get("schema") or {}
-        schema_payload = schema_map.get(schema)
-        if (
-            isinstance(schema_payload, dict)
-            and "start" in schema_payload
-            and "end" in schema_payload
-        ):
-            return _range_from_payload(schema_payload)
+    if schema is not None:
+        schema_map = payload.get("schema")
+        if schema_map is not None:
+            schema_payload = schema_map.get(schema)
+            if schema_payload is not None:
+                return _range_from_payload(schema_payload)
 
     return _range_from_payload(payload)
 
 
 def clamp_end(*, end: str, available: DatasetRange) -> str:
-    """
-    Clamp requested end (exclusive) to availability end (exclusive).
-    ISO8601 Z timestamps are lexicographically comparable when normalized, as returned by Databento.
-    """
     return end if end <= available.end else available.end
 
 
 def clamp_start(*, start: str, available: DatasetRange) -> str:
-    """
-    Clamp requested start (inclusive) to availability start (inclusive).
-    """
     return start if start >= available.start else available.start

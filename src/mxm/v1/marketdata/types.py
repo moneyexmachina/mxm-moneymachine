@@ -8,18 +8,18 @@ class DatasetRangeSchema(TypedDict):
     end: str
 
 
-class DatasetRangeResponse(TypedDict, total=False):
+class DatasetRangeResponse(DatasetRangeSchema, total=False):
     """
     Vendor dataset-range response.
 
-    Expected top-level keys:
+    Required top-level keys:
       - 'start': ISO8601 timestamp (inclusive start)
       - 'end':   ISO8601 timestamp (exclusive end)
-      - 'schema': optional mapping keyed by schema name with per-schema ranges
+
+    Optional top-level keys:
+      - 'schema': mapping keyed by schema name with per-schema ranges
     """
 
-    start: str
-    end: str
     schema: dict[str, DatasetRangeSchema]
 
 

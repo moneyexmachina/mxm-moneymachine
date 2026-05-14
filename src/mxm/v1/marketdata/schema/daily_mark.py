@@ -24,10 +24,56 @@ Notes
   Downstream API usage may expose alternative indexed views as needed.
 """
 
+# TODO(mxm-v2):
+# Evaluate migration of dataframe schema validation/coercion to Pandera.
+#
+# Motivation:
+# - current validation logic is highly structured and increasingly declarative
+# - substantial duplication exists across:
+#     - required column checks
+#     - dtype enforcement/coercion
+#     - nullable handling
+#     - categorical membership validation
+#     - dataframe-level semantic invariants
+# - pyright/pandas dtype interactions are verbose and fragile
+#
+# Potential benefits:
+# - explicit dataframe schema objects
+# - centralized dtype/coercion semantics
+# - reusable schema composition across marketdata datasets
+# - clearer separation between:
+#     - column-level schema constraints
+#     - MXM semantic state invariants
+# - improved interoperability with parquet/dataframe tooling
+#
+# Important caveats:
+# - MXM-specific semantic state rules (carry semantics, unavailable state,
+#   business-session invariants, etc.) would still require custom dataframe
+#   checks layered on top of declarative schema definitions
+# - migration should only occur once common schema abstractions across:
+#     - daily_mark
+#     - daily_stats
+#     - ohlcv_1d
+#   have stabilized
+# - avoid introducing Pandera dependency prematurely during v1 stabilization
+#
+# Likely future architecture:
+# - Pandera handles:
+#     - dtype coercion
+#     - nullable semantics
+#     - required/optional columns
+#     - categorical constraints
+#     - basic dataframe integrity checks
+# - MXM semantic validators handle:
+#     - cross-row temporal/business invariants
+#     - carry-forward semantics
+#     - provenance consistency
+#     - dataset-specific market semantics
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -35,24 +81,17 @@ import pandas as pd
 from mxm.v1.utils.date_utils import coerce_np_day
 from mxm.v1.utils.hashing import sha256_df_content
 
+DailyMarkDType = Literal[
+    "int32",
+    "Int32",
+    "Int64",
+    "string",
+    "boolean",
+]
+
 
 @dataclass(frozen=True)
 class DailyMarkSchema:
-    """
-    Canonical schema for MXM `daily_mark` surfaces.
-
-    Contract between:
-    - policy/build logic (`mxm.v1.marketdata.datasets.daily_mark.*`)
-    - storage (parquet writer/reader for daily_mark)
-    - dataset-level serving / inspection utilities
-
-    Semantic intent:
-    - one authoritative daily valuation mark per (contract_id, session_id)
-    - `session_id` is the primary MXM business-time coordinate
-    - `mark_px` is the value downstream valuation / PnL systems should consume
-    """
-
-    # Canonical column order for persisted / served frames.
     columns: tuple[str, ...] = (
         "session_id",
         "contract_id",
@@ -69,7 +108,6 @@ class DailyMarkSchema:
         "source_raw_symbol",
     )
 
-    # Required columns for a valid v1 daily_mark surface.
     required: tuple[str, ...] = (
         "session_id",
         "contract_id",
@@ -81,7 +119,6 @@ class DailyMarkSchema:
         "carry_streak",
     )
 
-    # Optional provenance / debug fields.
     optional: tuple[str, ...] = (
         "instrument_id",
         "source_trading_date",
@@ -90,7 +127,21 @@ class DailyMarkSchema:
         "source_raw_symbol",
     )
 
-    dtype_targets: dict[str, str] = None  # type: ignore[assignment]
+    dtype_targets: dict[str, DailyMarkDType] = field(
+        default_factory=lambda: {
+            "session_id": "int32",
+            "contract_id": "string",
+            "instrument_id": "Int64",
+            "mark_source": "string",
+            "mark_quality": "string",
+            "is_markable": "boolean",
+            "is_carried": "boolean",
+            "carry_streak": "int32",
+            "source_dataset": "string",
+            "source_publisher_id": "Int32",
+            "source_raw_symbol": "string",
+        }
+    )
 
     allowed_mark_sources: tuple[str, ...] = (
         "observed_settle",
@@ -106,27 +157,44 @@ class DailyMarkSchema:
         "unavailable",
     )
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dtype_targets",
-            {
-                "session_id": "int32",
-                "contract_id": "string",
-                "instrument_id": "Int64",
-                "mark_source": "string",
-                "mark_quality": "string",
-                "is_markable": "boolean",
-                "is_carried": "boolean",
-                "carry_streak": "int32",
-                "source_dataset": "string",
-                "source_publisher_id": "Int32",
-                "source_raw_symbol": "string",
-            },
-        )
-
 
 DAILY_MARK = DailyMarkSchema()
+
+
+def _coerce_daily_mark_dtypes(df: pd.DataFrame) -> None:
+    if "session_id" in df.columns and df["session_id"].isna().any():
+        raise ValueError("daily_mark `session_id` contains null values.")
+    for column_name, dtype_target in DAILY_MARK.dtype_targets.items():
+        _coerce_daily_mark_optional_column(df, column_name, dtype_target)
+
+
+def _coerce_daily_mark_optional_column(
+    df: pd.DataFrame,
+    column_name: str,
+    dtype_target: DailyMarkDType,
+) -> None:
+    if column_name not in df.columns:
+        return
+
+    if dtype_target == "int32":
+        df[column_name] = df[column_name].astype("int32")
+        return
+
+    if dtype_target == "Int32":
+        df[column_name] = df[column_name].astype(pd.Int32Dtype())
+        return
+
+    if dtype_target == "Int64":
+        df[column_name] = df[column_name].astype(pd.Int64Dtype())
+        return
+
+    if dtype_target == "string":
+        df[column_name] = df[column_name].astype(pd.StringDtype())
+        return
+
+    if dtype_target == "boolean":
+        df[column_name] = df[column_name].astype(pd.BooleanDtype())
+        return
 
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
@@ -477,39 +545,6 @@ def _coerce_daily_mark_source_trading_date(df: pd.DataFrame) -> None:
         df["source_trading_date"],
         errors="coerce",
     ).dt.normalize()
-
-
-def _coerce_daily_mark_dtypes(df: pd.DataFrame) -> None:
-    _coerce_daily_mark_session_id(df)
-    _coerce_daily_mark_optional_column(df, "contract_id", "string")
-    _coerce_daily_mark_optional_column(df, "instrument_id", "Int64")
-    _coerce_daily_mark_optional_column(df, "mark_source", "string")
-    _coerce_daily_mark_optional_column(df, "mark_quality", "string")
-    _coerce_daily_mark_optional_column(df, "is_markable", "boolean")
-    _coerce_daily_mark_optional_column(df, "is_carried", "boolean")
-    _coerce_daily_mark_optional_column(df, "carry_streak", "int32")
-    _coerce_daily_mark_optional_column(df, "source_dataset", "string")
-    _coerce_daily_mark_optional_column(df, "source_publisher_id", "Int32")
-    _coerce_daily_mark_optional_column(df, "source_raw_symbol", "string")
-
-
-def _coerce_daily_mark_session_id(df: pd.DataFrame) -> None:
-    if "session_id" not in df.columns:
-        return
-
-    if df["session_id"].isna().any():
-        raise ValueError("daily_mark `session_id` contains null values.")
-
-    df["session_id"] = df["session_id"].astype("int32")
-
-
-def _coerce_daily_mark_optional_column(
-    df: pd.DataFrame,
-    column_name: str,
-    dtype_target: str,
-) -> None:
-    if column_name in df.columns:
-        df[column_name] = df[column_name].astype(dtype_target)
 
 
 def _coerce_daily_mark_price(df: pd.DataFrame) -> None:

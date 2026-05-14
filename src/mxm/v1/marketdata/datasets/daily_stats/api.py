@@ -52,12 +52,6 @@ def read_daily_stats_contract(
     store = DailyStatsStore(layout=layout)
     api = RefDataAPI()
     contract = api.get_contract_by_id(contract_id)
-    if contract is None:
-        # Keep this explicit: downstream callers can decide whether to catch and treat as empty.
-        raise ValueError(
-            f"unknown contract_id={contract_id!r} (no refdata contract found)"
-        )
-
     product_id = contract.product_id
 
     ident = resolve_databento_instrument(backend, contract)
@@ -104,11 +98,6 @@ def read_daily_stats_contract_meta(
     api = RefDataAPI()
 
     contract = api.get_contract_by_id(contract_id)
-    if contract is None:
-        raise ValueError(
-            f"unknown contract_id={contract_id!r} (no refdata contract found)"
-        )
-
     product_id = contract.product_id
     ident = resolve_databento_instrument(backend, contract)
 

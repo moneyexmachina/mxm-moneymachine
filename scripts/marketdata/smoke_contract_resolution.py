@@ -128,8 +128,6 @@ def _load_mapped_maturities(
 def _get_contract_by_id_or_raise(contract_id: str):
     api = RefDataAPI()
     contract = api.get_contract_by_id(contract_id)
-    if contract is None:
-        raise RuntimeError(f"Contract not found in refdata: {contract_id!r}")
     return contract
 
 
