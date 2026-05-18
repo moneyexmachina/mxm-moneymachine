@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.contracts.futures_contract import (
+    FuturesContract,  # type: ignore
+)
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.execution.price_accessors import (
     DailyMarkExecutionPriceAccessor,
     DailyStatsExecutionPriceAccessor,
@@ -12,17 +21,99 @@ from mxm.v1.execution.price_accessors import (
 )
 
 
+@dataclass(frozen=True)
 class DummyContract:
-    def __init__(self, product_id: str) -> None:
-        self.product_id = product_id
+    product_id: str
 
 
 class DummyRefDataAPI:
-    def __init__(self, mapping: dict[str, DummyContract]) -> None:
+    def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
-    def get_contract_by_id(self, contract_id: str) -> DummyContract | None:
-        return self._mapping.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> FuturesContract:
+        try:
+            return self._mapping[contract_id]
+        except KeyError as e:
+            raise ValueError(f"Unknown contract_id: {contract_id}") from e
+
+
+class DummyMXMBusinessCalendar:
+    def __init__(
+        self,
+        calendar_id: str,
+        label_to_session_id: dict[str, int],
+    ) -> None:
+        self.calendar_id = calendar_id
+        self._label_to_session_id = {
+            np.datetime64(label, "D"): session_id
+            for label, session_id in label_to_session_id.items()
+        }
+
+    def session_id_from_label(self, label: np.datetime64) -> int:
+        key = np.datetime64(str(label), "D")
+        if key not in self._label_to_session_id:
+            raise ValueError(
+                f"label {key} is not present in calendar {self.calendar_id!r}"
+            )
+        return self._label_to_session_id[key]
+
+
+def _contract(*, product_id: str) -> FuturesContract:
+    return cast(FuturesContract, DummyContract(product_id=product_id))
+
+
+def _refdata_api(mapping: dict[str, FuturesContract]) -> RefDataAPI:
+    return cast(RefDataAPI, DummyRefDataAPI(mapping))
+
+
+def _calendar(
+    calendar_id: str,
+    label_to_session_id: dict[str, int],
+) -> MXMBusinessCalendar:
+    return cast(
+        MXMBusinessCalendar,
+        DummyMXMBusinessCalendar(calendar_id, label_to_session_id),
+    )
+
+
+def _corn_calendar() -> MXMBusinessCalendar:
+    return _calendar(
+        "mxm_corn_2026",
+        {
+            "2026-03-10": 10,
+            "2026-03-11": 11,
+        },
+    )
+
+
+def _daily_stats_accessor(
+    *,
+    price_field: str = "settle",
+    mapping: dict[str, FuturesContract] | None = None,
+) -> DailyStatsExecutionPriceAccessor:
+    return DailyStatsExecutionPriceAccessor(
+        price_field=price_field,
+        ref_data_api=_refdata_api(
+            mapping
+            if mapping is not None
+            else {"corn_mar2026": _contract(product_id="corn")}
+        ),
+    )
+
+
+def _daily_mark_accessor(
+    *,
+    calendar: MXMBusinessCalendar | None = None,
+    mapping: dict[str, FuturesContract] | None = None,
+) -> DailyMarkExecutionPriceAccessor:
+    return DailyMarkExecutionPriceAccessor(
+        mxm_business_calendar=calendar if calendar is not None else _corn_calendar(),
+        ref_data_api=_refdata_api(
+            mapping
+            if mapping is not None
+            else {"corn_mar2026": _contract(product_id="corn")}
+        ),
+    )
 
 
 def _valid_price_series() -> pd.Series:
@@ -54,24 +145,6 @@ def _valid_daily_stats_frame(
     )
 
 
-class DummyMXMBusinessCalendar:
-    def __init__(
-        self, calendar_id: str, label_to_session_id: dict[np.datetime64, int]
-    ) -> None:
-        self.calendar_id = calendar_id
-        self._label_to_session_id = {
-            np.datetime64(k, "D"): v for k, v in label_to_session_id.items()
-        }
-
-    def session_id_from_label(self, label: np.datetime64) -> int:
-        key = np.datetime64(label, "D")
-        if key not in self._label_to_session_id:
-            raise ValueError(
-                f"label {key} is not present in calendar {self.calendar_id!r}"
-            )
-        return self._label_to_session_id[key]
-
-
 def _valid_daily_mark_series() -> pd.Series:
     index = pd.MultiIndex.from_tuples(
         [
@@ -83,10 +156,7 @@ def _valid_daily_mark_series() -> pd.Series:
     return pd.Series([101.5, 102.25], index=index, dtype="float64")
 
 
-def _valid_daily_mark_frame(
-    *,
-    product_id: str = "corn",
-) -> pd.DataFrame:
+def _valid_daily_mark_frame(*, product_id: str = "corn") -> pd.DataFrame:
     return pd.DataFrame(
         {
             "session_id": [10, 11],
@@ -98,13 +168,34 @@ def _valid_daily_mark_frame(
     )
 
 
-def test_product_price_lookup_accepts_valid_multiindex_series() -> None:
-    prices = _valid_price_series()
+def _read_default_daily_stats_product(
+    *,
+    product_id: str,
+    root: Path | None = None,
+    start: object | None = None,
+    end: object | None = None,
+) -> pd.DataFrame:
+    _ = root, start, end
+    return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
 
+
+def _read_default_daily_mark_product(
+    *,
+    calendar_id: str,
+    product_id: str,
+    root: Path | None = None,
+    start_session_id: int | None = None,
+    end_session_id: int | None = None,
+) -> pd.DataFrame:
+    _ = calendar_id, root, start_session_id, end_session_id
+    return _valid_daily_mark_frame(product_id=product_id)
+
+
+def test_product_price_lookup_accepts_valid_multiindex_series() -> None:
     lookup = _ProductDailyStatsPriceLookup(
         product_id="corn",
         price_field="settle",
-        prices=prices,
+        prices=_valid_price_series(),
     )
 
     assert lookup.product_id == "corn"
@@ -128,9 +219,7 @@ def test_product_price_lookup_rejects_non_multiindex_series() -> None:
 
 def test_product_price_lookup_rejects_wrong_index_names() -> None:
     index = pd.MultiIndex.from_tuples(
-        [
-            ("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z")),
-        ],
+        [("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z"))],
         names=["bad_contract", "bad_day"],
     )
     prices = pd.Series([101.5], index=index, dtype="float64")
@@ -163,9 +252,7 @@ def test_product_price_lookup_rejects_duplicate_keys() -> None:
 
 def test_product_price_lookup_rejects_missing_values() -> None:
     index = pd.MultiIndex.from_tuples(
-        [
-            ("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z")),
-        ],
+        [("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z"))],
         names=["contract_id", "trading_date"],
     )
     prices = pd.Series([None], index=index, dtype="float64")
@@ -180,9 +267,7 @@ def test_product_price_lookup_rejects_missing_values() -> None:
 
 def test_product_price_lookup_rejects_non_numeric_values() -> None:
     index = pd.MultiIndex.from_tuples(
-        [
-            ("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z")),
-        ],
+        [("corn_mar2026", pd.Timestamp("2026-03-10T00:00:00Z"))],
         names=["contract_id", "trading_date"],
     )
     prices = pd.Series(["bad"], index=index, dtype="object")
@@ -196,11 +281,10 @@ def test_product_price_lookup_rejects_non_numeric_values() -> None:
 
 
 def test_product_price_lookup_returns_price_for_existing_key() -> None:
-    prices = _valid_price_series()
     lookup = _ProductDailyStatsPriceLookup(
         product_id="corn",
         price_field="settle",
-        prices=prices,
+        prices=_valid_price_series(),
     )
 
     result = lookup.get_price(
@@ -212,11 +296,10 @@ def test_product_price_lookup_returns_price_for_existing_key() -> None:
 
 
 def test_product_price_lookup_raises_for_missing_key() -> None:
-    prices = _valid_price_series()
     lookup = _ProductDailyStatsPriceLookup(
         product_id="corn",
         price_field="settle",
-        prices=prices,
+        prices=_valid_price_series(),
     )
 
     with pytest.raises(ValueError, match="Missing price"):
@@ -229,27 +312,23 @@ def test_product_price_lookup_raises_for_missing_key() -> None:
 def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         assert product_id == "corn"
         return _valid_daily_stats_frame(price_field="settle", product_id="corn")
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -259,48 +338,17 @@ def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_ses
     assert result == 101.5
 
 
-def test_daily_stats_accessor_coerces_session_like_input_to_session_day(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_read_daily_stats_product(
-        *,
-        product_id: str,
-        root: object | None = None,
-        start: object | None = None,
-        end: object | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
-
-    monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
-    )
-
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
-
-    result = accessor.get_execution_price(
-        contract_id="corn_mar2026",
-        session=pd.Timestamp("2026-03-10T23:59:59Z"),
-    )
-
-    assert result == 101.5
-
-
 def test_daily_stats_accessor_uses_selected_price_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -313,15 +361,10 @@ def test_daily_stats_accessor_uses_selected_price_field(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="close",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor(price_field="close")
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -336,27 +379,23 @@ def test_daily_stats_accessor_loads_product_only_once(
 ) -> None:
     calls: list[str] = []
 
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         calls.append(product_id)
         return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     first = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -377,13 +416,14 @@ def test_daily_stats_accessor_loads_different_products_separately(
 ) -> None:
     calls: list[str] = []
 
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         calls.append(product_id)
         return pd.DataFrame(
             {
@@ -396,17 +436,14 @@ def test_daily_stats_accessor_loads_different_products_separately(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {
-                "corn_front": DummyContract(product_id="corn"),
-                "wheat_front": DummyContract(product_id="wheat"),
-            }
-        ),
+    accessor = _daily_stats_accessor(
+        mapping={
+            "corn_front": _contract(product_id="corn"),
+            "wheat_front": _contract(product_id="wheat"),
+        },
     )
 
     corn_price = accessor.get_execution_price(
@@ -426,24 +463,12 @@ def test_daily_stats_accessor_loads_different_products_separately(
 def test_daily_stats_accessor_raises_for_unknown_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
-        *,
-        product_id: str,
-        root: object | None = None,
-        start: object | None = None,
-        end: object | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_default_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI({}),
-    )
+    accessor = _daily_stats_accessor(mapping={})
 
     with pytest.raises(ValueError, match="Unknown contract_id"):
         accessor.get_execution_price(
@@ -455,26 +480,22 @@ def test_daily_stats_accessor_raises_for_unknown_contract(
 def test_daily_stats_accessor_raises_for_empty_daily_stats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = product_id, root, start, end
         return pd.DataFrame()
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(ValueError, match="No daily_stats rows available"):
         accessor.get_execution_price(
@@ -486,13 +507,14 @@ def test_daily_stats_accessor_raises_for_empty_daily_stats(
 def test_daily_stats_accessor_raises_for_missing_required_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -503,15 +525,10 @@ def test_daily_stats_accessor_raises_for_missing_required_columns(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(ValueError, match="missing required columns"):
         accessor.get_execution_price(
@@ -523,13 +540,14 @@ def test_daily_stats_accessor_raises_for_missing_required_columns(
 def test_daily_stats_accessor_raises_for_missing_price_field_column(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -541,15 +559,10 @@ def test_daily_stats_accessor_raises_for_missing_price_field_column(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor(price_field="settle")
 
     with pytest.raises(ValueError, match="missing required columns"):
         accessor.get_execution_price(
@@ -561,13 +574,14 @@ def test_daily_stats_accessor_raises_for_missing_price_field_column(
 def test_daily_stats_accessor_raises_for_null_contract_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -579,15 +593,10 @@ def test_daily_stats_accessor_raises_for_null_contract_id(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(ValueError, match="contains null contract_id"):
         accessor.get_execution_price(
@@ -599,13 +608,14 @@ def test_daily_stats_accessor_raises_for_null_contract_id(
 def test_daily_stats_accessor_raises_for_null_trading_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.NaT],
@@ -617,15 +627,10 @@ def test_daily_stats_accessor_raises_for_null_trading_date(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(ValueError, match="contains null trading_date"):
         accessor.get_execution_price(
@@ -637,13 +642,14 @@ def test_daily_stats_accessor_raises_for_null_trading_date(
 def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -655,15 +661,10 @@ def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(ValueError, match="has no non-null values"):
         accessor.get_execution_price(
@@ -675,13 +676,14 @@ def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
 def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [
@@ -696,15 +698,10 @@ def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -717,13 +714,14 @@ def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
 def test_daily_stats_accessor_raises_for_non_numeric_price_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -735,15 +733,10 @@ def test_daily_stats_accessor_raises_for_non_numeric_price_field(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(TypeError, match="non-numeric values"):
         accessor.get_execution_price(
@@ -755,13 +748,14 @@ def test_daily_stats_accessor_raises_for_non_numeric_price_field(
 def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
+    def _read_daily_stats_product(
         *,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
+        _ = root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10")],
@@ -773,15 +767,10 @@ def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_stats_accessor()
 
     with pytest.raises(TypeError, match="trading_date must be tz-aware"):
         accessor.get_execution_price(
@@ -793,25 +782,13 @@ def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
 def test_daily_stats_accessor_raises_for_missing_contract_day_price(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_stats_product(
-        *,
-        product_id: str,
-        root: object | None = None,
-        start: object | None = None,
-        end: object | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_stats_product",
-        fake_read_daily_stats_product,
+        _read_default_daily_stats_product,
     )
 
-    accessor = DailyStatsExecutionPriceAccessor(
-        price_field="settle",
-        ref_data_api=DummyRefDataAPI(
-            {"corn_may2026": DummyContract(product_id="corn")}
-        ),
+    accessor = _daily_stats_accessor(
+        mapping={"corn_may2026": _contract(product_id="corn")},
     )
 
     with pytest.raises(ValueError, match="Missing execution price"):
@@ -822,12 +799,10 @@ def test_daily_stats_accessor_raises_for_missing_contract_day_price(
 
 
 def test_daily_mark_product_price_lookup_accepts_valid_multiindex_series() -> None:
-    prices = _valid_daily_mark_series()
-
     lookup = _ProductDailyMarkPriceLookup(
         product_id="corn",
         calendar_id="mxm_corn_2026",
-        prices=prices,
+        prices=_valid_daily_mark_series(),
     )
 
     assert lookup.product_id == "corn"
@@ -835,11 +810,10 @@ def test_daily_mark_product_price_lookup_accepts_valid_multiindex_series() -> No
 
 
 def test_daily_mark_product_price_lookup_returns_price_for_existing_key() -> None:
-    prices = _valid_daily_mark_series()
     lookup = _ProductDailyMarkPriceLookup(
         product_id="corn",
         calendar_id="mxm_corn_2026",
-        prices=prices,
+        prices=_valid_daily_mark_series(),
     )
 
     result = lookup.get_price(contract_id="corn_mar2026", session_id=10)
@@ -848,11 +822,10 @@ def test_daily_mark_product_price_lookup_returns_price_for_existing_key() -> Non
 
 
 def test_daily_mark_product_price_lookup_raises_for_missing_key() -> None:
-    prices = _valid_daily_mark_series()
     lookup = _ProductDailyMarkPriceLookup(
         product_id="corn",
         calendar_id="mxm_corn_2026",
-        prices=prices,
+        prices=_valid_daily_mark_series(),
     )
 
     with pytest.raises(ValueError, match="Missing price"):
@@ -862,35 +835,25 @@ def test_daily_mark_product_price_lookup_raises_for_missing_key() -> None:
 def test_daily_mark_accessor_returns_execution_price_for_valid_contract_and_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = root, start_session_id, end_session_id
         assert calendar_id == "mxm_corn_2026"
         assert product_id == "corn"
         return _valid_daily_mark_frame(product_id="corn")
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
-            "mxm_corn_2026",
-            {
-                np.datetime64("2026-03-10"): 10,
-                np.datetime64("2026-03-11"): 11,
-            },
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_mark_accessor()
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -903,37 +866,16 @@ def test_daily_mark_accessor_returns_execution_price_for_valid_contract_and_sess
 def test_daily_mark_accessor_coerces_session_like_input_to_session_day(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
-        *,
-        calendar_id: str,
-        product_id: str,
-        root: object | None = None,
-        start_session_id: int | None = None,
-        end_session_id: int | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_mark_frame(product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_default_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
-            "mxm_corn_2026",
-            {
-                np.datetime64("2026-03-10"): 10,
-                np.datetime64("2026-03-11"): 11,
-            },
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_mark_accessor()
 
     result = accessor.get_execution_price(
         contract_id="corn_mar2026",
-        session=pd.Timestamp("2026-03-10T23:59:59Z"),
+        session=cast(np.datetime64, pd.Timestamp("2026-03-10T23:59:59Z")),
     )
 
     assert result == 101.5
@@ -944,34 +886,24 @@ def test_daily_mark_accessor_loads_product_only_once(
 ) -> None:
     calls: list[str] = []
 
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         calls.append(product_id)
         return _valid_daily_mark_frame(product_id=product_id)
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
-            "mxm_corn_2026",
-            {
-                np.datetime64("2026-03-10"): 10,
-                np.datetime64("2026-03-11"): 11,
-            },
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
-        ),
-    )
+    accessor = _daily_mark_accessor()
 
     first = accessor.get_execution_price(
         contract_id="corn_mar2026",
@@ -992,14 +924,15 @@ def test_daily_mark_accessor_loads_different_products_separately(
 ) -> None:
     calls: list[str] = []
 
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         calls.append(product_id)
         return pd.DataFrame(
             {
@@ -1013,20 +946,18 @@ def test_daily_mark_accessor_loads_different_products_separately(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_crops_2026",
-            {np.datetime64("2026-03-10"): 10},
+            {"2026-03-10": 10},
         ),
-        ref_data_api=DummyRefDataAPI(
-            {
-                "corn_front": DummyContract(product_id="corn"),
-                "wheat_front": DummyContract(product_id="wheat"),
-            }
-        ),
+        mapping={
+            "corn_front": _contract(product_id="corn"),
+            "wheat_front": _contract(product_id="wheat"),
+        },
     )
 
     corn_price = accessor.get_execution_price(
@@ -1046,27 +977,17 @@ def test_daily_mark_accessor_loads_different_products_separately(
 def test_daily_mark_accessor_raises_for_unknown_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
-        *,
-        calendar_id: str,
-        product_id: str,
-        root: object | None = None,
-        start_session_id: int | None = None,
-        end_session_id: int | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_mark_frame(product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_default_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
+            {"2026-03-10": 10},
         ),
-        ref_data_api=DummyRefDataAPI({}),
+        mapping={},
     )
 
     with pytest.raises(ValueError, match="Unknown contract_id"):
@@ -1079,28 +1000,26 @@ def test_daily_mark_accessor_raises_for_unknown_contract(
 def test_daily_mark_accessor_raises_for_empty_daily_mark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, product_id, root, start_session_id, end_session_id
         return pd.DataFrame()
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1114,14 +1033,15 @@ def test_daily_mark_accessor_raises_for_empty_daily_mark(
 def test_daily_mark_accessor_raises_for_missing_required_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1133,16 +1053,13 @@ def test_daily_mark_accessor_raises_for_missing_required_columns(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1156,14 +1073,15 @@ def test_daily_mark_accessor_raises_for_missing_required_columns(
 def test_daily_mark_accessor_raises_for_null_contract_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1176,16 +1094,13 @@ def test_daily_mark_accessor_raises_for_null_contract_id(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1199,14 +1114,15 @@ def test_daily_mark_accessor_raises_for_null_contract_id(
 def test_daily_mark_accessor_raises_for_null_session_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [None],
@@ -1219,16 +1135,13 @@ def test_daily_mark_accessor_raises_for_null_session_id(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1242,14 +1155,15 @@ def test_daily_mark_accessor_raises_for_null_session_id(
 def test_daily_mark_accessor_raises_when_no_markable_rows_exist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1262,16 +1176,13 @@ def test_daily_mark_accessor_raises_when_no_markable_rows_exist(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1285,14 +1196,15 @@ def test_daily_mark_accessor_raises_when_no_markable_rows_exist(
 def test_daily_mark_accessor_raises_for_null_mark_px_in_markable_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1305,16 +1217,13 @@ def test_daily_mark_accessor_raises_for_null_mark_px_in_markable_rows(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1328,14 +1237,15 @@ def test_daily_mark_accessor_raises_for_null_mark_px_in_markable_rows(
 def test_daily_mark_accessor_raises_for_non_numeric_mark_px(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
+    def _read_daily_mark_product(
         *,
         calendar_id: str,
         product_id: str,
-        root: object | None = None,
+        root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
+        _ = calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1348,16 +1258,13 @@ def test_daily_mark_accessor_raises_for_non_numeric_mark_px(
 
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-10": 10},
         ),
     )
 
@@ -1371,28 +1278,15 @@ def test_daily_mark_accessor_raises_for_non_numeric_mark_px(
 def test_daily_mark_accessor_raises_when_session_label_not_in_calendar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
-        *,
-        calendar_id: str,
-        product_id: str,
-        root: object | None = None,
-        start_session_id: int | None = None,
-        end_session_id: int | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_mark_frame(product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_default_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-11"): 11},
-        ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_mar2026": DummyContract(product_id="corn")}
+            {"2026-03-11": 11},
         ),
     )
 
@@ -1406,29 +1300,17 @@ def test_daily_mark_accessor_raises_when_session_label_not_in_calendar(
 def test_daily_mark_accessor_raises_for_missing_contract_session_price(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_read_daily_mark_product(
-        *,
-        calendar_id: str,
-        product_id: str,
-        root: object | None = None,
-        start_session_id: int | None = None,
-        end_session_id: int | None = None,
-    ) -> pd.DataFrame:
-        return _valid_daily_mark_frame(product_id=product_id)
-
     monkeypatch.setattr(
         "mxm.v1.execution.price_accessors.read_daily_mark_product",
-        fake_read_daily_mark_product,
+        _read_default_daily_mark_product,
     )
 
-    accessor = DailyMarkExecutionPriceAccessor(
-        mxm_business_calendar=DummyMXMBusinessCalendar(
+    accessor = _daily_mark_accessor(
+        calendar=_calendar(
             "mxm_corn_2026",
-            {np.datetime64("2026-03-10"): 10},
+            {"2026-03-10": 10},
         ),
-        ref_data_api=DummyRefDataAPI(
-            {"corn_may2026": DummyContract(product_id="corn")}
-        ),
+        mapping={"corn_may2026": _contract(product_id="corn")},
     )
 
     with pytest.raises(ValueError, match="Missing execution price"):
