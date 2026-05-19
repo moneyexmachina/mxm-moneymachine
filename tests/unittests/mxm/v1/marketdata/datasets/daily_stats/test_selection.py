@@ -9,11 +9,18 @@ from mxm.v1.marketdata.datasets.daily_stats.selection import (
     select_ts_ref_stat_daily,
 )
 
+type RowValue = str | int | float | bool | None
+type Row = dict[str, RowValue]
 
-def _df(rows: list[dict]) -> pd.DataFrame:
+
+def _df(rows: list[Row]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if "ts_event" in df.columns:
-        df["ts_event"] = pd.to_datetime(df["ts_event"], utc=True, errors="raise")
+        df.loc[:, "ts_event"] = pd.to_datetime(
+            df["ts_event"],
+            utc=True,
+            errors="raise",
+        )
     return df
 
 

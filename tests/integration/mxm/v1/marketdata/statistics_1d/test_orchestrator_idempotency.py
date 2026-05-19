@@ -7,6 +7,7 @@ from _pytest.monkeypatch import MonkeyPatch
 
 import mxm.v1.marketdata.orchestrators.statistics_1d as orch_mod
 from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
+    Statistics1DAttemptRow,
     Statistics1DAttemptsStore,
 )
 from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
@@ -19,26 +20,32 @@ from tests.integration.testkit.patching_statistics_1d import (
 from tests.integration.testkit.statistics_1d_world import Statistics1DWorld
 
 
-def _latest_attempt(backend: SQLiteBackend, *, product_id: str, contract_id: str):
+def _latest_attempt(
+    backend: SQLiteBackend,
+    *,
+    product_id: str,
+    contract_id: str,
+) -> Statistics1DAttemptRow:
     store = Statistics1DAttemptsStore(backend=backend)
     row = store.get_latest_attempt_for_contract(
-        product_id=product_id, contract_id=contract_id
+        product_id=product_id,
+        contract_id=contract_id,
     )
     assert row is not None, "expected an attempt row to be recorded"
     return row
 
 
-def _effective_rows(a) -> int | None:
+def _effective_rows(a: Statistics1DAttemptRow) -> int | None:
     return (
         a.stored_rows_after if a.stored_rows_after is not None else a.stored_rows_before
     )
 
 
-def _effective_min(a):
+def _effective_min(a: Statistics1DAttemptRow) -> str | None:
     return a.stored_min_after if a.stored_min_after is not None else a.stored_min_before
 
 
-def _effective_max(a):
+def _effective_max(a: Statistics1DAttemptRow) -> str | None:
     return a.stored_max_after if a.stored_max_after is not None else a.stored_max_before
 
 
@@ -151,12 +158,12 @@ def test_statistics_1d_orchestrator_roundtrip_idempotent(
 
     # 3) If it ingested, we should see coverage_after populated (row_count_after > 0)
     # Names here depend on your attempt row fields; from your earlier printout these exist:
-    assert (
-        a1.stored_rows_after or 0
-    ) > 0, f"expected stored_rows_after > 0, got {a1.stored_rows_after!r}"
-    assert (
-        a1.stored_min_after is not None and a1.stored_max_after is not None
-    ), "expected min/max ts after ingest"
+    assert (a1.stored_rows_after or 0) > 0, (
+        f"expected stored_rows_after > 0, got {a1.stored_rows_after!r}"
+    )
+    assert a1.stored_min_after is not None and a1.stored_max_after is not None, (
+        "expected min/max ts after ingest"
+    )
 
     # Ingest path should set coverage_after
     assert a1.stored_rows_after is not None and a1.stored_rows_after > 0

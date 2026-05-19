@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import cast
 
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.currencies import Currency
 from mxm.refdata.models.periods import Period, PeriodType
+from mxm.refdata.models.units import ProductUnit
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.contracts.exceptions import NoEligibleContracts, RelativeContractUnavailable
 from mxm.v1.contracts.relative_ids import canonical_relative_id, short_rel_id
@@ -21,7 +26,8 @@ from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
 class _FakeCalendar:
     as_of_session_value: date
 
-    def as_of_session(self, as_of_ts) -> date:  # signature compatible enough for test
+    def as_of_session(self, as_of_ts: datetime) -> date:
+        _ = as_of_ts
         return self.as_of_session_value
 
 
@@ -43,14 +49,14 @@ class _FakeRefData:
         return list(self.periods)
 
     def get_contracts_for_product(
-        self, product_id: str, *, period_type=None
+        self,
+        product_id: str,
+        *,
+        period_type: PeriodType | None = None,
     ) -> list[FuturesContract]:
         xs = list(self.contracts_by_product.get(product_id, []))
         if period_type is None:
             return xs
-        # In real API this uses period_id -> Period -> period_type; our engine already
-        # passes period_type, so we just assume contracts are already of that type.
-        # The test data should reflect that.
         return xs
 
     def get_cycle_elements(
@@ -58,6 +64,22 @@ class _FakeRefData:
     ) -> dict[str, int]:
         mapping = self.cycle_elements.get(cycle_id, {})
         return {pid: mapping[pid] for pid in period_ids if pid in mapping}
+
+
+def _unit(value: str) -> ProductUnit:
+    return cast(ProductUnit, value)
+
+
+def _currency(value: str) -> Currency:
+    return cast(Currency, value)
+
+
+def _refdata(ref: _FakeRefData) -> RefDataAPI:
+    return cast(RefDataAPI, ref)
+
+
+def _calendar_service(calendars: _FakeCalendarService) -> TradingCalendarService:
+    return cast(TradingCalendarService, calendars)
 
 
 def _ts(yyyy: int, mm: int, dd: int) -> datetime:
@@ -103,8 +125,8 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
             product_id="ES",
             period_id="2026-03",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 3, 20),
@@ -114,8 +136,8 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
             product_id="ES",
             period_id="2026-06",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 6, 19),
@@ -125,8 +147,8 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
             product_id="ES",
             period_id="2026-12",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 12, 18),
@@ -148,7 +170,9 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
         by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 2, 11))}
     )
 
-    return ContractSelectorEngine.build(refdata=ref, calendars=cal_svc)
+    return ContractSelectorEngine.build(
+        refdata=_refdata(ref), calendars=_calendar_service(cal_svc)
+    )
 
 
 # -------------------------
@@ -176,8 +200,10 @@ def test_eligibility_is_strict_greater_than(engine: ContractSelectorEngine) -> N
     # Move as_of_session to exactly the first contract's LTD => it becomes ineligible.
     engine2 = ContractSelectorEngine.build(
         refdata=engine.refdata,
-        calendars=_FakeCalendarService(
-            by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 3, 20))}
+        calendars=_calendar_service(
+            _FakeCalendarService(
+                by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 3, 20))}
+            )
         ),
     )
 
@@ -192,8 +218,10 @@ def test_no_eligible_contracts_raises(engine: ContractSelectorEngine) -> None:
     # as_of_session beyond all LTDs => none eligible
     engine2 = ContractSelectorEngine.build(
         refdata=engine.refdata,
-        calendars=_FakeCalendarService(
-            by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}
+        calendars=_calendar_service(
+            _FakeCalendarService(
+                by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}
+            )
         ),
     )
 
@@ -253,8 +281,8 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
             product_id="ES",
             period_id="2026-06",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 6, 19),
@@ -264,8 +292,8 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
             product_id="ES",
             period_id="2026-03",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 6, 19),  # same LTD as above
@@ -275,8 +303,8 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
             product_id="ES",
             period_id="2026-03",
             contract_size=1.0,
-            unit="idx",
-            currency="USD",
+            unit=_unit("idx"),
+            currency=_currency("USD"),
             trading_calendar="CMES",
             first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(
@@ -293,7 +321,9 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
     cal_svc = _FakeCalendarService(
         by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 1, 1))}
     )
-    eng = ContractSelectorEngine.build(refdata=ref, calendars=cal_svc)
+    eng = ContractSelectorEngine.build(
+        refdata=_refdata(ref), calendars=_calendar_service(cal_svc)
+    )
 
     pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
     rule = SelectorRule(period_filter=pf, n=1)
@@ -321,8 +351,10 @@ def test_explain_includes_labels_on_no_eligible_failure(
 ) -> None:
     engine2 = ContractSelectorEngine.build(
         refdata=engine.refdata,
-        calendars=_FakeCalendarService(
-            by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}
+        calendars=_calendar_service(
+            _FakeCalendarService(
+                by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}
+            )
         ),
     )
 

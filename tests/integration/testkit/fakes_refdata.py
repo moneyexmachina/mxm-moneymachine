@@ -6,6 +6,8 @@ from collections.abc import Iterable
 from mxm.refdata.models.contracts.futures_contract import (
     FuturesContract,  # type: ignore
 )
+from mxm.refdata.models.currencies import Currency
+from mxm.refdata.models.units import ProductUnit
 
 
 def make_contract(
@@ -16,8 +18,8 @@ def make_contract(
     first_day_of_interest: dt.date = dt.date(2020, 1, 2),
     last_trading_day: dt.date = dt.date(2020, 1, 3),
     contract_size: float = 1.0,
-    unit: str = "unit",
-    currency: str = "USD",
+    unit: ProductUnit = ProductUnit.CONTRACT,
+    currency: Currency = Currency.USD,
     trading_calendar: str = "TEST_CAL",
 ) -> FuturesContract:
     """

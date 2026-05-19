@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata.models.contracts.futures_contract import (
+    FuturesContract,  # type: ignore
+)
+from mxm.refdata.models.currencies import Currency
 from mxm.v1.execution.contract_bundles import ContractBundle
+from mxm.v1.execution.executor import ExecutionResult
 from mxm.v1.execution.price_accessors import MarkPriceAccessor
+from mxm.v1.execution.session_engine import SessionResult
 from mxm.v1.fx.spot_fx_converter import SpotFXConverter
 from mxm.v1.pnl.constructor import (
     _build_contract_pnl,
@@ -26,21 +35,21 @@ class DummyContract:
 
 
 class DummyRefDataAPI:
-    def __init__(self, mapping: dict[str, DummyContract]) -> None:
+    def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
-    def get_contract_by_id(self, contract_id: str) -> DummyContract | None:
-        return self._mapping.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> FuturesContract:
+        return self._mapping[contract_id]
 
 
 class DummyMarkPriceAccessor(MarkPriceAccessor):
-    def __init__(self, prices: dict[tuple[str, pd.Timestamp], float]) -> None:
+    def __init__(self, prices: dict[tuple[str, np.datetime64], float]) -> None:
         self._prices = prices
 
     def get_mark_price(
         self,
         contract_id: str,
-        session: pd.Timestamp,
+        session: np.datetime64,
     ) -> float:
         key = (contract_id, session)
         if key not in self._prices:
@@ -54,9 +63,9 @@ class DummySpotFXConverter(SpotFXConverter):
     def get_fx_multiplier(
         self,
         *,
-        from_currency: str,
-        to_currency: str,
-        timestamp: pd.Timestamp,
+        from_currency: str | Currency,
+        to_currency: str | Currency,
+        session: np.datetime64,
     ) -> float:
         if from_currency == to_currency:
             return 1.0
@@ -64,7 +73,7 @@ class DummySpotFXConverter(SpotFXConverter):
             "Cross-currency spot FX conversion is not yet implemented. "
             f"from_currency={from_currency!r}, "
             f"to_currency={to_currency!r}, "
-            f"timestamp={timestamp!r}"
+            f"session={session!r}"
         )
 
 
@@ -76,14 +85,42 @@ class DummyExecutionResult:
 
 @dataclass(frozen=True, slots=True)
 class DummySessionResult:
-    previous_session: pd.Timestamp | None
-    session: pd.Timestamp
+    previous_session: np.datetime64 | None
+    session: np.datetime64
     initial_holdings: ContractBundle
     execution_result: DummyExecutionResult
 
 
-def _ts(value: str) -> pd.Timestamp:
-    return pd.Timestamp(value)
+def _contract(
+    *,
+    product_id: str = "corn",
+    contract_size: float = 1.0,
+    currency: str = "USD",
+) -> FuturesContract:
+    return cast(
+        FuturesContract,
+        DummyContract(
+            product_id=product_id,
+            contract_size=contract_size,
+            currency=currency,
+        ),
+    )
+
+
+def _refdata(api: DummyRefDataAPI) -> RefDataAPI:
+    return cast(RefDataAPI, api)
+
+
+def _session_result(x: DummySessionResult) -> SessionResult:
+    return cast(SessionResult, x)
+
+
+def _execution_result(x: DummyExecutionResult) -> ExecutionResult:
+    return cast(ExecutionResult, x)
+
+
+def _session(value: str) -> np.datetime64:
+    return np.datetime64(value, "D")
 
 
 def _fill_prices(mapping: dict[str, float]) -> pd.Series:
@@ -97,15 +134,17 @@ def _default_refdata(
     contract_size: float = 1.0,
     currency: str = "USD",
     contract_id: str = "corn_mar2026",
-) -> DummyRefDataAPI:
-    return DummyRefDataAPI(
-        {
-            contract_id: DummyContract(
-                product_id="corn",
-                contract_size=contract_size,
-                currency=currency,
-            )
-        }
+) -> RefDataAPI:
+    return _refdata(
+        DummyRefDataAPI(
+            {
+                contract_id: _contract(
+                    product_id="corn",
+                    contract_size=contract_size,
+                    currency=currency,
+                )
+            }
+        )
     )
 
 
@@ -114,13 +153,13 @@ def _default_mark_accessor(
     contract_id: str = "corn_mar2026",
     previous_mark: float = 100.0,
     current_mark: float = 105.0,
-    previous_session: pd.Timestamp | None = None,
-    session: pd.Timestamp | None = None,
+    previous_session: np.datetime64 | None = None,
+    session: np.datetime64 | None = None,
 ) -> DummyMarkPriceAccessor:
     if previous_session is None:
-        previous_session = _ts("2026-03-10T00:00:00Z")
+        previous_session = _session("2026-03-10")
     if session is None:
-        session = _ts("2026-03-11T00:00:00Z")
+        session = _session("2026-03-11")
 
     prices = {
         (contract_id, previous_session): previous_mark,
@@ -139,7 +178,7 @@ def test_bundle_quantity_returns_zero_for_missing_contract() -> None:
 
 def test_price_move_pnl_first_session_is_zero() -> None:
     contract_id = "corn_mar2026"
-    session = _ts("2026-03-11T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
     accessor = DummyMarkPriceAccessor({(contract_id, session): 105.0})
 
     result = _compute_contract_price_move_pnl(
@@ -157,8 +196,8 @@ def test_price_move_pnl_first_session_is_zero() -> None:
 
 def test_price_move_pnl_for_carried_long_position() -> None:
     contract_id = "corn_mar2026"
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
     accessor = _default_mark_accessor(
         contract_id=contract_id,
         previous_mark=100.0,
@@ -182,8 +221,8 @@ def test_price_move_pnl_for_carried_long_position() -> None:
 
 def test_price_move_pnl_for_carried_short_position() -> None:
     contract_id = "corn_mar2026"
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
     accessor = _default_mark_accessor(
         contract_id=contract_id,
         previous_mark=100.0,
@@ -207,7 +246,7 @@ def test_price_move_pnl_for_carried_short_position() -> None:
 
 def test_trade_pnl_for_buy_below_mark_is_positive() -> None:
     contract_id = "corn_mar2026"
-    session = _ts("2026-03-11T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
     accessor = DummyMarkPriceAccessor({(contract_id, session): 105.0})
 
     execution_result = DummyExecutionResult(
@@ -221,7 +260,7 @@ def test_trade_pnl_for_buy_below_mark_is_positive() -> None:
         trade_quantity=2,
         contract_multiplier=1.0,
         fx_multiplier=1.0,
-        execution_result=execution_result,
+        execution_result=_execution_result(execution_result),
         mark_price_accessor=accessor,
     )
 
@@ -230,7 +269,7 @@ def test_trade_pnl_for_buy_below_mark_is_positive() -> None:
 
 def test_trade_pnl_for_sell_above_mark_is_positive() -> None:
     contract_id = "corn_mar2026"
-    session = _ts("2026-03-11T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
     accessor = DummyMarkPriceAccessor({(contract_id, session): 105.0})
 
     execution_result = DummyExecutionResult(
@@ -244,7 +283,7 @@ def test_trade_pnl_for_sell_above_mark_is_positive() -> None:
         trade_quantity=-4,
         contract_multiplier=1.0,
         fx_multiplier=1.0,
-        execution_result=execution_result,
+        execution_result=_execution_result(execution_result),
         mark_price_accessor=accessor,
     )
 
@@ -253,8 +292,8 @@ def test_trade_pnl_for_sell_above_mark_is_positive() -> None:
 
 def test_build_contract_pnl_combines_price_move_and_trade_components() -> None:
     contract_id = "corn_mar2026"
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
 
     session_result = DummySessionResult(
         previous_session=previous_session,
@@ -276,7 +315,7 @@ def test_build_contract_pnl_combines_price_move_and_trade_components() -> None:
 
     result = _build_contract_pnl(
         contract_id=contract_id,
-        session_result=session_result,
+        session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
         ref_data_api=_default_refdata(contract_id=contract_id),
@@ -291,8 +330,8 @@ def test_build_contract_pnl_combines_price_move_and_trade_components() -> None:
 
 def test_build_contract_pnl_applies_contract_multiplier() -> None:
     contract_id = "corn_mar2026"
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
 
     session_result = DummySessionResult(
         previous_session=previous_session,
@@ -314,7 +353,7 @@ def test_build_contract_pnl_applies_contract_multiplier() -> None:
 
     result = _build_contract_pnl(
         contract_id=contract_id,
-        session_result=session_result,
+        session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
         ref_data_api=_default_refdata(contract_size=10.0, contract_id=contract_id),
@@ -327,8 +366,8 @@ def test_build_contract_pnl_applies_contract_multiplier() -> None:
 
 
 def test_build_session_pnl_aggregates_contract_rows() -> None:
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
 
     session_result = DummySessionResult(
         previous_session=previous_session,
@@ -364,23 +403,17 @@ def test_build_session_pnl_aggregates_contract_rows() -> None:
         }
     )
 
-    ref_data_api = DummyRefDataAPI(
-        {
-            "corn_mar2026": DummyContract(
-                product_id="corn",
-                contract_size=1.0,
-                currency="USD",
-            ),
-            "wheat_mar2026": DummyContract(
-                product_id="wheat",
-                contract_size=1.0,
-                currency="USD",
-            ),
-        }
+    ref_data_api = _refdata(
+        DummyRefDataAPI(
+            {
+                "corn_mar2026": _contract(product_id="corn"),
+                "wheat_mar2026": _contract(product_id="wheat"),
+            }
+        )
     )
 
     result = _build_session_pnl(
-        session_result=session_result,
+        session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
         ref_data_api=ref_data_api,
@@ -399,8 +432,8 @@ def test_build_session_pnl_aggregates_contract_rows() -> None:
 
 
 def test_build_pnl_series_builds_ordered_series() -> None:
-    session_1 = _ts("2026-03-10T00:00:00Z")
-    session_2 = _ts("2026-03-11T00:00:00Z")
+    session_1 = _session("2026-03-10T00:00:00Z")
+    session_2 = _session("2026-03-11T00:00:00Z")
     contract_id = "corn_mar2026"
 
     session_results = [
@@ -432,7 +465,7 @@ def test_build_pnl_series_builds_ordered_series() -> None:
     )
 
     pnl_series = build_pnl_series(
-        session_results=session_results,
+        session_results=[_session_result(x) for x in session_results],
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
         ref_data_api=_default_refdata(contract_id=contract_id),
@@ -450,8 +483,8 @@ def test_build_pnl_series_builds_ordered_series() -> None:
 
 def test_build_contract_pnl_raises_for_missing_fill_price() -> None:
     contract_id = "corn_mar2026"
-    previous_session = _ts("2026-03-10T00:00:00Z")
-    session = _ts("2026-03-11T00:00:00Z")
+    previous_session = _session("2026-03-10T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
 
     session_result = DummySessionResult(
         previous_session=previous_session,
@@ -468,7 +501,7 @@ def test_build_contract_pnl_raises_for_missing_fill_price() -> None:
     with pytest.raises(ValueError, match="Missing fill price"):
         _build_contract_pnl(
             contract_id=contract_id,
-            session_result=session_result,
+            session_result=_session_result(session_result),
             mark_price_accessor=mark_accessor,
             spot_fx_converter=DummySpotFXConverter(),
             ref_data_api=_default_refdata(contract_id=contract_id),
@@ -478,7 +511,7 @@ def test_build_contract_pnl_raises_for_missing_fill_price() -> None:
 
 def test_build_contract_pnl_raises_for_cross_currency_case() -> None:
     contract_id = "corn_mar2026"
-    session = _ts("2026-03-11T00:00:00Z")
+    session = _session("2026-03-11T00:00:00Z")
 
     session_result = DummySessionResult(
         previous_session=None,
@@ -495,7 +528,7 @@ def test_build_contract_pnl_raises_for_cross_currency_case() -> None:
     with pytest.raises(NotImplementedError, match="Cross-currency"):
         _build_contract_pnl(
             contract_id=contract_id,
-            session_result=session_result,
+            session_result=_session_result(session_result),
             mark_price_accessor=mark_accessor,
             spot_fx_converter=DummySpotFXConverter(),
             ref_data_api=_default_refdata(

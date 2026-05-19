@@ -106,8 +106,18 @@ def _patch_api_dependencies(
     refdata: _FakeRefDataAPI,
     store: _FakeDailyMarkStore,
 ) -> None:
-    monkeypatch.setattr(dmapi, "RefDataAPI", lambda: refdata)
-    monkeypatch.setattr(dmapi, "DailyMarkStore", lambda *, layout: store)
+    def _make_refdata_api() -> _FakeRefDataAPI:
+        return refdata
+
+    def _make_daily_mark_store(
+        *,
+        layout: object,
+    ) -> _FakeDailyMarkStore:
+        _ = layout
+        return store
+
+    monkeypatch.setattr(dmapi, "RefDataAPI", _make_refdata_api)
+    monkeypatch.setattr(dmapi, "DailyMarkStore", _make_daily_mark_store)
 
 
 def _contract(

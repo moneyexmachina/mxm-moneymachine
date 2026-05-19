@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
@@ -160,7 +162,7 @@ class TestMXMBusinessCalendarValidationShapeAndDtype:
         session_ids = np.array([0, 1, 2], dtype=np.int32)
 
         with pytest.raises(TypeError, match="session_ids must have dtype"):
-            make_valid_calendar(session_ids=session_ids)
+            make_valid_calendar(session_ids=cast(np.ndarray, session_ids))
 
     def test_rejects_wrong_dtype_labels(self) -> None:
         labels = np.array(

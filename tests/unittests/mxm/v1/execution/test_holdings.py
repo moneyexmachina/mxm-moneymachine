@@ -1,9 +1,11 @@
 import datetime as dt
+from typing import cast
 
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.execution.contract_bundles import ContractBundle
 from mxm.v1.execution.holdings import (
     apply_realised_trades,
@@ -33,7 +35,7 @@ def test_prepare_initial_holdings_returns_empty_bundle_for_empty_realised_holdin
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=ref_data_api,
+        ref_data_api=cast(RefDataAPI, ref_data_api),
     )
 
     expected = pd.Series(dtype="int64", index=pd.Index([], name="contract_id"))
@@ -62,7 +64,7 @@ def test_prepare_initial_holdings_returns_same_bundle_when_all_held_contracts_ar
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=ref_data_api,
+        ref_data_api=cast(RefDataAPI, ref_data_api),
     )
 
     expected = pd.Series(
@@ -82,7 +84,7 @@ def test_prepare_initial_holdings_raises_for_missing_contract_in_refdata() -> No
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=ref_data_api,
+            ref_data_api=cast(RefDataAPI, ref_data_api),
         )
 
 
@@ -98,7 +100,7 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_on_last_trading_d
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=ref_data_api,
+            ref_data_api=cast(RefDataAPI, ref_data_api),
         )
 
 
@@ -114,7 +116,7 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_after_last_tradin
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=ref_data_api,
+            ref_data_api=cast(RefDataAPI, ref_data_api),
         )
 
 
@@ -130,7 +132,7 @@ def test_prepare_initial_holdings_ignores_unheld_contracts_in_refdata() -> None:
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=ref_data_api,
+        ref_data_api=cast(RefDataAPI, ref_data_api),
     )
 
     expected = pd.Series(

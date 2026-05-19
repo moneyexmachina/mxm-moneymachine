@@ -13,6 +13,8 @@ import mxm.v1.marketdata.orchestrators.statistics_1d as orch_mod
 from mxm.v1.marketdata.schema.statistics_1d import STATISTICS_1D, coerce_statistics_1d
 from tests.integration.testkit.fixtures_statistics import make_statistics_1d_rawish_df
 
+type ColumnDefault = str | int | float | bool | pd.Timestamp | None
+
 
 @dataclass(frozen=True)
 class OfflineStats1DConfig:
@@ -74,7 +76,7 @@ def _set_default_column(
     df: pd.DataFrame,
     *,
     column_name: str,
-    value: object,
+    value: ColumnDefault,
 ) -> None:
     if column_name not in df.columns:
         df[column_name] = value
@@ -88,7 +90,7 @@ def _populate_base_statistics_columns(
     instrument_id: int,
     raw_symbol: str,
 ) -> None:
-    _set_default_column(df, column_name="trading_date", value=pd.NaT)
+    _set_default_column(df, column_name="trading_date", value=None)
     _set_default_column(df, column_name="rtype", value=24)
     _set_default_column(df, column_name="quantity", value=0.0)
     _set_default_column(df, column_name="ts_in_delta", value=0)

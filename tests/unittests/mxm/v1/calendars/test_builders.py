@@ -48,29 +48,25 @@ def test_build_exchange_calendars_v1_builds_and_loads(tmp_path: Path) -> None:
         sha256_file(cal_dir / entry.projection.trading_days_artifact)
         == entry.projection.sha256_trading_days
     )
-
     # loader can load effective calendar
     cal = load_calendar("cmes", root=root)
+
     # schedule loaded and usable (observed region)
     assert cal.schedule is not None
     assert cal.has_schedule is True
 
+    schedule = cal.schedule
+
     # timestamp mapping smoke test: during first session -> current_session returns first label
-    first_label = cal.schedule.index[0]
-    open_utc = cal.schedule.loc[first_label, "open_utc"]
-    close_utc = cal.schedule.loc[first_label, "close_utc"]
+    first_label = schedule.index[0]
+    open_col = pd.DatetimeIndex(schedule["open_utc"])
+    close_col = pd.DatetimeIndex(schedule["close_utc"])
 
-    def _as_utc_ts(x) -> pd.Timestamp:
-        t = pd.Timestamp(x)
-        return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
-
-    open_ts = _as_utc_ts(open_utc)
-    close_ts = _as_utc_ts(close_utc)
-
+    open_ts = open_col[0]
+    close_ts = close_col[0]
     mid_ts = open_ts + (close_ts - open_ts) / 2
 
     assert cal.current_session(mid_ts) == np.datetime64(str(first_label), "D")
-
     # schedule coverage matches observed region endpoints
     sched_labels = cal.schedule.index.to_numpy(dtype="datetime64[D]")
     assert sched_labels[0] == cal.trading_days[0]

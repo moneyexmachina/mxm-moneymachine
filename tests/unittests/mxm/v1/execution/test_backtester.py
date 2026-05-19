@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.execution.backtester import Backtester, BacktestResult
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 from mxm.v1.execution.executor import OrderSubmission, PerfectBacktestExecutor
@@ -49,7 +52,7 @@ class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
         contract_id: str,
         session: np.datetime64,
     ) -> float:
-        key = (contract_id, np.datetime64(session, "D"))
+        key = (contract_id, session.astype("datetime64[D]"))
         self.calls.append(key)
         return self._prices[key]
 
@@ -69,11 +72,11 @@ class DummyCalendar:
         )
 
     def session_open(self, session: np.datetime64) -> pd.Timestamp:
-        day = np.datetime64(session, "D")
+        day = session.astype("datetime64[D]")
         return to_utc_ts(f"{day.astype(str)}T08:00:00Z")
 
     def session_close(self, session: np.datetime64) -> pd.Timestamp:
-        day = np.datetime64(session, "D")
+        day = session.astype("datetime64[D]")
         return to_utc_ts(f"{day.astype(str)}T16:00:00Z")
 
 
@@ -114,11 +117,11 @@ def _make_backtester(
             default_min_block_size=default_min_block_size,
             timestamp_policy=timestamp_policy,
         ),
-        ref_data_api=ref_data_api,
-        calendar_service=calendar_service,
+        ref_data_api=cast(RefDataAPI, ref_data_api),
+        calendar_service=cast(TradingCalendarService, calendar_service),
     )
     session_engine = SessionEngine(
-        ref_data_api=ref_data_api,
+        ref_data_api=cast(RefDataAPI, ref_data_api),
         order_generator=order_generator,
         executor=executor,
     )

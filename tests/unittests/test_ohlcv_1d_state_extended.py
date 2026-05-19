@@ -14,14 +14,6 @@ from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
 )
 
 
-# Minimal fakes for typing convenience
-@dataclass(frozen=True)
-class _FakeAttemptRow:
-    status: str
-    error_type: str | None = None
-    error_message: str | None = None
-
-
 @dataclass(frozen=True)
 class _FakeCov:
     min_ts: pd.Timestamp | None

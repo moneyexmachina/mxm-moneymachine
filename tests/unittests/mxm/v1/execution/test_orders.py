@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.contracts.futures_contract import (
+    FuturesContract,  # type: ignore
+)
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.execution.contract_bundles import TargetContractBundle
 from mxm.v1.execution.orders import (
     Order,
@@ -15,12 +20,14 @@ from mxm.v1.execution.orders import (
     OrderTimestampPolicy,
     OrderType,
 )
+from mxm.v1.utils.pandas_timestamps import ts_ns_to_pd_timestamp
 from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.timestamps import TSNSScalar, ts_ns_from_str
 
 SESSION = np.datetime64("2026-03-12", "D")
-OPEN_TS = to_utc_ts("2026-03-12T08:00:00Z")
-CLOSE_TS = to_utc_ts("2026-03-12T16:00:00Z")
-CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=UTC))
+OPEN_TS = ts_ns_from_str("2026-03-12T08:00:00.000000000Z")
+CLOSE_TS = ts_ns_from_str("2026-03-12T16:00:00.000000000Z")
+CREATED_AT = ts_ns_from_str("2026-03-12T10:00:00.000000000Z")
 
 
 class DummyContract:
@@ -29,30 +36,33 @@ class DummyContract:
 
 
 class DummyRefDataAPI:
-    def __init__(self, mapping: dict[str, DummyContract]) -> None:
+    def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
-    def get_contract_by_id(self, contract_id: str) -> DummyContract | None:
-        return self._mapping.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> FuturesContract:
+        try:
+            return self._mapping[contract_id]
+        except KeyError as exc:
+            raise ValueError(f"Unknown contract_id: {contract_id}") from exc
 
 
 class DummyCalendar:
     def __init__(
         self,
         *,
-        open_ts: pd.Timestamp = OPEN_TS,
-        close_ts: pd.Timestamp = CLOSE_TS,
+        open_ts: TSNSScalar = OPEN_TS,
+        close_ts: TSNSScalar = CLOSE_TS,
     ) -> None:
         self._open_ts = open_ts
         self._close_ts = close_ts
 
     def session_open(self, session: np.datetime64) -> pd.Timestamp:
         assert session == SESSION
-        return self._open_ts
+        return ts_ns_to_pd_timestamp(self._open_ts)
 
     def session_close(self, session: np.datetime64) -> pd.Timestamp:
         assert session == SESSION
-        return self._close_ts
+        return ts_ns_to_pd_timestamp(self._close_ts)
 
 
 class DummyCalendarService:
@@ -64,6 +74,10 @@ class DummyCalendarService:
             return self._mapping[product_id]
         except KeyError as exc:
             raise ValueError(f"Unknown product_id {product_id!r}") from exc
+
+
+def _contract(*, product_id: str) -> FuturesContract:
+    return cast(FuturesContract, DummyContract(product_id=product_id))
 
 
 def _make_generator(
@@ -87,11 +101,10 @@ def _make_generator(
 
     refdata = DummyRefDataAPI(
         {
-            contract_id: DummyContract(product_id=product_id)
+            contract_id: _contract(product_id=product_id)
             for contract_id, product_id in contract_to_product.items()
         }
     )
-
     if calendars_by_product is None:
         calendars_by_product = {
             "prod_a": DummyCalendar(),
@@ -105,14 +118,14 @@ def _make_generator(
 
     return OrderGenerator(
         policy=policy,
-        ref_data_api=refdata,
-        calendar_service=calendar_service,
+        ref_data_api=cast(RefDataAPI, refdata),
+        calendar_service=cast(TradingCalendarService, calendar_service),
     )
 
 
 def _order_tuples(
     orders: list[Order],
-) -> list[tuple[str, int, OrderType, pd.Timestamp, int | None]]:
+) -> list[tuple[str, int, OrderType, TSNSScalar, int | None]]:
     return [
         (
             order.contract_id,
@@ -123,6 +136,19 @@ def _order_tuples(
         )
         for order in orders
     ]
+
+
+def test_order_accepts_canonical_created_at_timestamp() -> None:
+    created_at = np.datetime64("2026-03-12T10:00:00.000000000", "ns")
+
+    order = Order(
+        contract_id="corn_mar2026",
+        quantity=1,
+        order_type=OrderType.MARKET,
+        created_at=created_at,
+    )
+
+    assert order.created_at == created_at
 
 
 def test_order_rejects_zero_quantity() -> None:
@@ -180,15 +206,24 @@ def test_order_accepts_optional_order_id() -> None:
     assert order.order_id == 42
 
 
-def test_order_normalises_created_at_to_utc_timestamp() -> None:
-    order = Order(
-        contract_id="corn_mar2026",
-        quantity=1,
-        order_type=OrderType.MARKET,
-        created_at="2026-03-12T10:00:00Z",
-    )
+def test_order_rejects_non_ns_created_at_timestamp() -> None:
+    with pytest.raises(TypeError, match="Expected canonical MXM timestamp scalar"):
+        Order(
+            contract_id="corn_mar2026",
+            quantity=1,
+            order_type=OrderType.MARKET,
+            created_at=np.datetime64("2026-03-12", "D"),
+        )
 
-    assert order.created_at == to_utc_ts("2026-03-12T10:00:00Z")
+
+def test_order_rejects_nat_created_at_timestamp() -> None:
+    with pytest.raises(ValueError, match="must not be NaT"):
+        Order(
+            contract_id="corn_mar2026",
+            quantity=1,
+            order_type=OrderType.MARKET,
+            created_at=np.datetime64("NaT", "ns"),
+        )
 
 
 def test_order_generation_policy_accepts_default_configuration() -> None:
@@ -477,8 +512,12 @@ def test_generate_orders_can_assign_different_timestamps_by_product_calendar() -
             "wheat_jul2026": "wheat",
         },
         calendars_by_product={
-            "corn": DummyCalendar(open_ts=to_utc_ts("2026-03-12T08:00:00Z")),
-            "wheat": DummyCalendar(open_ts=to_utc_ts("2026-03-12T09:30:00Z")),
+            "corn": DummyCalendar(
+                open_ts=ts_ns_from_str("2026-03-12T08:00:00.000000000Z")
+            ),
+            "wheat": DummyCalendar(
+                open_ts=ts_ns_from_str("2026-03-12T09:30:00.000000000Z")
+            ),
         },
     )
     target_trades = TargetContractBundle.from_dict(

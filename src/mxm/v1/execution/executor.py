@@ -37,6 +37,12 @@ MXM V1 execution is session-anchored:
 - timestamp fields remain available for richer simulated or live
   execution engines
 
+All execution-domain instants stored on internal execution objects use the
+canonical MXM timestamp representation, np.datetime64[ns]. Pandas timestamps
+remain boundary-layer representations and must be converted before constructing
+Order, OrderSubmission, or OrderExecution.
+
+
 Current scope
 -------------
 The first concrete executor implemented here is:
@@ -75,7 +81,11 @@ from mxm.v1.execution.contract_bundles import ContractBundle
 from mxm.v1.execution.orders import Order
 from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.utils.date_utils import coerce_np_day
-from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.timestamps import (
+    TSNSScalar,
+    assert_not_nat,
+    assert_ts_ns,
+)
 
 
 class ExecutionStatus(str, Enum):
@@ -106,21 +116,30 @@ class OrderSubmission:
     session:
         Trading session label anchoring this submission batch.
 
+        Required semantic form:
+            np.datetime64[D]
+
     submission_timestamp:
-        Optional canonical UTC-normalised timestamp at which the batch is
+        Optional canonical MXM timestamp scalar at which the batch is
         submitted.
 
-        In live trading this would typically be the actual submission
-        time.
+        Required semantic form, when provided:
+            np.datetime64[ns]
 
-        In backtests this may be omitted, in which case executors may use
-        other available order metadata (for example `Order.created_at`)
-        when a timestamped execution fact is required.
+        The value must not be NaT.
+
+        In live trading this would typically be the actual submission time.
+        Boundary representations such as pandas timestamps, broker timestamps,
+        or strings must be converted before constructing `OrderSubmission`.
+
+        In backtests this may be omitted, in which case executors may use other
+        available order metadata, for example `Order.created_at`, when a
+        timestamped execution fact is required.
     """
 
     orders: list[Order]
     session: np.datetime64
-    submission_timestamp: pd.Timestamp | None = None
+    submission_timestamp: TSNSScalar | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "session", coerce_np_day(self.session))
@@ -129,7 +148,7 @@ class OrderSubmission:
             object.__setattr__(
                 self,
                 "submission_timestamp",
-                to_utc_ts(self.submission_timestamp),
+                assert_not_nat(assert_ts_ns(self.submission_timestamp)),
             )
 
 
@@ -137,6 +156,14 @@ class OrderSubmission:
 class OrderExecution:
     """
     Per-order execution outcome.
+
+    `OrderExecution` is an internal MXM execution-domain object and therefore
+    stores timestamps using the canonical MXM timestamp representation:
+
+        np.datetime64[ns]
+
+    The timestamp value is timezone-naive at the NumPy level and interpreted
+    strictly as UTC by MXM timestamp policy.
 
     Parameters
     ----------
@@ -153,20 +180,29 @@ class OrderExecution:
         Fill price for the realised quantity.
 
     fill_timestamp:
-        Canonical UTC-normalised timestamp assigned to the fill outcome.
+        Canonical MXM timestamp scalar assigned to the fill outcome.
+
+        Required semantic form:
+            np.datetime64[ns]
+
+        The value must not be NaT.
     """
 
     order: Order
     status: ExecutionStatus
     filled_quantity: int
     fill_price: float
-    fill_timestamp: pd.Timestamp
+    fill_timestamp: TSNSScalar
 
     def __post_init__(self) -> None:
         if self.filled_quantity == 0:
             raise ValueError("OrderExecution.filled_quantity must be non-zero.")
 
-        object.__setattr__(self, "fill_timestamp", to_utc_ts(self.fill_timestamp))
+        object.__setattr__(
+            self,
+            "fill_timestamp",
+            assert_not_nat(assert_ts_ns(self.fill_timestamp)),
+        )
 
 
 @dataclass(frozen=True, slots=True)

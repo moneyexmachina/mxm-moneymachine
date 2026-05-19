@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import cast
 
 from mxm.v1.marketdata.inspect.models import AttemptStatus, ProductStatus
+from mxm.v1.marketdata.inspect.ohlcv_1d.models import OHLCV1DContractCoverage
 from mxm.v1.marketdata.inspect.ohlcv_1d.product import compute_product_status
 
 
@@ -21,11 +23,16 @@ class _FakeContractCoverage:
 
 def _cc(
     *, complete: bool, status: AttemptStatus, vendor_final: bool = False
-) -> _FakeContractCoverage:
+) -> OHLCV1DContractCoverage:
     windows = SimpleNamespace(complete=bool(complete))
-    return _FakeContractCoverage(
-        windows=windows,
-        last_attempt=_FakeLastAttempt(status=status, vendor_final=bool(vendor_final)),
+    return cast(
+        OHLCV1DContractCoverage,
+        _FakeContractCoverage(
+            windows=windows,
+            last_attempt=_FakeLastAttempt(
+                status=status, vendor_final=bool(vendor_final)
+            ),
+        ),
     )
 
 

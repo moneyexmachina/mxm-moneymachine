@@ -1,11 +1,10 @@
 """
 MXM V1 — Order generation.
 
-This module defines the boundary between target-trade intent and
-executable order instructions.
+This module defines the boundary between target-trade intent and executable
+order instructions.
 
-At the current stage of the execution design, the relevant
-transformation is:
+At the current stage of the execution design, the relevant transformation is:
 
     target_trades
         ↓ order generation policy
@@ -15,28 +14,39 @@ transformation is:
 
 Conceptually:
 
-- target_trades are ideal desired changes in holdings and may be
-  fractional
-- implemented_trades are executable integer-lot trade quantities after
-  application of an implementation policy such as block rounding
-- orders are explicit executable instructions derived from the
-  implemented trades
+- target_trades are ideal desired changes in holdings and may be fractional
+- implemented_trades are executable integer-lot trade quantities after applying
+  an implementation policy such as block rounding
+- orders are explicit executable instructions derived from implemented trades
 
-This module is intentionally focused on the portfolio-side
-implementation of intent. It does not yet model execution quality,
-partial fills, routing, or broker order lifecycle. Those concerns belong
-later in the execution / routing layer.
+This module is intentionally focused on the portfolio-side implementation of
+intent. It does not yet model execution quality, partial fills, routing, or
+broker order lifecycle. Those concerns belong later in the execution / routing
+layer.
 
 Temporal semantics
 ------------------
-MXM V1 order generation sits at the boundary between:
+MXM distinguishes session labels from timestamps.
 
-- session-native portfolio intent
-- timestamped executable order instructions
+Session labels are calendar-domain identifiers represented as:
 
-`generate_orders(...)` therefore accepts a session label and resolves
-per-order `created_at` timestamps according to an injected timestamping
-policy and the relevant product trading calendar.
+    np.datetime64[D]
+
+They identify trading sessions and are used as inputs to order generation.
+
+Order creation times are timeline-domain instants represented internally as
+canonical MXM timestamps:
+
+    np.datetime64[ns]
+
+These timestamps are timezone-naive NumPy values interpreted strictly as UTC
+under the MXM timestamp policy.
+
+`generate_orders(...)` accepts a session label and resolves per-order
+`created_at` timestamps according to the injected timestamping policy and the
+relevant product trading calendar. Trading-calendar open/close values may be
+pandas boundary timestamps, but generated `Order` objects store only canonical
+MXM timestamp scalars.
 
 The current implementation supports one generation style:
 
@@ -44,11 +54,11 @@ The current implementation supports one generation style:
 - default block size = 1
 - optional per-contract block-size overrides
 - render one market order per non-zero implemented trade
-- assign one timestamp per order from the contract's trading calendar
+- assign one canonical timestamp per order from the contract's trading calendar
 
-All logic in this module is deterministic:
-given target trades, a session label, and a policy configuration, the
-resulting implemented trades and orders are deterministic.
+All logic in this module is deterministic: given target trades, a session label,
+and a policy configuration, the resulting implemented trades and orders are
+deterministic.
 """
 
 from __future__ import annotations
@@ -65,7 +75,8 @@ from mxm.refdata.api.ref_data_api import (
 from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.execution.contract_bundles import ContractBundle, TargetContractBundle
 from mxm.v1.utils.date_utils import coerce_np_day
-from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.pandas_timestamps import ts_ns_from_pd_timestamp
+from mxm.v1.utils.timestamps import TSNSScalar, assert_not_nat, assert_ts_ns
 
 
 class OrderType(str, Enum):
@@ -100,6 +111,16 @@ class Order:
     """
     Internal executable order instruction.
 
+    `Order` is an internal MXM object. It therefore stores timestamps in the
+    canonical MXM timestamp representation:
+
+        np.datetime64[ns]
+
+    The value is timezone-naive at the NumPy level and interpreted strictly as UTC
+    by MXM policy. Boundary representations such as `pd.Timestamp`, ISO strings,
+    broker timestamps, or database strings must be converted before constructing an
+    `Order`.
+
     Parameters
     ----------
     contract_id:
@@ -115,25 +136,34 @@ class Order:
         Order type instruction.
 
     created_at:
-        Canonical UTC-normalised timestamp at which the order instruction
-        was created by the portfolio-side order generation process.
+        Canonical MXM timestamp scalar at which the order instruction was created.
+
+        Required form:
+            np.datetime64[ns]
+
+        The value must not be NaT.
 
     order_id:
-        Optional order identifier. This is intentionally optional in the
-        current version because canonical append-only order identity
-        belongs to a later accounting / audit design.
+        Optional order identifier. This is intentionally optional in the current
+        version because canonical append-only order identity belongs to a later
+        accounting / audit design.
     """
 
     contract_id: str
     quantity: int
     order_type: OrderType
-    created_at: pd.Timestamp
+    created_at: TSNSScalar
     order_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.quantity == 0:
             raise ValueError("Order.quantity must be non-zero.")
-        object.__setattr__(self, "created_at", to_utc_ts(self.created_at))
+
+        object.__setattr__(
+            self,
+            "created_at",
+            assert_not_nat(assert_ts_ns(self.created_at)),
+        )
 
     @property
     def side(self) -> str:
@@ -289,6 +319,9 @@ class OrderGenerator:
         session:
             Trading session label for which orders are being generated.
 
+            Required semantic form:
+                np.datetime64
+
         Returns
         -------
         OrderGenerationResult
@@ -341,23 +374,23 @@ class OrderGenerator:
         *,
         contract_id: str,
         session: np.datetime64,
-    ) -> pd.Timestamp:
+    ) -> TSNSScalar:
         """
-        Resolve the `created_at` timestamp for one generated order.
+        Resolve the canonical `created_at` timestamp for one generated order.
 
-        This is the explicit bridge from session-native target-trade
-        intent to timestamped executable order instructions.
+        This is the explicit bridge from session-native target-trade intent to
+        timestamped executable order instructions. Calendar open/close values are
+        pandas boundary timestamps; generated orders store canonical MXM timestamps.
         """
         contract = self.ref_data_api.get_contract_by_id(contract_id)
-
         product_id = contract.product_id
         calendar = self.calendar_service.calendar_for_product(product_id)
 
         if self.policy.timestamp_policy == OrderTimestampPolicy.SESSION_OPEN:
-            return calendar.session_open(session)
+            return ts_ns_from_pd_timestamp(calendar.session_open(session))
 
         if self.policy.timestamp_policy == OrderTimestampPolicy.SESSION_CLOSE:
-            return calendar.session_close(session)
+            return ts_ns_from_pd_timestamp(calendar.session_close(session))
 
         raise ValueError(
             f"Unsupported OrderTimestampPolicy: {self.policy.timestamp_policy!r}"

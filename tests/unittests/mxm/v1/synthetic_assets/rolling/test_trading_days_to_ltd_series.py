@@ -156,7 +156,7 @@ def _make_series(
 def _make_service_with_calendar(
     monkeypatch: MonkeyPatch,
     *,
-    refdata_api: _FakeRefDataAPI,
+    refdata_api: RefDataAPI,
     calendar: _CalendarProtocol,
 ) -> TradingCalendarService:
     calendar_service = TradingCalendarService(refdata_api=refdata_api)
@@ -201,7 +201,7 @@ def test_build_trading_days_to_ltd_series_functional_oracle(
 
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         calendar=calendar,
     )
 
@@ -214,7 +214,7 @@ def test_build_trading_days_to_ltd_series_functional_oracle(
     result = build_trading_days_to_ltd_series(
         series=series,
         calendar_service=calendar_service,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
     )
 
     assert result.sessions.tolist() == series.sessions.tolist()
@@ -237,7 +237,7 @@ def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     spy_calendar = _SpyCalendar()
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         calendar=spy_calendar,
     )
 
@@ -250,7 +250,7 @@ def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     result = build_trading_days_to_ltd_series(
         series=series,
         calendar_service=calendar_service,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
     )
 
     assert len(spy_calendar.calls) == 1
@@ -283,7 +283,7 @@ def test_build_trading_days_to_ltd_series_raises_on_unknown_contract_id(
     )
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_api=cast(RefDataAPI, refdata_api),
         calendar=calendar,
     )
 

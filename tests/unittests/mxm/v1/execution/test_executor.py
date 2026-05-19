@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
@@ -18,10 +16,12 @@ from mxm.v1.execution.executor import (
 from mxm.v1.execution.orders import Order, OrderType
 from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
 from mxm.v1.utils.time_utils import to_utc_ts
+from mxm.v1.utils.timestamps import TSNSScalar, ts_ns_from_str
 
 SESSION = np.datetime64("2026-03-12", "D")
-CREATED_AT = to_utc_ts(datetime(2026, 3, 12, 10, 0, 0, tzinfo=UTC))
-SUBMISSION_TS = to_utc_ts(datetime(2026, 3, 12, 16, 0, 0, tzinfo=UTC))
+CREATED_AT = ts_ns_from_str("2026-03-12T10:00:00.000000000Z")
+SUBMISSION_TS = ts_ns_from_str("2026-03-12T16:00:00.000000000Z")
+FALLBACK_CREATED_AT = ts_ns_from_str("2026-03-12T10:15:00.000000000Z")
 
 
 class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
@@ -34,7 +34,7 @@ class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
         contract_id: str,
         session: np.datetime64,
     ) -> float:
-        key = (contract_id, np.datetime64(session, "D"))
+        key = (contract_id, session.astype("datetime64[D]"))
         self.calls.append(key)
         return self._prices[key]
 
@@ -43,7 +43,7 @@ def _make_order(
     *,
     contract_id: str,
     quantity: int,
-    created_at: pd.Timestamp = CREATED_AT,
+    created_at: TSNSScalar = CREATED_AT,
 ) -> Order:
     return Order(
         contract_id=contract_id,
@@ -51,17 +51,6 @@ def _make_order(
         order_type=OrderType.MARKET,
         created_at=created_at,
     )
-
-
-def test_order_submission_normalises_session_and_submission_timestamp() -> None:
-    submission = OrderSubmission(
-        orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
-        session="2026-03-12",
-        submission_timestamp="2026-03-12T16:00:00Z",
-    )
-
-    assert submission.session == np.datetime64("2026-03-12", "D")
-    assert submission.submission_timestamp == to_utc_ts("2026-03-12T16:00:00Z")
 
 
 def test_order_submission_accepts_optional_submission_timestamp_none() -> None:
@@ -100,7 +89,20 @@ def test_order_execution_rejects_zero_filled_quantity() -> None:
         )
 
 
-def test_order_execution_normalises_fill_timestamp_to_utc() -> None:
+def test_order_submission_accepts_session_day_and_canonical_submission_timestamp() -> (
+    None
+):
+    submission = OrderSubmission(
+        orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
+        session=SESSION,
+        submission_timestamp=SUBMISSION_TS,
+    )
+
+    assert submission.session == SESSION
+    assert submission.submission_timestamp == SUBMISSION_TS
+
+
+def test_order_execution_accepts_canonical_fill_timestamp() -> None:
     order = _make_order(contract_id="corn_mar2026", quantity=1)
 
     execution = OrderExecution(
@@ -108,10 +110,10 @@ def test_order_execution_normalises_fill_timestamp_to_utc() -> None:
         status=ExecutionStatus.FILLED,
         filled_quantity=1,
         fill_price=101.5,
-        fill_timestamp="2026-03-12T16:00:00Z",
+        fill_timestamp=SUBMISSION_TS,
     )
 
-    assert execution.fill_timestamp == to_utc_ts("2026-03-12T16:00:00Z")
+    assert execution.fill_timestamp == SUBMISSION_TS
 
 
 def test_execution_result_accepts_valid_fill_prices() -> None:
@@ -296,7 +298,7 @@ def test_perfect_executor_sets_fill_timestamp_to_submission_timestamp_when_prese
     submission = OrderSubmission(
         orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
         session=SESSION,
-        submission_timestamp="2026-03-12T16:00:00Z",
+        submission_timestamp=SUBMISSION_TS,
     )
 
     result = executor.execute_orders(submission)
@@ -312,7 +314,7 @@ def test_perfect_executor_falls_back_to_order_created_at_when_submission_timesta
     order = _make_order(
         contract_id="corn_mar2026",
         quantity=1,
-        created_at=to_utc_ts("2026-03-12T10:15:00Z"),
+        created_at=FALLBACK_CREATED_AT,
     )
     accessor = DummyExecutionPriceAccessor(prices={("corn_mar2026", SESSION): 101.5})
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
@@ -324,10 +326,7 @@ def test_perfect_executor_falls_back_to_order_created_at_when_submission_timesta
     )
 
     result = executor.execute_orders(submission)
-
-    assert result.order_executions[0].fill_timestamp == to_utc_ts(
-        "2026-03-12T10:15:00Z"
-    )
+    assert result.order_executions[0].fill_timestamp == FALLBACK_CREATED_AT
 
 
 def test_perfect_executor_aggregates_realised_trades_by_contract() -> None:
@@ -365,8 +364,8 @@ def test_perfect_executor_queries_accessor_with_session_label() -> None:
 
     submission = OrderSubmission(
         orders=[_make_order(contract_id="corn_mar2026", quantity=1)],
-        session="2026-03-12",
-        submission_timestamp="2026-03-12T16:00:00Z",
+        session=SESSION,
+        submission_timestamp=SUBMISSION_TS,
     )
 
     executor.execute_orders(submission)

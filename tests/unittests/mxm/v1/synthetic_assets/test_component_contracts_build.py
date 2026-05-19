@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -8,7 +9,18 @@ import pytest
 
 import mxm.v1.synthetic_assets.component_contracts as ccmod
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import ContractSeries
+from mxm.v1.contracts.engine import ContractSelectorEngine
+from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
+
+
+def _unused_contract_selector_engine() -> ContractSelectorEngine:
+    return cast(ContractSelectorEngine, object())
+
+
+def _unused_calendar_service() -> TradingCalendarService:
+    return cast(TradingCalendarService, object())
 
 
 def _days(*xs: str) -> np.ndarray:
@@ -60,7 +72,7 @@ def _make_contract_series(
     )
 
 
-def _make_spec() -> SimpleNamespace:
+def _make_spec() -> SyntheticAssetSpec:
     """
     Minimal duck-typed SyntheticAssetSpec replacement for unit tests.
 
@@ -81,10 +93,13 @@ def _make_spec() -> SimpleNamespace:
             selector_rule_id="M2",
         ),
     }
-    return SimpleNamespace(
-        asset_id="asset_test",
-        canonical_id="SYNTH::TEST",
-        components=components,
+    return cast(
+        SyntheticAssetSpec,
+        SimpleNamespace(
+            asset_id="asset_test",
+            canonical_id="SYNTH::TEST",
+            components=components,
+        ),
     )
 
 
@@ -250,12 +265,13 @@ def test_build_component_contracts_returns_business_session_indexed_frame(
 
     def fake_build_contract_series_by_component(
         *,
-        spec: object,
+        spec: SyntheticAssetSpec,
         start_session: np.datetime64,
         end_session: np.datetime64,
-        engine: object,
-        calendar_service: object,
+        engine: ContractSelectorEngine,
+        calendar_service: TradingCalendarService,
     ) -> dict[str, ContractSeries]:
+        _ = spec, engine, calendar_service
         captured["start_session"] = start_session
         captured["end_session"] = end_session
 
@@ -284,8 +300,8 @@ def test_build_component_contracts_returns_business_session_indexed_frame(
         spec=spec,
         start_session=np.datetime64("2025-01-01", "D"),  # normalize -> 2025-01-02
         end_session=np.datetime64("2025-01-07", "D"),  # exact
-        engine=object(),
-        calendar_service=object(),  # not used by patched helper
+        engine=_unused_contract_selector_engine(),
+        calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
     )
 
@@ -317,12 +333,13 @@ def test_build_component_contracts_raises_when_normalized_business_interval_is_i
 
     def fake_build_contract_series_by_component(
         *,
-        spec: object,
+        spec: SyntheticAssetSpec,
         start_session: np.datetime64,
         end_session: np.datetime64,
-        engine: object,
-        calendar_service: object,
+        engine: ContractSelectorEngine,
+        calendar_service: TradingCalendarService,
     ) -> dict[str, ContractSeries]:
+        _ = spec, start_session, end_session, engine, calendar_service
         raise AssertionError(
             "_build_contract_series_by_component should not be reached "
             "when business-session normalization produces an invalid interval"
@@ -341,7 +358,7 @@ def test_build_component_contracts_raises_when_normalized_business_interval_is_i
             spec=spec,
             start_session=np.datetime64("2025-01-04", "D"),
             end_session=np.datetime64("2025-01-05", "D"),
-            engine=object(),
-            calendar_service=object(),
+            engine=_unused_contract_selector_engine(),
+            calendar_service=_unused_calendar_service(),
             mxm_business_calendar=mxm_business_calendar,
         )

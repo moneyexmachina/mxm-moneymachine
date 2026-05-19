@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import pandas as pd
 
+from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
 from mxm.v1.marketdata.datasets.daily_mark.builder import build_daily_mark
 
 
@@ -55,7 +57,7 @@ def test_build_daily_mark_builds_observed_settle_rows_from_matching_daily_stats(
     df, diag = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[0, 1],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 
@@ -100,7 +102,7 @@ def test_build_daily_mark_carries_forward_after_missing_observation() -> None:
     df, diag = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[0, 1, 2],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 
@@ -148,7 +150,7 @@ def test_build_daily_mark_returns_unavailable_before_first_observation() -> None
     df, diag = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[0, 1, 2],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 
@@ -203,7 +205,7 @@ def test_build_daily_mark_populates_provenance_on_observed_rows_and_none_on_carr
     df, _ = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[0, 1],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 
@@ -257,7 +259,7 @@ def test_build_daily_mark_returns_correct_diagnostics_for_mixed_path() -> None:
     _, diag = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[0, 1, 2, 3, 4],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 
@@ -277,7 +279,7 @@ def test_build_daily_mark_supports_empty_session_ids() -> None:
     df, diag = build_daily_mark(
         contract_id="CME.ESM2025",
         session_ids=[],
-        business_calendar=business_calendar,
+        business_calendar=cast(MXMBusinessCalendar, business_calendar),
         daily_stats=daily_stats,
     )
 

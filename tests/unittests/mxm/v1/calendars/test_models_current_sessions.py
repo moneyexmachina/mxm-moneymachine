@@ -56,7 +56,7 @@ def test_current_sessions_matches_scalar() -> None:
     got = cal.current_sessions(ts)
 
     # Compare elementwise with scalar
-    exp = []
+    exp: list[np.datetime64 | str | None] = []
     for x in ts:
         try:
             exp.append(cal.current_session(x))

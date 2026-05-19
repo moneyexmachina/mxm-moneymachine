@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
 
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.calendars.service import TradingCalendarService, canonical_calendar_id
 
 
@@ -87,7 +89,9 @@ cmes:
         reg_txt.strip() + "\n", encoding="utf-8"
     )
 
-    svc = TradingCalendarService(refdata_api=_FakeRefDataAPI(), calendars_root=root)
+    svc = TradingCalendarService(
+        refdata_api=cast(RefDataAPI, _FakeRefDataAPI()), calendars_root=root
+    )
     cal = svc.calendar_for_product("p1")
 
     assert cal.calendar_id == "cmes"
