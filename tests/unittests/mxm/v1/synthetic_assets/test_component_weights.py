@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import mxm.v1.synthetic_assets.component_weights as cwmod
+from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.v1.calendars.mxm_business_calendar import MXMBusinessCalendar
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import ContractSeries
+from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.synthetic_assets.component_contracts import ComponentContracts
 from mxm.v1.synthetic_assets.component_weights import (
     ComponentWeights,
@@ -16,11 +21,23 @@ from mxm.v1.synthetic_assets.component_weights import (
     UnsupportedComponentStructure,
     infer_component_pairs,
 )
-from mxm.v1.synthetic_assets.models import ComponentBinding
+from mxm.v1.synthetic_assets.models import ComponentBinding, SyntheticAssetSpec
 
 
 def _days(*xs: str) -> np.ndarray:
     return np.array(xs, dtype="datetime64[D]")
+
+
+def _unused_engine() -> ContractSelectorEngine:
+    return cast(ContractSelectorEngine, object())
+
+
+def _unused_calendar_service() -> TradingCalendarService:
+    return cast(TradingCalendarService, object())
+
+
+def _unused_refdata_api() -> RefDataAPI:
+    return cast(RefDataAPI, object())
 
 
 def _make_component_weights_frame(
@@ -88,17 +105,90 @@ def _make_contract_series(
     )
 
 
-def _make_spec_cont() -> SimpleNamespace:
+def _make_spec_cont() -> SyntheticAssetSpec:
     components = {
         "cur": ComponentBinding(product_id="CL", selector_rule_id="REL::MONTH::N=1"),
         "nxt": ComponentBinding(product_id="CL", selector_rule_id="REL::MONTH::N=2"),
     }
-    return SimpleNamespace(
-        asset_id="cl_cont",
-        canonical_id="SYNTH::TEST",
-        weights_rule_id="WR::KIND=LINEAR_ROLL::ROLL_START_OFFSET=N1::ROLL_DURATION=3",
-        components=components,
+    return cast(
+        SyntheticAssetSpec,
+        SimpleNamespace(
+            asset_id="cl_cont",
+            canonical_id="SYNTH::TEST",
+            weights_rule_id="WR::KIND=LINEAR_ROLL::ROLL_START_OFFSET=N1::ROLL_DURATION=3",
+            components=components,
+        ),
     )
+
+
+class _FakeRollModel:
+    def compute_weights_from_bdays_to_ltd(
+        self, *, bdays_to_ltd: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        # simple deterministic transform for test visibility
+        w_cur = bdays_to_ltd.astype(float)
+        w_nxt = -bdays_to_ltd.astype(float)
+        return w_cur, w_nxt
+
+
+def _build_fake_roll_model(weights_rule_id: str) -> _FakeRollModel:
+    _ = weights_rule_id
+    return _FakeRollModel()
+
+
+def _fake_anchor_series_full(
+    *,
+    component: ComponentBinding,
+    start_session: np.datetime64,
+    end_session: np.datetime64,
+    engine: ContractSelectorEngine,
+    calendar_service: TradingCalendarService,
+) -> ContractSeries:
+    _ = component, start_session, end_session, engine, calendar_service
+    return _make_contract_series(
+        product_id="CL",
+        rel_id="M1",
+        sessions=["2026-03-18", "2026-03-20", "2026-03-24"],
+        contract_ids=["ANCHOR_A", "ANCHOR_B", "ANCHOR_C"],
+    )
+
+
+def _fake_anchor_series_short(
+    *,
+    component: ComponentBinding,
+    start_session: np.datetime64,
+    end_session: np.datetime64,
+    engine: ContractSelectorEngine,
+    calendar_service: TradingCalendarService,
+) -> ContractSeries:
+    _ = component, start_session, end_session, engine, calendar_service
+    return _make_contract_series(
+        product_id="CL",
+        rel_id="M1",
+        sessions=["2026-03-18", "2026-03-20"],
+        contract_ids=["ANCHOR_A", "ANCHOR_B"],
+    )
+
+
+@dataclass
+class _BuildWeightsCapture:
+    product_id: str | None = None
+    sessions: np.ndarray | None = None
+    contract_ids: list[str] | None = None
+
+
+class _IdentityFakeRollModel:
+    def compute_weights_from_bdays_to_ltd(
+        self,
+        *,
+        bdays_to_ltd: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return bdays_to_ltd.astype(float), bdays_to_ltd.astype(float)
+
+
+def _build_identity_fake_roll_model(weights_rule_id: str) -> _IdentityFakeRollModel:
+    _ = weights_rule_id
+    return _IdentityFakeRollModel()
 
 
 # -----------------------------------------------------------------------------
@@ -314,78 +404,29 @@ def test_build_component_weights_returns_business_session_indexed_weights(
     component_contracts = _make_component_contracts()
     mxm_business_calendar = _make_mxm_business_calendar()
 
-    captured: dict[str, object] = {}
-
-    def fake_build_raw_anchor_contract_series_for_component(
-        *,
-        component: object,
-        start_session: np.datetime64,
-        end_session: np.datetime64,
-        engine: object,
-        calendar_service: object,
-    ) -> ContractSeries:
-        # One raw anchor series on trading support
-        return _make_contract_series(
-            product_id="CL",
-            rel_id="M1",
-            sessions=["2026-03-18", "2026-03-20", "2026-03-24"],
-            contract_ids=["ANCHOR_A", "ANCHOR_B", "ANCHOR_C"],
-        )
+    captured = _BuildWeightsCapture()
 
     monkeypatch.setattr(
         cwmod,
         "_build_raw_anchor_contract_series_for_component",
-        fake_build_raw_anchor_contract_series_for_component,
+        _fake_anchor_series_full,
     )
-
-    class _FakeTradingDays:
-        def __init__(self, sessions: np.ndarray, vals: list[int]) -> None:
-            self.sessions = sessions
-            self.trading_days_to_ltd = np.array(vals, dtype=np.int64)
-
-    def fake_build_trading_days_to_ltd_on_business_sessions(
-        *,
-        product_id: str,
-        sessions: np.ndarray,
-        contract_ids: list[str],
-        calendar_service: object,
-        refdata_api: object,
-    ) -> _FakeTradingDays:
-        captured["product_id"] = product_id
-        captured["sessions"] = sessions.copy()
-        captured["contract_ids"] = list(contract_ids)
-
-        # 4 sessions -> simple descending clock
-        return _FakeTradingDays(sessions, [3, 2, 1, 0])
 
     monkeypatch.setattr(
         cwmod,
         "build_trading_days_to_ltd_on_business_sessions",
-        fake_build_trading_days_to_ltd_on_business_sessions,
+        _fake_misaligned_trading_days_to_ltd,
     )
 
-    class _FakeRollModel:
-        def compute_weights_from_bdays_to_ltd(
-            self, *, bdays_to_ltd: np.ndarray
-        ) -> tuple[np.ndarray, np.ndarray]:
-            # simple deterministic transform for test visibility
-            w_cur = bdays_to_ltd.astype(float)
-            w_nxt = -bdays_to_ltd.astype(float)
-            return w_cur, w_nxt
-
-    monkeypatch.setattr(
-        cwmod,
-        "_build_roll_model",
-        lambda weights_rule_id: _FakeRollModel(),
-    )
+    monkeypatch.setattr(cwmod, "_build_roll_model", _build_fake_roll_model)
 
     out = cwmod.build_component_weights(
         spec=spec,
         component_contracts=component_contracts,
-        engine=object(),
-        calendar_service=object(),
+        engine=_unused_engine(),
+        calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=object(),
+        refdata_api=_unused_refdata_api(),
     )
 
     expected_sessions = _days("2026-03-18", "2026-03-19", "2026-03-20", "2026-03-23")
@@ -395,9 +436,11 @@ def test_build_component_weights_returns_business_session_indexed_weights(
     # 19 -> 18 -> ANCHOR_A
     # 20 -> 20 -> ANCHOR_B
     # 23 -> 20 -> ANCHOR_B
-    assert captured["product_id"] == "CL"
-    assert np.array_equal(captured["sessions"], expected_sessions)
-    assert captured["contract_ids"] == ["ANCHOR_A", "ANCHOR_A", "ANCHOR_B", "ANCHOR_B"]
+    assert captured.product_id == "CL"
+    captured_sessions = captured.sessions
+    assert captured_sessions is not None
+    assert np.array_equal(captured_sessions, expected_sessions)
+    assert captured.contract_ids == ["ANCHOR_A", "ANCHOR_A", "ANCHOR_B", "ANCHOR_B"]
 
     expected = pd.DataFrame(
         {
@@ -412,6 +455,24 @@ def test_build_component_weights_returns_business_session_indexed_weights(
     assert out.canonical_id == "SYNTH::TEST"
 
 
+class _MisalignedFakeTradingDays:
+    def __init__(self) -> None:
+        self.sessions = _days("2026-03-18", "2026-03-19")
+        self.trading_days_to_ltd = np.array([1, 0], dtype=np.int64)
+
+
+def _fake_misaligned_trading_days_to_ltd(
+    *,
+    product_id: str,
+    sessions: np.ndarray,
+    contract_ids: list[str],
+    calendar_service: TradingCalendarService,
+    refdata_api: RefDataAPI,
+) -> _MisalignedFakeTradingDays:
+    _ = product_id, sessions, contract_ids, calendar_service, refdata_api
+    return _MisalignedFakeTradingDays()
+
+
 def test_build_component_weights_raises_when_bdays_sessions_do_not_match_component_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -419,108 +480,140 @@ def test_build_component_weights_raises_when_bdays_sessions_do_not_match_compone
     component_contracts = _make_component_contracts()
     mxm_business_calendar = _make_mxm_business_calendar()
 
-    def fake_build_raw_anchor_contract_series_for_component(
-        *,
-        component: object,
-        start_session: np.datetime64,
-        end_session: np.datetime64,
-        engine: object,
-        calendar_service: object,
-    ) -> ContractSeries:
-        return _make_contract_series(
-            product_id="CL",
-            rel_id="M1",
-            sessions=["2026-03-18", "2026-03-20"],
-            contract_ids=["ANCHOR_A", "ANCHOR_B"],
-        )
-
     monkeypatch.setattr(
         cwmod,
         "_build_raw_anchor_contract_series_for_component",
-        fake_build_raw_anchor_contract_series_for_component,
+        _fake_anchor_series_short,
     )
-
-    class _FakeTradingDays:
-        def __init__(self) -> None:
-            self.sessions = _days("2026-03-18", "2026-03-19")  # wrong length/support
-            self.trading_days_to_ltd = np.array([1, 0], dtype=np.int64)
-
     monkeypatch.setattr(
         cwmod,
         "build_trading_days_to_ltd_on_business_sessions",
-        lambda **kwargs: _FakeTradingDays(),
+        _fake_misaligned_trading_days_to_ltd,
     )
-
-    class _FakeRollModel:
-        def compute_weights_from_bdays_to_ltd(
-            self, *, bdays_to_ltd: np.ndarray
-        ) -> tuple[np.ndarray, np.ndarray]:
-            return bdays_to_ltd.astype(float), bdays_to_ltd.astype(float)
-
     monkeypatch.setattr(
         cwmod,
         "_build_roll_model",
-        lambda weights_rule_id: _FakeRollModel(),
+        _build_identity_fake_roll_model,
     )
 
     with pytest.raises(MisalignedAnchorSessions, match="Anchor sessions differ"):
         cwmod.build_component_weights(
             spec=spec,
             component_contracts=component_contracts,
-            engine=object(),
-            calendar_service=object(),
+            engine=_unused_engine(),
+            calendar_service=_unused_calendar_service(),
             mxm_business_calendar=mxm_business_calendar,
-            refdata_api=object(),
+            refdata_api=_unused_refdata_api(),
         )
+
+
+@dataclass
+class _RealiseCapture:
+    build_component_contracts_kwargs: dict[str, object] | None = None
+    build_component_weights_kwargs: dict[str, object] | None = None
+
+
+_REALISE_CAPTURE = _RealiseCapture()
+_realise_component_contracts: ComponentContracts | None = None
+
+
+def _fake_build_component_contracts(
+    *,
+    spec: SyntheticAssetSpec,
+    start_session: np.datetime64,
+    end_session: np.datetime64,
+    engine: ContractSelectorEngine,
+    calendar_service: TradingCalendarService,
+    mxm_business_calendar: MXMBusinessCalendar,
+) -> ComponentContracts:
+    _REALISE_CAPTURE.build_component_contracts_kwargs = {
+        "spec": spec,
+        "start_session": start_session,
+        "end_session": end_session,
+        "engine": engine,
+        "calendar_service": calendar_service,
+        "mxm_business_calendar": mxm_business_calendar,
+    }
+
+    if _realise_component_contracts is None:
+        raise RuntimeError("_realised_component_contracts not initialized")
+
+    return _realise_component_contracts
+
+
+def _fake_build_component_weights(
+    *,
+    spec: SyntheticAssetSpec,
+    component_contracts: ComponentContracts,
+    engine: ContractSelectorEngine,
+    calendar_service: TradingCalendarService,
+    mxm_business_calendar: MXMBusinessCalendar,
+    refdata_api: RefDataAPI,
+) -> ComponentWeights:
+    _REALISE_CAPTURE.build_component_weights_kwargs = {
+        "spec": spec,
+        "component_contracts": component_contracts,
+        "engine": engine,
+        "calendar_service": calendar_service,
+        "mxm_business_calendar": mxm_business_calendar,
+        "refdata_api": refdata_api,
+    }
+
+    return ComponentWeights(
+        asset_id="cl_cont",
+        canonical_id="SYNTH::TEST",
+        weights_rule_id=spec.weights_rule_id,
+        frame=_make_component_weights_frame(
+            sessions=["2026-03-18", "2026-03-19"],
+            columns={"cur": [1.0, 0.0], "nxt": [0.0, 1.0]},
+        ),
+    )
 
 
 def test_realise_component_weights_threads_business_calendar_through_builders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    global _realise_component_contracts
+
     spec = _make_spec_cont()
     mxm_business_calendar = _make_mxm_business_calendar()
 
-    component_contracts = _make_component_contracts()
+    _realise_component_contracts = _make_component_contracts()
 
-    captured: dict[str, object] = {}
-
-    def fake_build_component_contracts(**kwargs):
-        captured["build_component_contracts_kwargs"] = dict(kwargs)
-        return component_contracts
-
-    def fake_build_component_weights(**kwargs):
-        captured["build_component_weights_kwargs"] = dict(kwargs)
-        return ComponentWeights(
-            asset_id="cl_cont",
-            canonical_id="SYNTH::TEST",
-            weights_rule_id=spec.weights_rule_id,
-            frame=_make_component_weights_frame(
-                sessions=["2026-03-18", "2026-03-19"],
-                columns={"cur": [1.0, 0.0], "nxt": [0.0, 1.0]},
-            ),
-        )
+    _REALISE_CAPTURE.build_component_contracts_kwargs = None
+    _REALISE_CAPTURE.build_component_weights_kwargs = None
 
     monkeypatch.setattr(
-        cwmod, "build_component_contracts", fake_build_component_contracts
+        cwmod,
+        "build_component_contracts",
+        _fake_build_component_contracts,
     )
-    monkeypatch.setattr(cwmod, "build_component_weights", fake_build_component_weights)
+    monkeypatch.setattr(
+        cwmod,
+        "build_component_weights",
+        _fake_build_component_weights,
+    )
 
     out = cwmod.realise_component_weights(
         spec=spec,
         start_session=np.datetime64("2026-03-18", "D"),
         end_session=np.datetime64("2026-03-19", "D"),
-        engine=object(),
-        calendar_service=object(),
+        engine=_unused_engine(),
+        calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=object(),
+        refdata_api=_unused_refdata_api(),
     )
 
+    assert _REALISE_CAPTURE.build_component_contracts_kwargs is not None
     assert (
-        captured["build_component_contracts_kwargs"]["mxm_business_calendar"]
+        _REALISE_CAPTURE.build_component_contracts_kwargs["mxm_business_calendar"]
         is mxm_business_calendar
     )
+
+    assert _REALISE_CAPTURE.build_component_weights_kwargs is not None
     assert (
-        captured["build_component_weights_kwargs"]["mxm_business_calendar"]
+        _REALISE_CAPTURE.build_component_weights_kwargs["mxm_business_calendar"]
         is mxm_business_calendar
     )
+
     assert out.asset_id == "cl_cont"

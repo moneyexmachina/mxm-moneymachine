@@ -1,33 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
 from mxm.v1.marketdata.orchestrators import product_marketdata as pm
 
+type AttemptValue = str | int | float | bool | None | pm.ProductStopReason
+type AttemptPayload = dict[str, AttemptValue]
+type StageCountValue = str | int | float | bool | None
+type StageCounts = dict[str, StageCountValue]
+
 
 @dataclass
 class _FakeAttemptsStore:
-    """
-    Spy-only attempts store.
-
-    We keep it minimal: capture start/finish calls and surface the last payload.
-    """
-
-    started: list[dict[str, Any]]
-    finished: list[dict[str, Any]]
+    started: list[AttemptPayload]
+    finished: list[AttemptPayload]
 
     def __init__(self) -> None:
         self.started = []
         self.finished = []
 
-    def start_attempt(self, **kwargs: Any) -> str:
+    def start_attempt(self, **kwargs: AttemptValue) -> str:
         self.started.append(dict(kwargs))
         return "attempt-uid-1"
 
-    def finish_attempt(self, **kwargs: Any) -> None:
+    def finish_attempt(self, **kwargs: AttemptValue) -> None:
         self.finished.append(dict(kwargs))
 
 
@@ -37,7 +35,7 @@ def _stage(
     status: pm.StageStatus = pm.StageStatus.OK,
     stop_reason: str | None = None,
     cost_used_usd: float = 0.0,
-    counts: dict[str, Any] | None = None,
+    counts: StageCounts | None = None,
     mapping_ready_for_ohlcv: bool | None = None,
 ) -> pm.StageEnvelope:
     return pm.StageEnvelope(
@@ -68,9 +66,56 @@ def _stores(*, attempts: _FakeAttemptsStore) -> pm.ProductMarketDataStores:
     )
 
 
+def _fixed_run_ts() -> str:
+    return "2020-01-01T00:00:00Z"
+
+
 def _patch_time(monkeypatch: pytest.MonkeyPatch) -> None:
     # Make reports deterministic.
-    monkeypatch.setattr(pm, "utc_now_run_ts", lambda: "2020-01-01T00:00:00Z")
+    monkeypatch.setattr(pm, "utc_now_run_ts", _fixed_run_ts)
+
+
+def _stage_instrument_definitions_ok(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(name="instrument_definitions", cost_used_usd=1.0)
+
+
+def _stage_mappings_ready(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(
+        name="instrument_definition_mappings",
+        cost_used_usd=0.0,
+        mapping_ready_for_ohlcv=True,
+    )
+
+
+def _stage_mappings_not_ready(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(
+        name="instrument_definition_mappings",
+        cost_used_usd=0.0,
+        mapping_ready_for_ohlcv=False,
+    )
+
+
+def _stage_ohlcv_ok(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(name="ohlcv_1d", cost_used_usd=2.0)
+
+
+def _stage_ohlcv_halted_cost_cap(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(
+        name="ohlcv_1d",
+        status=pm.StageStatus.HALTED,
+        stop_reason="cost_cap",
+        cost_used_usd=2.0,
+    )
+
+
+def _stage_statistics_ok(**kwargs: object) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(name="statistics_1d", cost_used_usd=3.0)
 
 
 def test_product_marketdata_success_path_stage_order_and_budget(
@@ -79,32 +124,18 @@ def test_product_marketdata_success_path_stage_order_and_budget(
     _patch_time(monkeypatch)
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
-
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
-        lambda **_: _stage(name="instrument_definitions", cost_used_usd=1.0),
+        _stage_instrument_definitions_ok,
     )
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definition_mappings",
-        lambda **_: _stage(
-            name="instrument_definition_mappings",
-            cost_used_usd=0.0,
-            mapping_ready_for_ohlcv=True,
-        ),
+        _stage_mappings_ready,
     )
-    monkeypatch.setattr(
-        pm,
-        "_run_stage_ohlcv_1d",
-        lambda **_: _stage(name="ohlcv_1d", cost_used_usd=2.0),
-    )
-    monkeypatch.setattr(
-        pm,
-        "_run_stage_statistics_1d",
-        lambda **_: _stage(name="statistics_1d", cost_used_usd=3.0),
-    )
-
+    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _stage_ohlcv_ok)
+    monkeypatch.setattr(pm, "_run_stage_statistics_1d", _stage_statistics_ok)
     rep = pm.ingest_product_marketdata(
         product_id="p",
         mode="update",
@@ -128,8 +159,8 @@ def test_product_marketdata_success_path_stage_order_and_budget(
         "daily_stats",
     ]
 
-    assert rep.cost_used_usd == pytest.approx(1.0 + 0.0 + 2.0 + 3.0 + 0)
-    assert rep.remaining_usd == pytest.approx(10.0 - (1.0 + 0.0 + 2.0 + 3.0 + 0))
+    assert rep.cost_used_usd == 6.0
+    assert rep.remaining_usd == 4.0
 
     # attempt ledger: start and finish written once
     assert len(attempts.started) == 1
@@ -147,36 +178,21 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
     _patch_time(monkeypatch)
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
-
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
-        lambda **_: _stage(name="instrument_definitions", cost_used_usd=1.0),
+        _stage_instrument_definitions_ok,
     )
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definition_mappings",
-        lambda **_: _stage(
-            name="instrument_definition_mappings",
-            cost_used_usd=0.0,
-            mapping_ready_for_ohlcv=True,
-        ),
+        _stage_mappings_ready,
     )
-    monkeypatch.setattr(
-        pm,
-        "_run_stage_ohlcv_1d",
-        lambda **_: _stage(
-            name="ohlcv_1d",
-            status=pm.StageStatus.HALTED,
-            stop_reason="cost_cap",
-            cost_used_usd=2.0,
-        ),
-    )
-
+    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _stage_ohlcv_halted_cost_cap)
     # Stage 4 must not run if Stage 3 halts/errors.
     called_stage4 = {"called": False}
 
-    def _stage4(**_: Any) -> pm.StageEnvelope:
+    def _stage4(**_: object) -> pm.StageEnvelope:
         called_stage4["called"] = True
         return _stage(name="statistics_1d", cost_used_usd=999.0)
 
@@ -203,8 +219,8 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
     ]
 
     # st1 + st2 + st3 costs must be included.
-    assert rep.cost_used_usd == pytest.approx(1.0 + 0.0 + 2.0)
-    assert rep.remaining_usd == pytest.approx(10.0 - (1.0 + 0.0 + 2.0))
+    assert rep.cost_used_usd == 3.0
+    assert rep.remaining_usd == 7.0
     assert rep.stop_reason in (
         pm.ProductStopReason.COST_CAP,
         pm.ProductStopReason.ERROR,
@@ -217,29 +233,23 @@ def test_product_marketdata_mappings_gate_blocks_downstream(
     _patch_time(monkeypatch)
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
-
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
-        lambda **_: _stage(name="instrument_definitions", cost_used_usd=1.0),
+        _stage_instrument_definitions_ok,
     )
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definition_mappings",
-        lambda **_: _stage(
-            name="instrument_definition_mappings",
-            cost_used_usd=0.0,
-            mapping_ready_for_ohlcv=False,
-        ),
+        _stage_mappings_not_ready,
     )
-
     called = {"ohlcv": False, "stats": False}
 
-    def _ohlcv(**_: Any) -> pm.StageEnvelope:
+    def _ohlcv(**_: object) -> pm.StageEnvelope:
         called["ohlcv"] = True
         return _stage(name="ohlcv_1d", cost_used_usd=1.0)
 
-    def _stats(**_: Any) -> pm.StageEnvelope:
+    def _stats(**_: object) -> pm.StageEnvelope:
         called["stats"] = True
         return _stage(name="statistics_1d", cost_used_usd=1.0)
 
@@ -275,23 +285,18 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
     _patch_time(monkeypatch)
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
-
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
-        lambda **_: _stage(name="instrument_definitions", cost_used_usd=1.0),
+        _stage_instrument_definitions_ok,
     )
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definition_mappings",
-        lambda **_: _stage(
-            name="instrument_definition_mappings",
-            cost_used_usd=0.0,
-            mapping_ready_for_ohlcv=True,
-        ),
+        _stage_mappings_ready,
     )
 
-    def _boom(**_: Any) -> pm.StageEnvelope:
+    def _boom(**_: object) -> pm.StageEnvelope:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _boom)
@@ -315,7 +320,9 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
     assert fin["status"] == "error"
     assert fin["stop_reason"] == pm.ProductStopReason.ERROR.value
     assert fin["error_type"] == "RuntimeError"
-    assert "boom" in (fin["error_message"] or "")
+    error_message = fin["error_message"]
+    assert isinstance(error_message, str)
+    assert "boom" in error_message
 
 
 def test_product_marketdata_cost_cap_must_be_positive(

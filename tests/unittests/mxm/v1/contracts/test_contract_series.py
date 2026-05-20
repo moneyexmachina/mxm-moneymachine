@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import cast
 
 import numpy as np
 import pytest
 
+from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
+from mxm.refdata.models.currencies import Currency
 from mxm.refdata.models.periods import Period, PeriodType
+from mxm.refdata.models.units import ProductUnit
+from mxm.v1.calendars.service import TradingCalendarService
 from mxm.v1.contracts.contract_series import (
     ContractSeries,
     ContractSeriesSpec,
@@ -17,34 +22,44 @@ from mxm.v1.contracts.engine import ContractSelectorEngine
 from mxm.v1.contracts.relative_ids import canonical_relative_id, short_rel_id
 from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
 
-# ---------------------------------------------------------------------
-# Helpers / fakes
-# ---------------------------------------------------------------------
-
-
+EngineAndCalendar = tuple[ContractSelectorEngine, TradingCalendarService]
 UtcTs = datetime | np.datetime64
+
+
+def _unit(value: str) -> ProductUnit:
+    return cast(ProductUnit, value)
+
+
+def _currency(value: str) -> Currency:
+    return cast(Currency, value)
+
+
+def _refdata(ref: _FakeRefData) -> RefDataAPI:
+    return cast(RefDataAPI, ref)
+
+
+def _calendar_service(calendars: _FakeCalendarService) -> TradingCalendarService:
+    return cast(TradingCalendarService, calendars)
 
 
 def _to_py_date(x: UtcTs) -> date:
     if isinstance(x, datetime):
         return x.date()
-    else:
-        # x is day-level in these tests; robust conversion:
-        return date.fromisoformat(str(x)[:10])
+
+    return date.fromisoformat(str(x)[:10])
 
 
 @dataclass(frozen=True)
 class _FakeTradingCalendar:
     """
     Provides both:
-      - trading_days (for ContractSeries calendar slicing)
-      - as_of_session (for engine selection)
+      - trading_days for ContractSeries calendar slicing
+      - as_of_session for engine selection
     """
 
-    trading_days: np.ndarray  # datetime64[D]
+    trading_days: np.ndarray
 
     def as_of_session(self, as_of_ts: UtcTs) -> date:
-        # engine expects a session label in "date" space; use the provided ts
         return _to_py_date(as_of_ts)
 
 
@@ -60,30 +75,47 @@ class _FakeCalendarService:
 class _FakeRefData:
     periods: list[Period]
     contracts_by_product: dict[str, list[FuturesContract]]
-    cycle_elements: dict[str, dict[str, int]]  # cycle_id -> period_id -> element
+    cycle_elements: dict[str, dict[str, int]]
 
     def get_periods(self) -> list[Period]:
         return list(self.periods)
 
     def get_contracts_for_product(
-        self, product_id: str, *, period_type=None
+        self,
+        product_id: str,
+        *,
+        period_type: PeriodType | None = None,
     ) -> list[FuturesContract]:
-        xs = list(self.contracts_by_product.get(product_id, []))
-        if period_type is None:
-            return xs
-        # Tests assume all contracts are already of the requested period_type.
-        return xs
+        _ = period_type
+        return list(self.contracts_by_product.get(product_id, []))
 
     def get_cycle_elements(
-        self, period_ids: list[str], *, cycle_id: str
+        self,
+        period_ids: list[str],
+        *,
+        cycle_id: str,
     ) -> dict[str, int]:
         mapping = self.cycle_elements.get(cycle_id, {})
         return {pid: mapping[pid] for pid in period_ids if pid in mapping}
 
 
-# ---------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------
+def _contract(
+    *,
+    contract_id: str,
+    period_id: str,
+    last_trading_day: date,
+) -> FuturesContract:
+    return FuturesContract(
+        contract_id=contract_id,
+        product_id="ES",
+        period_id=period_id,
+        contract_size=1.0,
+        unit=_unit("idx"),
+        currency=_currency("USD"),
+        trading_calendar="CMES",
+        first_day_of_interest=date(2026, 1, 1),
+        last_trading_day=last_trading_day,
+    )
 
 
 @pytest.fixture()
@@ -113,39 +145,21 @@ def sample_periods() -> list[Period]:
 @pytest.fixture()
 def engine_and_calendar(
     sample_periods: list[Period],
-) -> tuple[ContractSelectorEngine, _FakeCalendarService]:
+) -> EngineAndCalendar:
     contracts = [
-        FuturesContract(
+        _contract(
             contract_id="ES-2026-03",
-            product_id="ES",
             period_id="2026-03",
-            contract_size=1.0,
-            unit="idx",
-            currency="USD",
-            trading_calendar="CMES",
-            first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 3, 20),
         ),
-        FuturesContract(
+        _contract(
             contract_id="ES-2026-06",
-            product_id="ES",
             period_id="2026-06",
-            contract_size=1.0,
-            unit="idx",
-            currency="USD",
-            trading_calendar="CMES",
-            first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 6, 19),
         ),
-        FuturesContract(
+        _contract(
             contract_id="ES-2026-12",
-            product_id="ES",
             period_id="2026-12",
-            contract_size=1.0,
-            unit="idx",
-            currency="USD",
-            trading_calendar="CMES",
-            first_day_of_interest=date(2026, 1, 1),
             last_trading_day=date(2026, 12, 18),
         ),
     ]
@@ -162,7 +176,6 @@ def engine_and_calendar(
         },
     )
 
-    # A small contiguous run of "trading days" for ContractSeries slicing tests.
     cal_days = np.array(
         [
             np.datetime64("2026-03-18"),
@@ -177,18 +190,22 @@ def engine_and_calendar(
     cal_svc = _FakeCalendarService(
         by_product={"ES": _FakeTradingCalendar(trading_days=cal_days)}
     )
-    eng = ContractSelectorEngine.build(refdata=ref, calendars=cal_svc)
-    return eng, cal_svc
+
+    calendar_service = _calendar_service(cal_svc)
+    eng = ContractSelectorEngine.build(
+        refdata=_refdata(ref),
+        calendars=calendar_service,
+    )
+    return eng, calendar_service
 
 
-# ---------------------------------------------------------------------
-# Tests: Spec validation
-# ---------------------------------------------------------------------
+def _month_rule(n: int) -> SelectorRule:
+    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
+    return SelectorRule(period_filter=pf, n=n)
 
 
 def test_contract_series_spec_rejects_end_before_start() -> None:
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=1)
+    rule = _month_rule(1)
 
     with pytest.raises(ValueError, match="end_session must be >= start_session"):
         ContractSeriesSpec(
@@ -200,8 +217,7 @@ def test_contract_series_spec_rejects_end_before_start() -> None:
 
 
 def test_contract_series_spec_coerces_to_day_dtype() -> None:
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=1)
+    rule = _month_rule(1)
 
     spec = ContractSeriesSpec(
         product_id="ES",
@@ -209,25 +225,21 @@ def test_contract_series_spec_coerces_to_day_dtype() -> None:
         start_session=np.datetime64("2026-03-20T12:34:56"),
         end_session=np.datetime64("2026-03-20T23:59:59"),
     )
+
     assert spec.start_session.dtype == np.dtype("datetime64[D]")
     assert spec.end_session.dtype == np.dtype("datetime64[D]")
 
 
-# ---------------------------------------------------------------------
-# Tests: Calendar range semantics
-# ---------------------------------------------------------------------
-
-
-def test_build_contract_series_requires_start_in_calendar(engine_and_calendar) -> None:
+def test_build_contract_series_requires_start_in_calendar(
+    engine_and_calendar: EngineAndCalendar,
+) -> None:
     engine, cal_svc = engine_and_calendar
-
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=1)
+    rule = _month_rule(1)
 
     spec = ContractSeriesSpec(
         product_id="ES",
         rule=rule,
-        start_session=np.datetime64("2026-03-17"),  # not in cal_days fixture
+        start_session=np.datetime64("2026-03-17"),
         end_session=np.datetime64("2026-03-19"),
     )
 
@@ -235,34 +247,29 @@ def test_build_contract_series_requires_start_in_calendar(engine_and_calendar) -
         build_contract_series(engine=engine, calendar_service=cal_svc, spec=spec)
 
 
-def test_build_contract_series_requires_end_in_calendar(engine_and_calendar) -> None:
+def test_build_contract_series_requires_end_in_calendar(
+    engine_and_calendar: EngineAndCalendar,
+) -> None:
     engine, cal_svc = engine_and_calendar
-
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=1)
+    rule = _month_rule(1)
 
     spec = ContractSeriesSpec(
         product_id="ES",
         rule=rule,
         start_session=np.datetime64("2026-03-18"),
-        end_session=np.datetime64("2026-03-22"),  # not in cal_days fixture
+        end_session=np.datetime64("2026-03-22"),
     )
 
     with pytest.raises(ValueError, match="end_session not in trading calendar"):
         build_contract_series(engine=engine, calendar_service=cal_svc, spec=spec)
 
 
-# ---------------------------------------------------------------------
-# Tests: Selection hard-fail (no partial builds)
-# ---------------------------------------------------------------------
-
-
-def test_build_contract_series_hard_fails_on_non_selected(engine_and_calendar) -> None:
+def test_build_contract_series_hard_fails_on_non_selected(
+    engine_and_calendar: EngineAndCalendar,
+) -> None:
     engine, cal_svc = engine_and_calendar
 
-    # Force failure: request rank far beyond eligible count -> engine.explain outcome="failed"
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=10)
+    rule = _month_rule(10)
     canon = canonical_relative_id(rule)
 
     spec = ContractSeriesSpec(
@@ -282,16 +289,11 @@ def test_build_contract_series_hard_fails_on_non_selected(engine_and_calendar) -
     assert "session=" in msg
 
 
-# ---------------------------------------------------------------------
-# Tests: Identity path + switch helpers
-# ---------------------------------------------------------------------
-
-
-def test_build_contract_series_identity_path_and_labels(engine_and_calendar) -> None:
+def test_build_contract_series_identity_path_and_labels(
+    engine_and_calendar: EngineAndCalendar,
+) -> None:
     engine, cal_svc = engine_and_calendar
-
-    pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
-    rule = SelectorRule(period_filter=pf, n=1)
+    rule = _month_rule(1)
 
     spec = ContractSeriesSpec(
         product_id="ES",
@@ -310,12 +312,6 @@ def test_build_contract_series_identity_path_and_labels(engine_and_calendar) -> 
     assert len(series.sessions) == len(series.contract_ids)
     assert len(series.sessions) == 5
 
-    # With eligibility ltd > as_of_session and ltd(ES-2026-03)=2026-03-20:
-    # - 2026-03-18 -> ES-2026-03 eligible => selected
-    # - 2026-03-19 -> ES-2026-03 eligible => selected
-    # - 2026-03-20 -> ES-2026-03 ineligible (strict >) => ES-2026-06 selected
-    # - 2026-03-23 -> ES-2026-06
-    # - 2026-03-24 -> ES-2026-06
     assert series.contract_ids == [
         "ES-2026-03",
         "ES-2026-03",
@@ -329,7 +325,6 @@ def test_build_contract_series_identity_path_and_labels(engine_and_calendar) -> 
     assert len(m) == len(series.sessions)
     assert not m[0]
 
-    # Switch occurs on 2026-03-20
     sw = series.switch_sessions()
     assert sw.tolist() == [np.datetime64("2026-03-20")]
 
@@ -348,18 +343,16 @@ def test_switch_helpers_no_switch_when_constant_contract() -> None:
         ),
         contract_ids=["ES-2026-03", "ES-2026-03"],
     )
+
     m = series.switch_mask()
     assert m.tolist() == [False, False]
     assert series.switch_sessions().tolist() == []
     assert series.switch_view() == []
 
 
-# ---------------------------------------------------------------------
-# Minimal integration-style smoke
-# ---------------------------------------------------------------------
-
-
-def test_build_contract_series_non_empty_smoke(engine_and_calendar) -> None:
+def test_build_contract_series_non_empty_smoke(
+    engine_and_calendar: EngineAndCalendar,
+) -> None:
     engine, cal_svc = engine_and_calendar
     pf = PeriodFilter(
         period_type=PeriodType.MONTH,
@@ -376,5 +369,6 @@ def test_build_contract_series_non_empty_smoke(engine_and_calendar) -> None:
     )
 
     series = build_contract_series(engine=engine, calendar_service=cal_svc, spec=spec)
+
     assert len(series.sessions) > 0
     assert all(isinstance(x, str) and x for x in series.contract_ids)

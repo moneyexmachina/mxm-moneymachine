@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pandas as pd
 
+from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
+    AttemptsCoverageSnapshot,
+    OHLCV1DAttemptRow,
+)
+from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
 from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
     BudgetContext,
     Decision,
@@ -26,16 +32,19 @@ def _ew(
     expected_end: pd.Timestamp,
     is_empty: bool = False,
     vendor_final: bool = False,
-):
+) -> ExpectedWindow:
     """
     Minimal ExpectedWindow-like object for unit tests.
     We only populate attributes used by derive_state/decide_action paths.
     """
-    return SimpleNamespace(
-        expected_start=expected_start,
-        expected_end=expected_end,
-        is_empty=is_empty,
-        vendor_final=vendor_final,
+    return cast(
+        ExpectedWindow,
+        SimpleNamespace(
+            expected_start=expected_start,
+            expected_end=expected_end,
+            is_empty=is_empty,
+            vendor_final=vendor_final,
+        ),
     )
 
 
@@ -44,9 +53,12 @@ def _cov(
     min_ts: pd.Timestamp | None,
     max_ts: pd.Timestamp | None,
     row_count: int,
-):
+) -> AttemptsCoverageSnapshot:
     """Minimal CoverageSnapshot-like object."""
-    return SimpleNamespace(min_ts=min_ts, max_ts=max_ts, row_count=int(row_count))
+    return cast(
+        AttemptsCoverageSnapshot,
+        SimpleNamespace(min_ts=min_ts, max_ts=max_ts, row_count=int(row_count)),
+    )
 
 
 def _attempt(
@@ -54,10 +66,13 @@ def _attempt(
     status: str,
     error_type: str | None = None,
     error_message: str | None = None,
-):
+) -> OHLCV1DAttemptRow:
     """Minimal OHLCV1DAttemptRow-like object (only fields used by decision logic)."""
-    return SimpleNamespace(
-        status=status, error_type=error_type, error_message=error_message
+    return cast(
+        OHLCV1DAttemptRow,
+        SimpleNamespace(
+            status=status, error_type=error_type, error_message=error_message
+        ),
     )
 
 
