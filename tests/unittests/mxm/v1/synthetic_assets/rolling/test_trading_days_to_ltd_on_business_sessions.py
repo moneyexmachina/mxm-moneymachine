@@ -36,8 +36,11 @@ class _FakeRefDataAPI:
     def __init__(self, contracts: Mapping[str, _FakeContract]) -> None:
         self._contracts = dict(contracts)
 
-    def get_contract_by_id(self, contract_id: str) -> _FakeContract | None:
-        return self._contracts.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> _FakeContract:
+        try:
+            return self._contracts[contract_id]
+        except KeyError as exc:
+            raise UnknownContractId(contract_id) from exc
 
 
 class _CalendarProtocol(Protocol):

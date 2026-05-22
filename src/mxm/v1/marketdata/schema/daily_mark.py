@@ -459,7 +459,7 @@ def _validate_daily_mark_carried_state(df: pd.DataFrame) -> None:
         )
 
     if bool((df.loc[carried_mask, "mark_quality"] != "carried").any()):
-        raise ValueError("daily_mark carried rows must have `mark_quality='carried'")
+        raise ValueError("daily_mark carried rows must have `mark_quality='carried'`")
 
     if bool((df.loc[carried_mask, "carry_streak"] <= 0).any()):
         raise ValueError("daily_mark carried rows must have `carry_streak > 0`")
@@ -510,7 +510,7 @@ def coerce_daily_mark(
     _coerce_daily_mark_source_trading_date(out)
     _coerce_daily_mark_dtypes(out)
     _coerce_daily_mark_price(out)
-    _sort_daily_mark_rows(out)
+    out = _sort_daily_mark_rows(out)
 
     if ensure_column_order:
         out = _order_daily_mark_columns(out)

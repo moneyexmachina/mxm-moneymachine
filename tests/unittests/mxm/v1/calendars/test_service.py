@@ -69,8 +69,8 @@ cmes:
     kind: test_fixture
     spec: {{}}
   observed:
-    start: 2026-01-02
-    end: 2026-01-05
+    start: "2026-01-02"
+    end: "2026-01-05"
     trading_days_artifact: trading_days_observed.parquet
     schedule_artifact: schedule_observed.parquet
     sha256:
@@ -78,8 +78,8 @@ cmes:
       schedule: "{_sha(cal_dir / "schedule_observed.parquet")}"
   projection:
     rule_id: test_projection
-    start: 2026-01-06
-    end: 2026-01-31
+    start: "2026-01-06"
+    end: "2026-01-31"
     trading_days_artifact: trading_days_projected.parquet
     sha256:
       trading_days: "{_sha(cal_dir / "trading_days_projected.parquet")}"

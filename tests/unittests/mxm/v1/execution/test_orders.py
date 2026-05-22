@@ -21,7 +21,6 @@ from mxm.v1.execution.orders import (
     OrderType,
 )
 from mxm.v1.utils.pandas_timestamps import ts_ns_to_pd_timestamp
-from mxm.v1.utils.time_utils import to_utc_ts
 from mxm.v1.utils.timestamps import TSNSScalar, ts_ns_from_str
 
 SESSION = np.datetime64("2026-03-12", "D")
@@ -533,12 +532,18 @@ def test_generate_orders_can_assign_different_timestamps_by_product_calendar() -
     )
 
     assert _order_tuples(result.orders) == [
-        ("corn_mar2026", 1, OrderType.MARKET, to_utc_ts("2026-03-12T08:00:00Z"), None),
+        (
+            "corn_mar2026",
+            1,
+            OrderType.MARKET,
+            ts_ns_from_str("2026-03-12T08:00:00.000000000Z"),
+            None,
+        ),
         (
             "wheat_jul2026",
             -1,
             OrderType.MARKET,
-            to_utc_ts("2026-03-12T09:30:00Z"),
+            ts_ns_from_str("2026-03-12T09:30:00.000000000Z"),
             None,
         ),
     ]

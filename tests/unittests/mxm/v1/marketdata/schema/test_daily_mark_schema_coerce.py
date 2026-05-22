@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from mxm.v1.marketdata.schema.daily_mark import (
     DAILY_MARK,
@@ -141,3 +142,11 @@ def test_coerce_daily_mark_allows_missing_optional_columns() -> None:
 
     assert list(out.columns) == list(DAILY_MARK.required)
     validate_daily_mark(out)
+
+
+def test_coerce_daily_mark_rejects_invalid_source_trading_date() -> None:
+    df = _base_df()
+    df.loc[1, "source_trading_date"] = "not-a-date"
+
+    with pytest.raises(ValueError, match=r"failed to coerce `source_trading_date`"):
+        coerce_daily_mark(df)

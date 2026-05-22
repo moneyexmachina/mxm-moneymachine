@@ -406,6 +406,26 @@ def test_build_component_weights_returns_business_session_indexed_weights(
 
     captured = _BuildWeightsCapture()
 
+    class _AlignedFakeTradingDays:
+        def __init__(self, sessions: np.ndarray) -> None:
+            self.sessions = sessions
+            self.trading_days_to_ltd = np.array([3, 2, 1, 0], dtype=np.int64)
+
+    def _fake_aligned_trading_days_to_ltd(
+        *,
+        product_id: str,
+        sessions: np.ndarray,
+        contract_ids: list[str],
+        calendar_service: TradingCalendarService,
+        refdata_api: RefDataAPI,
+    ) -> _AlignedFakeTradingDays:
+        captured.product_id = product_id
+        captured.sessions = sessions
+        captured.contract_ids = contract_ids
+
+        _ = calendar_service, refdata_api
+        return _AlignedFakeTradingDays(sessions)
+
     monkeypatch.setattr(
         cwmod,
         "_build_raw_anchor_contract_series_for_component",
@@ -415,7 +435,7 @@ def test_build_component_weights_returns_business_session_indexed_weights(
     monkeypatch.setattr(
         cwmod,
         "build_trading_days_to_ltd_on_business_sessions",
-        _fake_misaligned_trading_days_to_ltd,
+        _fake_aligned_trading_days_to_ltd,
     )
 
     monkeypatch.setattr(cwmod, "_build_roll_model", _build_fake_roll_model)

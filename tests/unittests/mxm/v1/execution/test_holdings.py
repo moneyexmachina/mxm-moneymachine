@@ -22,8 +22,11 @@ class DummyRefDataAPI:
     def __init__(self, contracts: dict[str, DummyContract]) -> None:
         self._contracts = contracts
 
-    def get_contract_by_id(self, contract_id: str) -> DummyContract | None:
-        return self._contracts.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> DummyContract:
+        try:
+            return self._contracts[contract_id]
+        except KeyError as exc:
+            raise ValueError(f"could not resolve held contract: {contract_id}") from exc
 
 
 def test_prepare_initial_holdings_returns_empty_bundle_for_empty_realised_holdings() -> (

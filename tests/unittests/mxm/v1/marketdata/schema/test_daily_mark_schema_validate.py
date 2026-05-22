@@ -49,24 +49,28 @@ def _base_df() -> pd.DataFrame:
     )
 
 
+def _valid_daily_mark() -> pd.DataFrame:
+    return coerce_daily_mark(_base_df())
+
+
 def test_validate_daily_mark_rejects_duplicates() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[1, "session_id"] = df.loc[0, "session_id"]
 
     with pytest.raises(ValueError, match=r"duplicate \(contract_id, session_id\)"):
-        _ = coerce_daily_mark(df, ensure_column_order=True)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_multi_contract_surface() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[1, "contract_id"] = "CME.ESU2025"
 
     with pytest.raises(ValueError, match=r"exactly one contract_id"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_unsorted_session_id() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.iloc[::-1].reset_index(drop=True)
 
     with pytest.raises(ValueError, match=r"`session_id` must be sorted increasing"):
@@ -74,22 +78,22 @@ def test_validate_daily_mark_rejects_unsorted_session_id() -> None:
 
 
 def test_validate_daily_mark_rejects_missing_required_column() -> None:
-    df = _base_df().drop(columns=["mark_quality"])
+    df = _valid_daily_mark().drop(columns=["mark_quality"])
 
     with pytest.raises(ValueError, match=r"missing required columns"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_null_session_id() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[0, "session_id"] = None
 
     with pytest.raises(ValueError, match=r"`session_id` contains null values"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_non_integer_session_id() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df["session_id"] = df["session_id"].astype("float64")
     df.loc[0, "session_id"] = 1.5
 
@@ -98,42 +102,42 @@ def test_validate_daily_mark_rejects_non_integer_session_id() -> None:
 
 
 def test_validate_daily_mark_rejects_negative_session_id() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[0, "session_id"] = -1
 
     with pytest.raises(ValueError, match=r"`session_id` must be non-negative"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_invalid_mark_source() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[1, "mark_source"] = "foo"
 
     with pytest.raises(ValueError, match=r"`mark_source` contains invalid values"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_invalid_mark_quality() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     df.loc[1, "mark_quality"] = "bar"
 
     with pytest.raises(ValueError, match=r"`mark_quality` contains invalid values"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_unavailable_rows_require_null_mark() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
     df.loc[unavailable_idx, "mark_px"] = 99.9
 
     with pytest.raises(ValueError, match=r"unavailable rows must have null `mark_px`"):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_unavailable_rows_require_mark_quality_unavailable() -> (
     None
 ):
-    df = _base_df()
+    df = _valid_daily_mark()
     unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
     df.loc[unavailable_idx, "mark_quality"] = "carried"
 
@@ -141,80 +145,80 @@ def test_validate_daily_mark_unavailable_rows_require_mark_quality_unavailable()
         ValueError,
         match=r"inconsistent unavailable state: `mark_source` and `mark_quality` must agree",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_unavailable_rows_require_is_markable_false() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
     df.loc[unavailable_idx, "is_markable"] = True
 
     with pytest.raises(
         ValueError, match=r"unavailable rows must have `is_markable=False`"
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_unavailable_rows_require_is_carried_false() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
     df.loc[unavailable_idx, "is_carried"] = True
 
     with pytest.raises(
         ValueError, match=r"unavailable rows must have `is_carried=False`"
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_unavailable_rows_require_zero_carry_streak() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     unavailable_idx = df.index[df["mark_source"] == "unavailable"][0]
     df.loc[unavailable_idx, "carry_streak"] = 1
 
     with pytest.raises(
         ValueError, match=r"unavailable rows must have `carry_streak=0`"
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_carried_rows_require_carry_forward_source() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     carried_idx = df.index[df["is_carried"] == True][0]  # noqa: E712
     df.loc[carried_idx, "mark_source"] = "observed_settle"
 
     with pytest.raises(
         ValueError,
-        match=r"carried rows must have `mark_source='carry_forward'`",
+        match=r"daily_mark carried rows must have `mark_source='carry_forward'`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_carried_rows_require_carried_quality() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     carried_idx = df.index[df["is_carried"] == True][0]  # noqa: E712
     df.loc[carried_idx, "mark_quality"] = "final"
 
     with pytest.raises(
         ValueError,
-        match=r"carried rows must have `mark_quality='carried'`",
+        match=r"daily_mark carried rows must have `mark_quality='carried'`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_carried_rows_require_positive_carry_streak() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     carried_idx = df.index[df["is_carried"] == True][0]  # noqa: E712
     df.loc[carried_idx, "carry_streak"] = 0
 
     with pytest.raises(
         ValueError,
-        match=r"carried rows must have `carry_streak > 0`",
+        match=r"daily_mark carried rows must have `carry_streak > 0`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_available_rows_require_non_null_mark() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     avail_idx = df.index[df["mark_source"] == "observed_close"][0]
     df.loc[avail_idx, "mark_px"] = None
 
@@ -222,11 +226,11 @@ def test_validate_daily_mark_available_rows_require_non_null_mark() -> None:
         ValueError,
         match=r"available rows must have non-null `mark_px`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_available_rows_require_is_markable_true() -> None:
-    df = _base_df()
+    df = _valid_daily_mark()
     avail_idx = df.index[df["mark_source"] == "observed_close"][0]
     df.loc[avail_idx, "is_markable"] = False
 
@@ -234,13 +238,13 @@ def test_validate_daily_mark_available_rows_require_is_markable_true() -> None:
         ValueError,
         match=r"available rows must have `is_markable=True`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_non_carried_available_rows_require_zero_carry_streak() -> (
     None
 ):
-    df = _base_df()
+    df = _valid_daily_mark()
     idx = df.index[df["mark_source"] == "observed_settle"][0]
     df.loc[idx, "carry_streak"] = 2
 
@@ -248,11 +252,11 @@ def test_validate_daily_mark_non_carried_available_rows_require_zero_carry_strea
         ValueError,
         match=r"non-carried available rows must have `carry_streak=0`",
     ):
-        _ = coerce_daily_mark(df)
+        validate_daily_mark(df)
 
 
 def test_validate_daily_mark_rejects_tz_aware_source_trading_date() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.copy()
     bad["source_trading_date"] = bad["source_trading_date"].dt.tz_localize("UTC")
 
@@ -264,22 +268,14 @@ def test_validate_daily_mark_rejects_tz_aware_source_trading_date() -> None:
 
 
 def test_validate_daily_mark_accepts_null_source_trading_date() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     out["source_trading_date"] = pd.NaT
 
     validate_daily_mark(out)
 
 
-def test_validate_daily_mark_rejects_invalid_source_trading_date() -> None:
-    df = _base_df()
-    df.loc[1, "source_trading_date"] = "not-a-date"
-
-    with pytest.raises(ValueError, match=r"failed to coerce `source_trading_date`"):
-        _ = coerce_daily_mark(df)
-
-
 def test_validate_daily_mark_rejects_non_string_source_dataset() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.copy()
     bad["source_dataset"] = pd.Series([1, 2, None, 4], dtype="Int64")
 
@@ -291,7 +287,7 @@ def test_validate_daily_mark_rejects_non_string_source_dataset() -> None:
 
 
 def test_validate_daily_mark_rejects_non_integer_source_publisher_id() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.copy()
     bad["source_publisher_id"] = pd.Series(
         [1.0, 1.0, None, 1.0],
@@ -306,7 +302,7 @@ def test_validate_daily_mark_rejects_non_integer_source_publisher_id() -> None:
 
 
 def test_validate_daily_mark_rejects_non_string_source_raw_symbol() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.copy()
     bad["source_raw_symbol"] = pd.Series([1, 2, None, 4], dtype="Int64")
 
@@ -318,7 +314,7 @@ def test_validate_daily_mark_rejects_non_string_source_raw_symbol() -> None:
 
 
 def test_validate_daily_mark_rejects_non_integer_instrument_id() -> None:
-    out = coerce_daily_mark(_base_df())
+    out = _valid_daily_mark()
     bad = out.copy()
     bad["instrument_id"] = pd.Series(
         [4916.0, 4916.0, None, 4916.0],

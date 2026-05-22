@@ -120,7 +120,7 @@ def _execution_result(x: DummyExecutionResult) -> ExecutionResult:
 
 
 def _session(value: str) -> np.datetime64:
-    return np.datetime64(value, "D")
+    return np.datetime64(value.replace("Z", ""), "D")
 
 
 def _fill_prices(mapping: dict[str, float]) -> pd.Series:

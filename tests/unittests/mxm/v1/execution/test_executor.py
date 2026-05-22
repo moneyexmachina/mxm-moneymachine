@@ -15,7 +15,6 @@ from mxm.v1.execution.executor import (
 )
 from mxm.v1.execution.orders import Order, OrderType
 from mxm.v1.execution.price_accessors import ExecutionPriceAccessor
-from mxm.v1.utils.time_utils import to_utc_ts
 from mxm.v1.utils.timestamps import TSNSScalar, ts_ns_from_str
 
 SESSION = np.datetime64("2026-03-12", "D")
@@ -302,9 +301,8 @@ def test_perfect_executor_sets_fill_timestamp_to_submission_timestamp_when_prese
     )
 
     result = executor.execute_orders(submission)
-
-    assert result.order_executions[0].fill_timestamp == to_utc_ts(
-        "2026-03-12T16:00:00Z"
+    assert result.order_executions[0].fill_timestamp == ts_ns_from_str(
+        "2026-03-12T16:00:00.000000000Z"
     )
 
 

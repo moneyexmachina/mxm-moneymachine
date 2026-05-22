@@ -86,8 +86,8 @@ def _write_registry(
     kind: test_fixture
     spec: {{}}
   observed:
-    start: 2026-01-02
-    end: {observed_end}
+    start: "2026-01-02"
+    end: "{observed_end}"
     trading_days_artifact: {observed_days_fn}
     schedule_artifact: {schedule_fn}
     sha256:
@@ -95,8 +95,8 @@ def _write_registry(
       schedule: "{schedule_sha}"
   projection:
     rule_id: test_projection
-    start: 2026-01-06
-    end: 2026-01-31
+    start: "2026-01-06"
+    end: "2026-01-31"
     trading_days_artifact: {projected_days_fn}
     sha256:
       trading_days: "{proj_sha}"

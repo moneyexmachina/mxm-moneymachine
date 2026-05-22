@@ -256,7 +256,7 @@ def ts_ns_from_pd_timestamp(ts: pd.Timestamp) -> TSNSScalar:
 
     ts_aware = _assert_pd_timestamp_tz_aware(ts)
     ts_utc = ts_aware.tz_convert("UTC")
-    ts_ns = ts_utc.to_datetime64()
+    ts_ns = ts_utc.to_datetime64().astype("datetime64[ns]")
     return assert_not_nat(assert_ts_ns(ts_ns))
 
 

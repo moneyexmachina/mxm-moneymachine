@@ -231,12 +231,14 @@ def _fake_build_target_holdings(
     spec: SyntheticAssetSpec,
     component_contracts: ComponentContracts,
     component_weights: ComponentWeights,
+    refdata_api: RefDataAPI,
     unit_converter: UnitConverter,
 ) -> TargetHoldings:
     _build_capture.holdings_kwargs = {
         "spec": spec,
         "component_contracts": component_contracts,
         "component_weights": component_weights,
+        "refdata_api": refdata_api,
         "unit_converter": unit_converter,
     }
 

@@ -25,8 +25,11 @@ class _FakeRefDataAPI:
         self._by_id = by_id or {}
         self._by_product = by_product or {}
 
-    def get_contract_by_id(self, contract_id: str) -> _FakeContract | None:
-        return self._by_id.get(contract_id)
+    def get_contract_by_id(self, contract_id: str) -> _FakeContract:
+        try:
+            return self._by_id[contract_id]
+        except KeyError as exc:
+            raise ValueError(f"unknown contract_id: {contract_id}") from exc
 
     def get_contracts_for_product(self, product_id: str) -> list[_FakeContract]:
         return list(self._by_product.get(product_id, []))

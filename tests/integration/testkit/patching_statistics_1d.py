@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import Any
 
 import pandas as pd
 from pytest import MonkeyPatch
@@ -280,12 +281,12 @@ def _fake_estimate_cost_statistics_1d(cfg: OfflineStats1DConfig):
         *,
         client: object,
         dataset: str,
-        schema: str,
-        start: object,
-        end: object,
         symbols: object,
+        stype_in: str = "raw_symbol",
+        start: str,
+        end: str,
     ) -> SimpleNamespace:
-        _ = (client, dataset, schema, start, end, symbols)
+        _ = (client, dataset, symbols, stype_in, start, end)
         return SimpleNamespace(estimated_cost_usd=cfg.estimated_cost_usd)
 
     return fake_estimate_cost_statistics_1d
@@ -296,14 +297,22 @@ def _fake_pull_statistics_1d_by_instrument_id(
 ):
     def fake_pull_statistics_1d_by_instrument_id(
         *,
-        client: object,
         dataset: str,
-        publisher_id: int,
         instrument_id: int,
-        start: object,
-        end: object,
+        start: str,
+        end: str,
+        source: str = "databento",
+        extra: Mapping[str, Any] | None = None,
+        force_refresh: bool = False,
     ) -> pd.DataFrame:
-        _ = (client, dataset, publisher_id, start, end)
+        _ = (
+            dataset,
+            start,
+            end,
+            source,
+            extra,
+            force_refresh,
+        )
         return stats_df_factory(instrument_id)
 
     return fake_pull_statistics_1d_by_instrument_id
