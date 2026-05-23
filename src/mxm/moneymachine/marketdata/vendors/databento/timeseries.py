@@ -13,7 +13,7 @@ from mxm.dataio.models import AdapterResult, Request
 from mxm.types import JSONMap, JSONObj, JSONValue
 
 SymbolsT = str | Sequence[str]
-# TODO(mxm-v1):
+# TODO(mxm-moneymachine):
 # Add dedicated tests for databento.timeseries adapter semantics:
 #
 # - Request parameter normalization and validation:
@@ -63,16 +63,16 @@ SymbolsT = str | Sequence[str]
 # - separate raw acquisition/caching from MXM semantic transformation
 # - centralize Databento protocols, request models, payload metadata, checksums,
 #   entitlement/range discovery, and vendor API drift tests
-# - allow mxm-v1 to depend on captured/validated raw material rather than on
+# - allow mxm-moneymachine to depend on captured/validated raw material rather than on
 #   live vendor client surfaces directly
 #
 # Proposed layering:
 #     vendor API
 #         -> mxm-datakraken acquisition adapter
 #         -> mxm-dataio cache/result substrate
-#         -> mxm-v1 normalization and curated marketdata datasets
+#         -> mxm-moneymachine normalization and curated marketdata datasets
 #
-# Deferred during mxm-v1 publication cleanup to avoid scope expansion.
+# Deferred during mxm-moneymachine publication cleanup to avoid scope expansion.
 class DatabentoTimeseriesResponse(Protocol):
     def to_df(self) -> pd.DataFrame: ...
 

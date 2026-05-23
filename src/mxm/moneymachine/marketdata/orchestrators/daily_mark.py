@@ -1,4 +1,4 @@
-# TODO(mxm-v1): daily_mark.py and daily_stats.py currently implement
+# TODO(mxm-moneymachine): daily_mark.py and daily_stats.py currently implement
 # parallel "derived surface" orchestration patterns:
 #
 #   upstream dataset snapshot

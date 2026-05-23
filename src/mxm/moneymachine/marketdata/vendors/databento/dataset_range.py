@@ -8,7 +8,7 @@ from mxm.moneymachine.marketdata.types import (
     InstrumentDefinitionsClient,
 )
 
-# TODO(mxm-v1):
+# TODO(mxm-moneymachine v1):
 # Add runtime contract tests for Databento metadata responses.
 #
 # Current guarantees are static only:

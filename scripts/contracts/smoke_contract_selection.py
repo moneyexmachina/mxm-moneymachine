@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """
-mxm-v1/scripts/contracts/smoke_contract_selection.py
-
 Human smoke-check for Session 18 contract selection.
 
 This script is NOT a unit test. It is a CLI-oriented inspection tool to:
@@ -11,8 +9,8 @@ This script is NOT a unit test. It is a CLI-oriented inspection tool to:
 
 It uses:
 - RefDataAPI (mxm-refdata)
-- TradingCalendarService (mxm-v1)
-- ContractSelectorEngine (mxm-v1 Session 18)
+- TradingCalendarService (mxm-moneymachine)
+- ContractSelectorEngine (mxm-moneymachine Session 18)
 
 Usage examples
 --------------
@@ -218,7 +216,7 @@ def print_series_summary(s: pd.Series, *, max_changes: int = 25) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Human smoke-check for MXM V1 contract selection (Session 18)."
+        description="Human smoke-check for MXM moneymachine contract selection (Session 18)."
     )
 
     parser.add_argument("--product", required=True, help="MXM product_id, e.g. ES")

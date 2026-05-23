@@ -1,4 +1,4 @@
-# TODO(mxm-v1):
+# TODO(mxm-moneymachine):
 # inspect/ohlcv_1d/product.py and inspect/statistics_1d/product.py now share
 # the same higher-level inspection/reporting structure:
 #

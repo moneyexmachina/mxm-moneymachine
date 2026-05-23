@@ -53,9 +53,9 @@ class BudgetContext:
     remaining_usd: float
 
 
-# TODO(mxm-v1): ohlcv_1d/state.py and statistics_1d/state.py currently
+# TODO(mxm-moneymachine): ohlcv_1d/state.py and statistics_1d/state.py currently
 # share near-identical windowed-ingest state/decision logic. Revisit
-# consolidation after mxm-v1 publication and CI stabilization.
+# consolidation after mxm-moneymachine publication and CI stabilization.
 # -------------------------
 # Helpers
 # -------------------------

@@ -1,12 +1,12 @@
-# TODO(mxm-v1): statistics_1d.py and ohlcv_1d.py currently implement
+# TODO(mxm-moneymachine): statistics_1d.py and ohlcv_1d.py currently implement
 # the same windowed vendor-ingest orchestration pattern with dataset-
 # specific adapters layered on top (store, attempts store, pull,
 # normalize, cost estimation, coverage semantics, reporting).
 #
-# After mxm-v1 publication and CI stabilization, extract a generic
+# After mxm-moneymachine publication and CI stabilization, extract a generic
 # windowed-ingest orchestration framework under:
 #
-#   mxm.v1.marketdata.orchestration.windowed_ingest
+#   mxm.moneymachine.marketdata.orchestration.windowed_ingest
 #
 # with dataset-specific configuration/spec objects rather than
 # duplicated orchestration control flow.

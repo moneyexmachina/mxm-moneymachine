@@ -13,7 +13,7 @@ from mxm.moneymachine.calendars.inspect import (
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="mxm-v1-calendars", description="MXM V1 calendar inspection tools"
+        prog="mxm-calendars", description="MXM calendar inspection tools"
     )
 
     p.add_argument(
