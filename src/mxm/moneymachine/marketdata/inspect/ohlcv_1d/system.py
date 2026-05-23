@@ -5,10 +5,10 @@ This module is part of the *inspection* layer. It is intentionally read-only and
 exists to aggregate product-level inspection models into a simple system-wide
 report.
 
-Normative constraints (MXM V1):
+Normative constraints (mxm-moneymachine):
 - This module MUST NOT implement coverage or completeness logic.
   Contract coverage semantics are defined in:
-      mxm.v1.marketdata.datasets.ohlcv_1d.coverage
+      mxm.moneymachine.marketdata.datasets.ohlcv_1d.coverage
 - This module MUST NOT perform ad-hoc timestamp manipulation.
   Persisted timestamp facts are stored as canonical ISO8601Z strings (e.g. *_ts_utc),
   and typed views (e.g. *_ts) are obtained only via explicit parse_ts at the model edge.
@@ -22,7 +22,6 @@ Design notes:
 
 from __future__ import annotations
 
-# mxm/v1/marketdata/inspect/ohlcv_1d/system.py
 from dataclasses import dataclass
 
 import pandas as pd

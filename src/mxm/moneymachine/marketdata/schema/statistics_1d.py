@@ -1,5 +1,5 @@
 """
-MXM V1 Marketdata — Canonical schemas and validation.
+MXM Marketdata — Canonical schemas and validation.
 
 Session 21 intent:
 - Freeze a minimal, opinionated schema for Databento `statistics` (rtype=24) events
@@ -55,12 +55,12 @@ Statistics1DDType = Literal[
 @dataclass(frozen=True)
 class Statistics1dSchema:
     """
-    Canonical schema for Databento `statistics` (rtype=24) event rows used within MXM V1.
+    Canonical schema for Databento `statistics` (rtype=24) event rows used within MXM.
 
     This schema is the contract between:
-    - vendor normalization (`mxm.v1.marketdata.vendors.databento.normalize.statistics_1d`)
+    - vendor normalization (`mxm.moneymachine.marketdata.vendors.databento.normalize.statistics_1d`)
     - storage (parquet writer/reader for statistics_1d)
-    - dataset-level serving/inspection utilities (`mxm.v1.marketdata.datasets.statistics_1d.*`)
+    - dataset-level serving/inspection utilities (`mxm.moneymachine.marketdata.datasets.statistics_1d.*`)
     """
 
     # Canonical column order for persisted/served frames

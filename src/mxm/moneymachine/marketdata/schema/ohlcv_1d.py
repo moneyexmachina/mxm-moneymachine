@@ -1,5 +1,5 @@
 """
-MXM V1 Marketdata — Canonical schemas and validation.
+MXM Marketdata — Canonical schemas and validation.
 
 Session 4 intent:
 - Freeze a minimal, opinionated schema for Databento `ohlcv-1d` daily bars.
@@ -39,12 +39,12 @@ Ohlcv1DDType = Literal[
 @dataclass(frozen=True)
 class Ohlcv1dSchema:
     """
-    Canonical schema for daily OHLCV bars (`ohlcv-1d`) used within MXM V1.
+    Canonical schema for daily OHLCV bars (`ohlcv-1d`) used within MXM.
 
     This schema is the contract between:
-    - vendor normalization (`mxm.v1.marketdata.vendors.databento.normalize.ohlcv_1d`)
-    - storage (`mxm.v1.marketdata.stores.parquet.daily_bars`)
-    - serving API (`mxm.v1.marketdata.datasets.ohlcv_1d.api`)
+    - vendor normalization (`mxm.moneymachine.marketdata.vendors.databento.normalize.ohlcv_1d`)
+    - storage (`mxm.moneymachine.marketdata.stores.parquet.daily_bars`)
+    - serving API (`mxm.moneymachine.marketdata.datasets.ohlcv_1d.api`)
     """
 
     # Canonical column order for persisted/served frames

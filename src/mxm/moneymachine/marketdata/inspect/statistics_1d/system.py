@@ -5,7 +5,7 @@ This module is part of the *inspection* layer. It is intentionally read-only and
 exists to aggregate product-level inspection models into a simple system-wide
 report.
 
-Normative constraints (MXM V1):
+Normative constraints (mxm-moneymachine):
 - MUST NOT read dataset payloads (no parquet reads).
 - MUST NOT implement event-stream semantics (settlement selection, final tie-breaking, etc.).
 - Product status semantics MUST be delegated to inspect/statistics_1d/product.py.
@@ -18,7 +18,6 @@ Design notes:
 
 from __future__ import annotations
 
-# mxm/v1/marketdata/inspect/statistics_1d/system.py
 from dataclasses import dataclass
 
 import pandas as pd

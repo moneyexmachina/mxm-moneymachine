@@ -1,7 +1,5 @@
 """
-mxm.v1.pnl.models
-
-Canonical PnL result models for MXM V1.
+Canonical PnL result models for mxm-moneymachine.
 
 This module defines the core data structures used to represent economic
 profit-and-loss results produced by MXM backtests.

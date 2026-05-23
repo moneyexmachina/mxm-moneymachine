@@ -162,7 +162,7 @@ def main() -> None:
     print(f"{fg(STRUCT)}{hr(w)}{RESET}")
 
     # Footer hint (keep minimal)
-    hint = f"{fg(NEUTRAL)}Hint:{RESET} {fg(TEXT)}mxm-marketdata --help{RESET}  {fg(NEUTRAL)}·{RESET}  {fg(TEXT)}mxm v1 marketdata ops{RESET}"
+    hint = f"{fg(NEUTRAL)}Hint:{RESET} {fg(TEXT)}mxm-marketdata --help{RESET}  {fg(NEUTRAL)}·{RESET}  {fg(TEXT)}mxm marketdata ops{RESET}"
     print(hint)
 
     # Bottom padding / reset

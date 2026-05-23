@@ -1,5 +1,5 @@
 """
-MXM V1 Marketdata — Canonical schema and validation for derived `daily_stats`.
+MXM Marketdata — Canonical schema and validation for derived `daily_stats`.
 
 Intent (Session 22e):
 - Freeze a minimal, opinionated schema for `daily_stats`, derived from `statistics_1d`.
@@ -43,7 +43,7 @@ class DailyStatsSchema:
     Canonical schema for MXM `daily_stats` surfaces (derived, one row per session date).
 
     Contract between:
-    - selection/derivation (`mxm.v1.marketdata.datasets.daily_stats.selection`)
+    - selection/derivation (`mxm.moneymachine.marketdata.datasets.daily_stats.selection`)
     - storage (parquet writer/reader for daily_stats)
     - dataset-level serving/inspection utilities
     """
@@ -163,7 +163,7 @@ def validate_daily_stats(df: pd.DataFrame) -> None:
     """
     Validate that `df` conforms to the canonical daily_stats surface schema.
 
-    Contract (MXM V1)
+    Contract
     -----------------
     - session_date is a day label represented as a tz-aware UTC timestamp
       aligned to UTC midnight (00:00:00Z).

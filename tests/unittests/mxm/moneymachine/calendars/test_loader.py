@@ -77,7 +77,7 @@ def _write_registry(
         sha256:
           trading_days: ...
 
-    This matches validate_registry_entry() expectations in mxm.v1.calendars.registry.
+    This matches validate_registry_entry() expectations in mxm.moneymachine.calendars.registry.
     """
     reg = f"""
 {calendar_id}:

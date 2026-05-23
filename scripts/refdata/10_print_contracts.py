@@ -3,7 +3,7 @@
 Pretty-print contracts for a futures product from mxm-refdata.
 
 This is a Session-6-era inspection/proof script. It favors clarity over permanence.
-If it becomes a regular operator tool, promote it into mxm.v1.bin or a Typer CLI.
+If it becomes a regular operator tool, promote it into mxm.moneymachine.bin or a Typer CLI.
 
 Examples:
   poetry run python scripts/refdata/10_print_contracts.py --product-id cme_emini_snp500_futures

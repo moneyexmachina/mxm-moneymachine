@@ -1,7 +1,5 @@
 """
-mxm.v1.pnl
-
-Economic PnL construction layer for MXM V1 backtests.
+Economic PnL construction layer for mxm-moneymachine backtests.
 
 This module converts the execution state transitions produced by the
 backtesting engine into an economic profit-and-loss representation.

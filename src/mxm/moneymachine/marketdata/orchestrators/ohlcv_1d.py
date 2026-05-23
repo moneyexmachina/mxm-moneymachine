@@ -6,7 +6,7 @@
 # After mxm-moneymachine publication and CI stabilization, extract a generic
 # windowed-ingest orchestration framework under:
 #
-#   mxm.v1.marketdata.orchestration.windowed_ingest
+#   mxm.moneymachine.marketdata.orchestration.windowed_ingest
 #
 # with dataset-specific configuration/spec objects rather than
 # duplicated orchestration control flow.

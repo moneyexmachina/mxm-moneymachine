@@ -24,10 +24,10 @@ Separation of concerns
     - performs DataIO-backed fetches
     - decodes cached Parquet bytes to pandas DataFrame
 - Dataset-specific normalization logic lives under:
-    mxm.v1.marketdata.vendors.databento.normalize.*
+    mxm.moneymachine.marketdata.vendors.databento.normalize.*
 - Dataset-level orchestration (expected windows, attempts, coverage)
   lives under:
-    mxm.v1.marketdata.datasets.*
+    mxm.moneymachine.marketdata.datasets.*
 
 Supported schemas (current)
 ---------------------------

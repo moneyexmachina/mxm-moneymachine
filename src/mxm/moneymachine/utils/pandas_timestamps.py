@@ -1,10 +1,8 @@
 """
-mxm.v1.utils.pandas_timestamps
-
 Pandas boundary adapters for the MXM canonical timestamp model.
 
 This module defines explicit representation bridges between the canonical MXM
-timestamp substrate in `mxm.v1.utils.timestamps` and pandas timestamp
+timestamp substrate in `mxm.moneymachine.utils.timestamps` and pandas timestamp
 representations.
 
 The canonical MXM model is:
@@ -118,7 +116,7 @@ def is_pd_timestamp_for_ts_ns(x: object) -> TypeGuard[pd.Timestamp]:
     Notes
     -----
     This predicate does not define canonical MXM timestamp semantics. Those are
-    owned by `mxm.v1.utils.timestamps`.
+    owned by `mxm.moneymachine.utils.timestamps`.
 
     It defines the authoritative pandas-side representation contract for
     canonical MXM timestamps.

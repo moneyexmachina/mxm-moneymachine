@@ -1,8 +1,5 @@
 """
-mxm.v1.synthetic_assets
-=======================
-
-Synthetic Asset Instrument Definitions (MXM V1).
+Synthetic Asset Instrument Definitions.
 
 Position in Architecture
 ------------------------

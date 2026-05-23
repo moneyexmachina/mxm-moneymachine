@@ -1,11 +1,11 @@
 """
-MXM V1 — TradingCalendar model: session labels, optional UTC schedule, and trading-day arithmetic.
+MXM — TradingCalendar model: session labels, optional UTC schedule, and trading-day arithmetic.
 
-This module defines the runtime calendar object used throughout MXM V1.
+This module defines the runtime calendar object used throughout MXM.
 
 Calendar surfaces
 -----------------
-MXM V1 calendar logic distinguishes two related but separate surfaces:
+MXM calendar logic distinguishes two related but separate surfaces:
 
 1) Session labels (required)
    - `trading_days`: numpy datetime64[D]
@@ -25,7 +25,7 @@ Authority & scope
 -----------------
 - This module does not call upstream calendar packages at runtime.
 - Calendars are loaded from pre-materialised artifacts (labels and optionally schedule).
-- Time coercion/normalisation is delegated to `mxm.v1.utils.time_utils`.
+- Time coercion/normalisation is delegated to `mxm.moneymachine.utils.time_utils`.
 
 Non-goals
 ---------
@@ -74,7 +74,7 @@ class _ScheduleCache(NamedTuple):
 @dataclass(frozen=True, slots=True)
 class TradingCalendar:
     """
-    Immutable trading calendar for MXM V1.
+    Immutable trading calendar for MXM.
 
     Parameters
     ----------
@@ -492,7 +492,7 @@ class TradingCalendar:
         """
         Alias for `most_recent_session`.
 
-        This is the MXM V1 "processing anchor" session label: the latest session
+        This is the MXM "processing anchor" session label: the latest session
         that is complete as of the given UTC timestamp.
         """
         return self.most_recent_session(as_of_ts)

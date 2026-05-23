@@ -1,6 +1,4 @@
 """
-mxm.v1.utils.timestamps
-
 Canonical timestamp substrate for the MXM system.
 
 This module defines the authoritative internal representation of timestamps in

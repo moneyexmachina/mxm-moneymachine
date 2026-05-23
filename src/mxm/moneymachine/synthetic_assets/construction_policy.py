@@ -1,5 +1,5 @@
 """
-MXM V1 — Synthetic Asset Construction Policy
+MXM — Synthetic Asset Construction Policy
 
 This module defines the declarative policy describing which synthetic assets
 should be constructed for each futures product.
@@ -32,7 +32,7 @@ synthetic asset surface.
 Compilation of this policy into concrete SyntheticAssetSpec objects is handled
 by:
 
-    mxm.v1.synthetic_assets.policy_compile
+    mxm.moneymachine.synthetic_assets.policy_compile
 
 Design constraints
 ------------------

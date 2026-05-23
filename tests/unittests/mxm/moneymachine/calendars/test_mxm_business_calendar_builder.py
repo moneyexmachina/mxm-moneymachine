@@ -24,13 +24,13 @@ def _ts_ns_array(*timestamps: str) -> NDArray[np.datetime64]:
 class TestBuildMXMBusinessCalendarHappyPath:
     def test_builds_calendar_for_simple_weekday_span(self) -> None:
         calendar = build_mxm_business_calendar(
-            calendar_id="  MXM_V1_Business  ",
+            calendar_id="  MXM_Business  ",
             start_label=np.datetime64("2024-01-02", "D"),
             end_label=np.datetime64("2024-01-05", "D"),
         )
 
         assert isinstance(calendar, MXMBusinessCalendar)
-        assert calendar.calendar_id == "mxm_v1_business"
+        assert calendar.calendar_id == "mxm_business"
         assert np.array_equal(
             calendar.session_ids,
             np.array([0, 1, 2, 3], dtype=np.int64),

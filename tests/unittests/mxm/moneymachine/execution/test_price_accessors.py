@@ -324,7 +324,7 @@ def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_ses
         return _valid_daily_stats_frame(price_field="settle", product_id="corn")
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -360,7 +360,7 @@ def test_daily_stats_accessor_uses_selected_price_field(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -391,7 +391,7 @@ def test_daily_stats_accessor_loads_product_only_once(
         return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -435,7 +435,7 @@ def test_daily_stats_accessor_loads_different_products_separately(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -464,7 +464,7 @@ def test_daily_stats_accessor_raises_for_unknown_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_default_daily_stats_product,
     )
 
@@ -491,7 +491,7 @@ def test_daily_stats_accessor_raises_for_empty_daily_stats(
         return pd.DataFrame()
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -524,7 +524,7 @@ def test_daily_stats_accessor_raises_for_missing_required_columns(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -558,7 +558,7 @@ def test_daily_stats_accessor_raises_for_missing_price_field_column(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -592,7 +592,7 @@ def test_daily_stats_accessor_raises_for_null_contract_id(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -626,7 +626,7 @@ def test_daily_stats_accessor_raises_for_null_trading_date(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -660,7 +660,7 @@ def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -697,7 +697,7 @@ def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -732,7 +732,7 @@ def test_daily_stats_accessor_raises_for_non_numeric_price_field(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -766,7 +766,7 @@ def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_daily_stats_product,
     )
 
@@ -783,7 +783,7 @@ def test_daily_stats_accessor_raises_for_missing_contract_day_price(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_stats_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_stats_product",
         _read_default_daily_stats_product,
     )
 
@@ -849,7 +849,7 @@ def test_daily_mark_accessor_returns_execution_price_for_valid_contract_and_sess
         return _valid_daily_mark_frame(product_id="corn")
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -867,7 +867,7 @@ def test_daily_mark_accessor_coerces_session_like_input_to_session_day(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_default_daily_mark_product,
     )
 
@@ -899,7 +899,7 @@ def test_daily_mark_accessor_loads_product_only_once(
         return _valid_daily_mark_frame(product_id=product_id)
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -945,7 +945,7 @@ def test_daily_mark_accessor_loads_different_products_separately(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -978,7 +978,7 @@ def test_daily_mark_accessor_raises_for_unknown_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_default_daily_mark_product,
     )
 
@@ -1012,7 +1012,7 @@ def test_daily_mark_accessor_raises_for_empty_daily_mark(
         return pd.DataFrame()
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1052,7 +1052,7 @@ def test_daily_mark_accessor_raises_for_missing_required_columns(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1093,7 +1093,7 @@ def test_daily_mark_accessor_raises_for_null_contract_id(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1134,7 +1134,7 @@ def test_daily_mark_accessor_raises_for_null_session_id(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1175,7 +1175,7 @@ def test_daily_mark_accessor_raises_when_no_markable_rows_exist(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1216,7 +1216,7 @@ def test_daily_mark_accessor_raises_for_null_mark_px_in_markable_rows(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1257,7 +1257,7 @@ def test_daily_mark_accessor_raises_for_non_numeric_mark_px(
         )
 
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_daily_mark_product,
     )
 
@@ -1279,7 +1279,7 @@ def test_daily_mark_accessor_raises_when_session_label_not_in_calendar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_default_daily_mark_product,
     )
 
@@ -1301,7 +1301,7 @@ def test_daily_mark_accessor_raises_for_missing_contract_session_price(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "mxm.v1.execution.price_accessors.read_daily_mark_product",
+        "mxm.moneymachine.execution.price_accessors.read_daily_mark_product",
         _read_default_daily_mark_product,
     )
 

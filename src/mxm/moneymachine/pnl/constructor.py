@@ -1,7 +1,5 @@
 """
-mxm.v1.pnl.constructor
-
-PnL constructor for MXM V1.
+PnL constructor for mxm-moneymachine.
 
 This module converts an ordered sequence of SessionResult objects into a
 canonical PnLSeries.

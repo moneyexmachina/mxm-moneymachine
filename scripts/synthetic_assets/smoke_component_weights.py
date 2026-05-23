@@ -14,7 +14,7 @@ Optional overrides:
         --asset-id <asset_id> \
         --start 2025-01-02 \
         --end 2025-02-28 \
-        --mxm-business-calendar-id mxm_v1_business
+        --mxm-business-calendar-id mxm_business
 
 This is a human inspection tool, not a regression test.
 """
@@ -55,7 +55,7 @@ from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStub
 # Defaults
 # ---------------------------------------------------------------------
 
-DEFAULT_MXM_BUSINESS_CALENDAR_ID = "mxm_v1_business"
+DEFAULT_MXM_BUSINESS_CALENDAR_ID = "mxm_business"
 
 # ---------------------------------------------------------------------
 # CLI

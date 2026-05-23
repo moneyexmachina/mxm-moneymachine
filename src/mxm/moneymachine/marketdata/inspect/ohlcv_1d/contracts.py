@@ -4,10 +4,10 @@ Inspection adapter for contract-level OHLCV-1D coverage.
 This module is part of the *inspection* layer. It is intentionally read-only and
 exists to project persisted attempt-ledger rows into inspection view models.
 
-Normative constraints (MXM V1):
+Normative constraints (mxm-moneymachine):
 - This module MUST NOT implement coverage or completeness logic.
   All coverage semantics are defined in:
-      mxm.v1.marketdata.datasets.ohlcv_1d.coverage
+      mxm.moneymachine.marketdata.datasets.ohlcv_1d.coverage
 - This module MUST NOT perform its own timestamp / day-boundary manipulation.
   Time normalization is delegated to the dataset semantic layer and/or stores.
 - Status fields (status, status_detail, vendor_final, is_empty) are treated as

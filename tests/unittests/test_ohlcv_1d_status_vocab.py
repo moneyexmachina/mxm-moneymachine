@@ -65,7 +65,7 @@ def _repo_root() -> Path:
     "relpath",
     [
         # writer surface
-        "src/mxm/v1/marketdata/orchestrators/ohlcv_1d.py",
+        "src/mxm/moneymachine/marketdata/orchestrators/ohlcv_1d.py",
         # if you ever move it, add the new path here
     ],
 )

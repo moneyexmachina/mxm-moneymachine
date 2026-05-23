@@ -1,8 +1,5 @@
 """
-mxm.v1.synthetic_assets.models
-==============================
-
-Domain models for Synthetic Asset instrument definitions (MXM V1).
+Domain models for Synthetic Asset instrument definitions (mxm-moneymachine).
 
 This module defines the canonical, static specification objects for
 synthetic assets. These models represent instrument definitions,
@@ -89,7 +86,6 @@ All time-indexed surfaces are constructed in later sessions by combining:
 
 from __future__ import annotations
 
-# mxm/v1/synthetic_assets/models.py
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass

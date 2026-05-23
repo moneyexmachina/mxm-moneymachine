@@ -16,7 +16,7 @@ Optional overrides:
         --start 2025-01-02 \
         --end 2025-01-16 \
         --mxm-business-base-calendar-id cmes \
-        --mxm-business-calendar-id mxm_v1_business
+        --mxm-business-calendar-id mxm_business
 
 This is a human inspection tool, not a regression test.
 """

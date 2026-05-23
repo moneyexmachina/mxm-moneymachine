@@ -1,5 +1,5 @@
 """
-MXM V1 — Trading Calendar Builders.
+MXM — Trading Calendar Builders.
 
 This module contains **operational builders** responsible for generating
 calendar refdata artifacts and updating the calendar registry.
@@ -153,7 +153,7 @@ def build_exchange_calendars_v1(
     root: Path | None = None,
 ) -> None:
     """
-    Build MXM V1 calendar artifacts using exchange_calendars for observed schedule.
+    Build MXM calendar artifacts using exchange_calendars for observed schedule.
 
     Writes (under <root>/<calendar_id>/):
       - schedule_observed.parquet
@@ -263,7 +263,7 @@ def build_exchange_calendars_v1(
         ),
         generated_at=now,
         builder=BuilderInfo(
-            builder_id="mxm.v1.calendars.builders.build_exchange_calendars_v1",
+            builder_id="mxm.moneymachine.calendars.builders.build_exchange_calendars_v1",
             mxm_version=None,
             params={
                 "exchange_calendar_name": exchange_calendar_name,

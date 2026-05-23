@@ -48,7 +48,7 @@ def _make_mxm_business_calendar() -> MXMBusinessCalendar:
     end_ts = (start_ts + np.timedelta64(1, "D")).astype("datetime64[ns]")
 
     return MXMBusinessCalendar(
-        calendar_id="mxm_v1_business",
+        calendar_id="mxm_business",
         session_ids=np.arange(labels.size, dtype=np.int64),
         labels=labels,
         start_ts=start_ts,

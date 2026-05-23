@@ -51,7 +51,7 @@ def _make_valid_end_ts() -> NDArray[np.datetime64]:
 
 def make_valid_calendar(
     *,
-    calendar_id: str = "  MXM_V1_Business  ",
+    calendar_id: str = "  MXM_Business  ",
     session_ids: NDArray[np.int64] | None = None,
     labels: NDArray[np.datetime64] | None = None,
     start_ts: NDArray[np.datetime64] | None = None,
@@ -68,7 +68,7 @@ def make_valid_calendar(
 
 class TestCanonicalCalendarId:
     def test_canonical_calendar_id_strips_and_lowercases(self) -> None:
-        assert canonical_calendar_id("  MXM_V1_Business  ") == "mxm_v1_business"
+        assert canonical_calendar_id("  MXM_Business  ") == "mxm_business"
 
     def test_canonical_calendar_id_rejects_empty_after_strip(self) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
@@ -79,7 +79,7 @@ class TestMXMBusinessCalendarConstruction:
     def test_constructs_valid_calendar(self) -> None:
         cal = make_valid_calendar()
 
-        assert cal.calendar_id == "mxm_v1_business"
+        assert cal.calendar_id == "mxm_business"
         assert len(cal) == 3
         assert np.array_equal(cal.session_ids, _make_valid_session_ids())
         assert np.array_equal(cal.labels, _make_valid_labels())
@@ -100,7 +100,7 @@ class TestMXMBusinessCalendarConstruction:
             ),
         )
 
-        assert cal.calendar_id == "mxm_v1_business"
+        assert cal.calendar_id == "mxm_business"
         assert len(cal) == 1
         assert cal.session_ids[0] == 0
         assert cal.labels[0] == np.datetime64("2024-01-02", "D")

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import databento as db
-from mxm_secrets import get_secret
 
 from mxm.dataio.registry import list_registered, register
 from mxm.moneymachine.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
@@ -20,6 +19,7 @@ from mxm.moneymachine.marketdata.vendors.databento.timeseries import (
     DatabentoTimeseriesFetcher,
 )
 from mxm.moneymachine.utils.time_utils import utc_now_run_ts
+from mxm.secrets import get_secret
 
 
 def _to_jsonable(obj: Any) -> Any:

@@ -2,10 +2,10 @@
 Shared orchestration domain types (provisional).
 
 This module defines the small, stable vocabulary used across the
-`mxm.v1.marketdata.orchestration` package.
+`mxm.moneymachine.marketdata.orchestration` package.
 
 "Provisional" means:
-- these types are intended to implement the MXM V1 normative semantics,
+- these types are intended to implement the MXM normative semantics,
   but the authoritative status/status_detail taxonomy still lives in the
   normative semantics document(s);
 - this vocabulary is deliberately coarse and dataset-agnostic;

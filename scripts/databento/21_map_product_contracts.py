@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-scripts/databento/21_map_product_contracts.py
-
 Session 6 proof script (metadata-side only; no rated time-series requests):
 
 - Enumerate MXM contracts for a product_id (via mxm-refdata).
 - Resolve Databento parent symbology via a small code-maintained mapping table.
-- Use Databento *reference/symbology* APIs (via mxm.v1.vendor_mapping.databento) to:
+- Use Databento *reference/symbology* APIs (via mxm.moneymachine.vendor_mapping.databento) to:
     - enumerate instruments under the parent
     - retrieve instrument definitions (expiration anchors)
     - normalize into a join-friendly vendor table
@@ -38,7 +36,6 @@ from typing import Any
 # Databento
 import databento as db  # type: ignore
 import pandas as pd
-from mxm_secrets import get_secret
 from rich.console import Console
 from rich.table import Table
 
@@ -55,6 +52,7 @@ from mxm.moneymachine.marketdata.mapping.vendors.databento.store_sqlite import (
 
 # MXM
 from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.secrets import get_secret
 
 
 def _parse_date(s: str | None) -> date | None:
