@@ -8,12 +8,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
-from mxm.v1.marketdata.datasets.daily_mark.store import DailyMarkStore
-from mxm.v1.marketdata.orchestrators.daily_mark import derive_daily_mark_for_product
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.utils.date_utils import coerce_np_day
-from mxm.v1.utils.time_utils import utc_now_run_ts
+from mxm.moneymachine.calendars.mxm_business_calendar_service import (
+    MXMBusinessCalendarService,
+)
+from mxm.moneymachine.marketdata.datasets.daily_mark.store import DailyMarkStore
+from mxm.moneymachine.marketdata.orchestrators.daily_mark import (
+    derive_daily_mark_for_product,
+)
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.utils.date_utils import coerce_np_day
+from mxm.moneymachine.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: object) -> object:

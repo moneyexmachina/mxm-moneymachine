@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 @dataclass(frozen=True)

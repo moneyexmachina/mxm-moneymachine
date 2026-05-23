@@ -4,8 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from mxm.v1.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
-from mxm.v1.synthetic_assets.spec_registry_layout import (
+from mxm.moneymachine.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
+from mxm.moneymachine.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
 

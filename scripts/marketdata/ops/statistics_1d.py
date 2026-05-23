@@ -10,14 +10,16 @@ import databento as db
 from mxm_secrets import get_secret
 
 from mxm.dataio.registry import list_registered, register
-from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
-from mxm.v1.marketdata.orchestrators.statistics_1d import (
+from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.moneymachine.marketdata.orchestrators.statistics_1d import (
     ingest_statistics_1d_for_product,
 )
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
-from mxm.v1.utils.time_utils import utc_now_run_ts
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.vendors.databento.timeseries import (
+    DatabentoTimeseriesFetcher,
+)
+from mxm.moneymachine.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:

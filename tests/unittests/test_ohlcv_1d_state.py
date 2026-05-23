@@ -5,12 +5,12 @@ from typing import cast
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.attempts_store import (
     AttemptsCoverageSnapshot,
     OHLCV1DAttemptRow,
 )
-from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
-from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.state import (
     BudgetContext,
     Decision,
     DerivedState,

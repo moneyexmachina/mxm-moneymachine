@@ -3,15 +3,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mxm.refdata.api.ref_data_api import RefDataAPI
-from mxm.refdata.models.products.futures_product import FuturesProduct
-from mxm.v1.synthetic_assets.construction_policy import v1_policy
-from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
-from mxm.v1.synthetic_assets.policy_compile import compile_specs_from_policy
-from mxm.v1.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
-from mxm.v1.synthetic_assets.spec_registry_layout import (
+from mxm.moneymachine.synthetic_assets.construction_policy import v1_policy
+from mxm.moneymachine.synthetic_assets.models import SyntheticAssetSpec
+from mxm.moneymachine.synthetic_assets.policy_compile import compile_specs_from_policy
+from mxm.moneymachine.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
+from mxm.moneymachine.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.products.futures_product import FuturesProduct
 
 
 def default_registry_layout() -> SyntheticAssetSpecRegistryLayout:

@@ -4,8 +4,8 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.parquet.statistics_1d import (
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.parquet.statistics_1d import (
     ensure_statistics_1d_meta,
     read_statistics_1d_meta,
 )

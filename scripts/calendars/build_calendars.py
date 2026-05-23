@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from mxm.v1.calendars.builders import build_exchange_calendars_v1
+from mxm.moneymachine.calendars.builders import build_exchange_calendars_v1
 
 
 @dataclass(frozen=True, slots=True)

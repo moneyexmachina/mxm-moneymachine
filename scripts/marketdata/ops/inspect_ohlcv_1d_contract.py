@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.ohlcv_1d.contracts import (
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.attempts_store import (
+    OHLCV1DAttemptsStore,
+)
+from mxm.moneymachine.marketdata.inspect.ohlcv_1d.contracts import (
     get_contract_coverage_from_latest_attempt,
 )
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 def main() -> int:

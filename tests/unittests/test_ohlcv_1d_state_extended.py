@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
-from mxm.v1.marketdata.datasets.ohlcv_1d.state import (
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.expected import ExpectedWindow
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.state import (
     BudgetContext,
     DerivedState,
     RetryPolicy,

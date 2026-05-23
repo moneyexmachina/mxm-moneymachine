@@ -10,26 +10,28 @@ import databento as db
 from mxm_secrets import get_secret
 
 from mxm.dataio.registry import list_registered, register
-from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
-from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
+from mxm.moneymachine.marketdata.datasets.daily_stats.store import DailyStatsStore
+from mxm.moneymachine.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
-from mxm.v1.marketdata.datasets.instrument_definitions.store import (
+from mxm.moneymachine.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
 )
-from mxm.v1.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
-from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
-from mxm.v1.marketdata.orchestrators.product_marketdata import (
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.store import OHLCV1DStore
+from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.moneymachine.marketdata.orchestrators.product_marketdata import (
     ProductMarketDataStores,
     ingest_product_marketdata,
 )
-from mxm.v1.marketdata.orchestrators.product_marketdata_attempts_store import (
+from mxm.moneymachine.marketdata.orchestrators.product_marketdata_attempts_store import (
     ProductMarketdataAttemptsStore,
 )
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.marketdata.vendors.databento.timeseries import DatabentoTimeseriesFetcher
-from mxm.v1.utils.time_utils import utc_now_run_ts
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.vendors.databento.timeseries import (
+    DatabentoTimeseriesFetcher,
+)
+from mxm.moneymachine.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:

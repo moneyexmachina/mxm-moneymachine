@@ -47,11 +47,11 @@ from datetime import UTC, date, datetime
 
 import pandas as pd
 
+from mxm.moneymachine.calendars.service import TradingCalendarService
+from mxm.moneymachine.contracts.engine import ContractSelectorEngine
+from mxm.moneymachine.contracts.selectors import PeriodFilter, SelectorRule
 from mxm.refdata.api.ref_data_api import RefDataAPI
 from mxm.refdata.models.periods import PeriodType
-from mxm.v1.calendars.service import TradingCalendarService
-from mxm.v1.contracts.engine import ContractSelectorEngine
-from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
 
 # -----------------------------
 # CLI parsing helpers

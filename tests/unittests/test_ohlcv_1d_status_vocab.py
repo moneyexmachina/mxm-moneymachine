@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.state import DerivedState
-from mxm.v1.marketdata.inspect.models import AttemptStatus, ProductStatus
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.state import DerivedState
+from mxm.moneymachine.marketdata.inspect.models import AttemptStatus, ProductStatus
 
 AUTHORITATIVE_ATTEMPT_STATUSES = {
     "unmapped",

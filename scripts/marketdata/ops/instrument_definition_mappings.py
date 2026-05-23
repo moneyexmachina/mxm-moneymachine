@@ -26,18 +26,18 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from mxm.v1.marketdata.datasets.instrument_definition_mappings.build import (
+from mxm.moneymachine.marketdata.datasets.instrument_definition_mappings.build import (
     rebuild_instrument_definition_mappings,
 )
-from mxm.v1.marketdata.datasets.instrument_definition_mappings.store import (
+from mxm.moneymachine.marketdata.datasets.instrument_definition_mappings.store import (
     InstrumentDefinitionMappingsStore,
 )
-from mxm.v1.marketdata.datasets.instrument_definitions.store import (
+from mxm.moneymachine.marketdata.datasets.instrument_definitions.store import (
     InstrumentDefinitionsStore,
 )
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.utils.time_utils import utc_now_run_ts
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:

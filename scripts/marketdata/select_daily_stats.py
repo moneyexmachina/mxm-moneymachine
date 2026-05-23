@@ -9,8 +9,8 @@ from typing import Any
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
 
 SETTLEMENT_STAT_TYPE = 3
 SELECTION_RULE_VERSION = "settlement_v0"

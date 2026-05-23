@@ -38,31 +38,38 @@ import matplotlib.pyplot as plt  # type: ignore[reportUnknownVariableType]
 import numpy as np
 import pandas as pd
 
-from mxm.refdata.api.ref_data_api import (
-    RefDataAPI,  # type: ignore[reportMissingTypeStubs]
+from mxm.moneymachine.calendars.mxm_business_calendar_service import (
+    MXMBusinessCalendarService,
 )
-from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
-from mxm.v1.calendars.service import TradingCalendarService
-from mxm.v1.contracts.engine import ContractSelectorEngine
-from mxm.v1.execution.backtester import Backtester, BacktestResult
-from mxm.v1.execution.executor import PerfectBacktestExecutor
-from mxm.v1.execution.orders import OrderGenerationPolicy, OrderGenerator
-from mxm.v1.execution.price_accessors import (
+from mxm.moneymachine.calendars.service import TradingCalendarService
+from mxm.moneymachine.contracts.engine import ContractSelectorEngine
+from mxm.moneymachine.execution.backtester import Backtester, BacktestResult
+from mxm.moneymachine.execution.executor import PerfectBacktestExecutor
+from mxm.moneymachine.execution.orders import OrderGenerationPolicy, OrderGenerator
+from mxm.moneymachine.execution.price_accessors import (
     DailyMarkExecutionPriceAccessor,
     DailyMarkPriceAccessor,
 )
-from mxm.v1.execution.session_engine import SessionEngine
-from mxm.v1.fx.spot_fx_converter import IdentitySpotFXConverter
-from mxm.v1.pnl.constructor import build_pnl_series
-from mxm.v1.pnl.models import PnLSeries
-from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
-from mxm.v1.synthetic_assets.runtime import SyntheticAsset, build_synthetic_asset
-from mxm.v1.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
-from mxm.v1.synthetic_assets.spec_registry_layout import (
+from mxm.moneymachine.execution.session_engine import SessionEngine
+from mxm.moneymachine.fx.spot_fx_converter import IdentitySpotFXConverter
+from mxm.moneymachine.pnl.constructor import build_pnl_series
+from mxm.moneymachine.pnl.models import PnLSeries
+from mxm.moneymachine.synthetic_assets.models import SyntheticAssetSpec
+from mxm.moneymachine.synthetic_assets.runtime import (
+    SyntheticAsset,
+    build_synthetic_asset,
+)
+from mxm.moneymachine.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
+from mxm.moneymachine.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
-from mxm.v1.synthetic_assets.unit_conversion import build_default_unit_converter
-from mxm.v1.utils.date_utils import coerce_np_day
+from mxm.moneymachine.synthetic_assets.unit_conversion import (
+    build_default_unit_converter,
+)
+from mxm.moneymachine.utils.date_utils import coerce_np_day
+from mxm.refdata.api.ref_data_api import (
+    RefDataAPI,  # type: ignore[reportMissingTypeStubs]
+)
 
 # ---------------------------------------------------------------------
 # Defaults

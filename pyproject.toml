@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "mxm-v1"
+name = "mxm-moneymachine"
 version = "0.1.0"
 description = "MVP futures trading system for Money ex Machina."
 authors = ["mxm <contact@moneyexmachina.com>"]
@@ -8,13 +8,12 @@ readme = "README.md"
 packages = [{ include = "mxm", from = "src" }]
 include = [
   { path = "LICENSE" },
-  { path = "src/mxm/v1/py.typed", format = "wheel" },
+  { path = "src/mxm/moneymachine/py.typed", format = "wheel" },
 ]
 
 classifiers = ["Typing :: Typed"]
 
 [tool.poetry.dependencies]
-python = ">=3.13, <3.15"
 mxm-types = "^0.2.2"
 mxm-secrets = "^0.2.0"
 mxm-refdata = "^0.3.0"
@@ -49,7 +48,7 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-mxm = "mxm.v1.cli.main:main"
+mxm = "mxm.moneymachine.cli.main:main"
 
 # ---- Tooling (package-local, MXM defaults) ----
 [tool.black]

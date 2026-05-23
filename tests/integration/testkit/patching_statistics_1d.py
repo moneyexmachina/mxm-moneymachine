@@ -10,8 +10,11 @@ from typing import Any
 import pandas as pd
 from pytest import MonkeyPatch
 
-import mxm.v1.marketdata.orchestrators.statistics_1d as orch_mod
-from mxm.v1.marketdata.schema.statistics_1d import STATISTICS_1D, coerce_statistics_1d
+import mxm.moneymachine.marketdata.orchestrators.statistics_1d as orch_mod
+from mxm.moneymachine.marketdata.schema.statistics_1d import (
+    STATISTICS_1D,
+    coerce_statistics_1d,
+)
 from tests.integration.testkit.fixtures_statistics import make_statistics_1d_rawish_df
 
 type ColumnDefault = str | int | float | bool | pd.Timestamp | None

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mxm.v1.calendars.inspect import (
+from mxm.moneymachine.calendars.inspect import (
     describe_calendar,
     list_calendars,
     render_month_by_id,

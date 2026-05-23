@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mxm.v1.marketdata.inspect.dispatch import get_routes
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.inspect.dispatch import get_routes
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 def _build_backend(root: Path) -> SQLiteBackend:
@@ -19,13 +19,13 @@ def _build_backend(root: Path) -> SQLiteBackend:
 
 def _build_attempts_store(dataset: str, backend: SQLiteBackend) -> Any:
     if dataset == "ohlcv_1d":
-        from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import (
+        from mxm.moneymachine.marketdata.datasets.ohlcv_1d.attempts_store import (
             OHLCV1DAttemptsStore,
         )
 
         return OHLCV1DAttemptsStore(backend=backend)
     if dataset == "statistics_1d":
-        from mxm.v1.marketdata.datasets.statistics_1d.attempts_store import (
+        from mxm.moneymachine.marketdata.datasets.statistics_1d.attempts_store import (
             Statistics1DAttemptsStore,
         )
 
@@ -37,7 +37,7 @@ def _build_data_store(dataset: str, root: Path) -> Any:
     # Prefer constructing stores from layout/root directly (no sqlite).
     # Adjust to your actual store constructor(s).
     if dataset == "statistics_1d":
-        from mxm.v1.marketdata.datasets.statistics_1d.store import (
+        from mxm.moneymachine.marketdata.datasets.statistics_1d.store import (
             Statistics1DStore,  # adjust import
         )
 

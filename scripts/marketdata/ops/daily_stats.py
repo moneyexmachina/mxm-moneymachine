@@ -8,12 +8,14 @@ from typing import Any
 
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.daily_stats.store import DailyStatsStore
-from mxm.v1.marketdata.datasets.statistics_1d.store import Statistics1DStore
-from mxm.v1.marketdata.orchestrators.daily_stats import derive_daily_stats_for_product
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
-from mxm.v1.utils.time_utils import utc_now_run_ts
+from mxm.moneymachine.marketdata.datasets.daily_stats.store import DailyStatsStore
+from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
+from mxm.moneymachine.marketdata.orchestrators.daily_stats import (
+    derive_daily_stats_for_product,
+)
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.utils.time_utils import utc_now_run_ts
 
 
 def _to_jsonable(obj: Any) -> Any:

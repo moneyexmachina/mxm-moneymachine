@@ -9,8 +9,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from mxm.v1.marketdata.datasets.daily_stats.api import read_daily_stats_contract
-from mxm.v1.utils.time_utils import utc_now_ts
+from mxm.moneymachine.marketdata.datasets.daily_stats.api import (
+    read_daily_stats_contract,
+)
+from mxm.moneymachine.utils.time_utils import utc_now_ts
 
 matplotlib.use("Agg")  # headless-safe
 

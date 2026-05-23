@@ -42,18 +42,19 @@ from mxm_secrets import get_secret
 from rich.console import Console
 from rich.table import Table
 
-# MXM
-from mxm.refdata.api.ref_data_api import RefDataAPI
-from mxm.v1.marketdata.mapping.vendors.databento import (
+from mxm.moneymachine.marketdata.mapping.vendors.databento import (
     fetch_product_instruments_table,
     list_instruments_for_parent,
 )
-from mxm.v1.marketdata.mapping.vendors.databento.product_roots import (
+from mxm.moneymachine.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
-from mxm.v1.marketdata.mapping.vendors.databento.store_sqlite import (
+from mxm.moneymachine.marketdata.mapping.vendors.databento.store_sqlite import (
     VendorContractMappingStoreSqlite,
 )
+
+# MXM
+from mxm.refdata.api.ref_data_api import RefDataAPI
 
 
 def _parse_date(s: str | None) -> date | None:

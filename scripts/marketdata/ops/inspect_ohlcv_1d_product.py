@@ -4,10 +4,14 @@ import argparse
 from collections import Counter
 from pathlib import Path
 
-from mxm.v1.marketdata.datasets.ohlcv_1d.attempts_store import OHLCV1DAttemptsStore
-from mxm.v1.marketdata.inspect.ohlcv_1d.product import get_product_coverage_report
-from mxm.v1.marketdata.stores.layout import MarketdataLayout
-from mxm.v1.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.moneymachine.marketdata.datasets.ohlcv_1d.attempts_store import (
+    OHLCV1DAttemptsStore,
+)
+from mxm.moneymachine.marketdata.inspect.ohlcv_1d.product import (
+    get_product_coverage_report,
+)
+from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
+from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 
 
 def main() -> int:

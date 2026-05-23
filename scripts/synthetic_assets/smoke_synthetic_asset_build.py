@@ -29,22 +29,26 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
+from mxm.moneymachine.calendars.mxm_business_calendar_service import (
+    MXMBusinessCalendarService,
 )
-from mxm.v1.calendars.mxm_business_calendar_service import MXMBusinessCalendarService
-from mxm.v1.calendars.service import TradingCalendarService
-from mxm.v1.contracts.engine import ContractSelectorEngine
-from mxm.v1.synthetic_assets.models import SyntheticAssetSpec
-from mxm.v1.synthetic_assets.runtime import (
+from mxm.moneymachine.calendars.service import TradingCalendarService
+from mxm.moneymachine.contracts.engine import ContractSelectorEngine
+from mxm.moneymachine.synthetic_assets.models import SyntheticAssetSpec
+from mxm.moneymachine.synthetic_assets.runtime import (
     SyntheticAsset,
     build_synthetic_asset,
 )
-from mxm.v1.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
-from mxm.v1.synthetic_assets.spec_registry_layout import (
+from mxm.moneymachine.synthetic_assets.spec_registry import SyntheticAssetSpecRegistry
+from mxm.moneymachine.synthetic_assets.spec_registry_layout import (
     SyntheticAssetSpecRegistryLayout,
 )
-from mxm.v1.synthetic_assets.unit_conversion import build_default_unit_converter
+from mxm.moneymachine.synthetic_assets.unit_conversion import (
+    build_default_unit_converter,
+)
+from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
+    RefDataAPI,
+)
 
 # ---------------------------------------------------------------------
 # Defaults

@@ -22,15 +22,15 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from mxm.refdata.api.ref_data_api import RefDataAPI
-from mxm.refdata.models.periods import PeriodType
-from mxm.v1.calendars.service import TradingCalendarService
-from mxm.v1.contracts.contract_series import (
+from mxm.moneymachine.calendars.service import TradingCalendarService
+from mxm.moneymachine.contracts.contract_series import (
     ContractSeriesSpec,
     build_contract_series,
 )
-from mxm.v1.contracts.engine import ContractSelectorEngine
-from mxm.v1.contracts.selectors import PeriodFilter, SelectorRule
+from mxm.moneymachine.contracts.engine import ContractSelectorEngine
+from mxm.moneymachine.contracts.selectors import PeriodFilter, SelectorRule
+from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata.models.periods import PeriodType
 
 # ---------------------------------------------------------------------
 # CLI
