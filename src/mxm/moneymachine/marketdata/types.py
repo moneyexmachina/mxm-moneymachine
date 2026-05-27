@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, TypedDict
+from typing import TypedDict
 
 
 class DatasetRangeSchema(TypedDict):
@@ -21,30 +21,3 @@ class DatasetRangeResponse(DatasetRangeSchema, total=False):
     """
 
     schema: dict[str, DatasetRangeSchema]
-
-
-class DatasetMetadataClient(Protocol):
-    """
-    Minimal protocol for vendor dataset metadata access used by MXM orchestrators.
-    """
-
-    def get_dataset_range(self, dataset: str) -> DatasetRangeResponse:
-        """
-        Return a mapping containing at least 'start' and 'end' ISO8601 timestamps,
-        and optionally a per-schema mapping under 'schema'.
-
-        Exact structure is vendor-defined; orchestrators should read only the keys
-        they require.
-        """
-        ...
-
-
-class InstrumentDefinitionsClient(Protocol):
-    """
-    Minimal protocol required by the instrument_definitions orchestrator.
-
-    This is a control-plane abstraction over vendor clients (e.g. Databento Historical)
-    that exposes dataset-range discovery via `client.metadata.get_dataset_range(...)`.
-    """
-
-    metadata: DatasetMetadataClient

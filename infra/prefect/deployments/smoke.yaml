@@ -1,0 +1,27 @@
+name: mxm-moneymachine
+prefect-version: "3"
+
+build: null
+push: null
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /Users/mxm/mxm-moneymachine
+
+deployments:
+  - name: mxm-smoke-docker
+    entrypoint: src/mxm/moneymachine/flows/smoke.py:smoke_flow
+    work_pool:
+      name: mxm-dev-docker
+      work_queue_name: default
+      job_variables:
+        image: prefecthq/prefect:3-latest
+        image_pull_policy: IfNotPresent
+        auto_remove: true
+        volumes:
+          - /Users/mxm/mxm-moneymachine:/Users/mxm/mxm-moneymachine
+        env:
+          PREFECT_API_URL: http://host.docker.internal:4200/api
+          PYTHONPATH: /Users/mxm/mxm-moneymachine/src
+        container_create_kwargs:
+          working_dir: /Users/mxm/mxm-moneymachine

@@ -4,8 +4,9 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Protocol, cast
+from typing import cast
 
+import databento as db
 import pandas as pd
 
 from mxm.dataio.adapters import Fetcher
@@ -73,22 +74,6 @@ SymbolsT = str | Sequence[str]
 #         -> mxm-moneymachine normalization and curated marketdata datasets
 #
 # Deferred during mxm-moneymachine publication cleanup to avoid scope expansion.
-class DatabentoTimeseriesResponse(Protocol):
-    def to_df(self) -> pd.DataFrame: ...
-
-
-class DatabentoTimeseriesAPI(Protocol):
-    def get_range(
-        self,
-        *,
-        dataset: str,
-        schema: str,
-        symbols: SymbolsT,
-        stype_in: str,
-        start: str,
-        end: str,
-        **kwargs: object,
-    ) -> DatabentoTimeseriesResponse: ...
 
 
 @dataclass(frozen=True)
@@ -121,10 +106,6 @@ class DatabentoTimeseriesParams:
             params["extra"] = dict(self.extra)
 
         return params
-
-
-class DatabentoClient(Protocol):
-    timeseries: DatabentoTimeseriesAPI
 
 
 def _materialise_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -198,6 +179,28 @@ def _optional_str_param(
     return value
 
 
+def _optional_str_extra(extra: JSONObj | None, key: str) -> str | None:
+    if extra is None:
+        return None
+    value = extra.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Databento extra `{key}` must be str")
+    return value
+
+
+def _optional_int_extra(extra: JSONObj | None, key: str) -> int | None:
+    if extra is None:
+        return None
+    value = extra.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ValueError(f"Databento extra `{key}` must be int")
+    return value
+
+
 def _require_symbols_param(params: JSONObj) -> SymbolsT:
     value = params.get("symbols")
 
@@ -226,7 +229,7 @@ def _optional_extra_param(params: JSONObj) -> JSONObj | None:
 
 def pull_timeseries_df_raw(
     *,
-    client: DatabentoClient,
+    client: db.Historical,
     dataset: str,
     schema: str,
     symbols: SymbolsT,
@@ -235,22 +238,99 @@ def pull_timeseries_df_raw(
     end: str,
     extra: JSONObj | None = None,
 ) -> pd.DataFrame:
-    kwargs: JSONMap = {}
-
-    if extra is not None:
-        kwargs.update(extra)
     t0 = time.time()
-    resp = client.timeseries.get_range(
-        dataset=dataset,
-        schema=schema,
-        symbols=symbols,
-        stype_in=stype_in,
-        start=start,
-        end=end,
-        **kwargs,
-    )
+
+    stype_out = _optional_str_extra(extra, "stype_out")
+    limit = _optional_int_extra(extra, "limit")
+    path = _optional_str_extra(extra, "path")
+
+    if stype_out is not None and limit is not None and path is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            stype_out=stype_out,
+            start=start,
+            end=end,
+            limit=limit,
+            path=path,
+        )
+    elif stype_out is not None and limit is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            stype_out=stype_out,
+            start=start,
+            end=end,
+            limit=limit,
+        )
+    elif stype_out is not None and path is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            stype_out=stype_out,
+            start=start,
+            end=end,
+            path=path,
+        )
+    elif limit is not None and path is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            start=start,
+            end=end,
+            limit=limit,
+            path=path,
+        )
+    elif stype_out is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            stype_out=stype_out,
+            start=start,
+            end=end,
+        )
+    elif limit is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            start=start,
+            end=end,
+            limit=limit,
+        )
+    elif path is not None:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            start=start,
+            end=end,
+            path=path,
+        )
+    else:
+        resp = client.timeseries.get_range(
+            dataset=dataset,
+            schema=schema,
+            symbols=symbols,
+            stype_in=stype_in,
+            start=start,
+            end=end,
+        )
 
     print(f"[databento] fetched stream in {time.time() - t0:.2f}s; converting to df...")
+
     t1 = time.time()
     df = resp.to_df()
 
@@ -260,7 +340,7 @@ def pull_timeseries_df_raw(
 
 @dataclass(frozen=True)
 class DatabentoTimeseriesFetcher(Fetcher):
-    client: DatabentoClient
+    client: db.Historical
     source: str = "databento"
 
     def describe(self) -> str:

@@ -1,0 +1,41 @@
+name: mxm-moneymachine
+prefect-version: "3"
+
+build: null
+push: null
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /Users/mxm/mxm-moneymachine
+
+deployments:
+  - name: instrument-definitions-docker
+    entrypoint: src/mxm/moneymachine/flows/instrument_definitions.py:instrument_definitions_flow
+    parameters:
+      product_id: cme_emini_snp500_futures
+      mode: update
+      reset: false
+      cost_cap_usd: 1.0
+      window_days: 31
+      max_windows: 1
+      overlap: 1d
+      end: null
+      databento_api_key_secret_path: mxm/dev/databento/api-key
+    work_pool:
+      name: mxm-dev-docker
+      work_queue_name: default
+      job_variables:
+        image: mxm-moneymachine-dev:latest
+        image_pull_policy: IfNotPresent
+        auto_remove: true
+        volumes:
+          - /Users/mxm/mxm-moneymachine:/Users/mxm/mxm-moneymachine
+          - /Users/mxm/.mxm:/Users/mxm/.mxm
+          - /Users/mxm/.mxm-secrets-store:/Users/mxm/.mxm-secrets-store
+          - /Users/mxm/.gnupg:/Users/mxm/.gnupg
+        env:
+          PREFECT_API_URL: http://host.docker.internal:4200/api
+          PYTHONPATH: /Users/mxm/mxm-moneymachine/src
+          HOME: /Users/mxm
+        container_create_kwargs:
+          working_dir: /Users/mxm/mxm-moneymachine

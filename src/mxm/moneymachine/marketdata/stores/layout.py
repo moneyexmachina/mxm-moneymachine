@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_MXM_ROOT = Path.home() / ".mxm"
+
 
 @dataclass(frozen=True)
 class MarketdataLayout:
@@ -20,6 +22,14 @@ class MarketdataLayout:
     """
 
     root: Path
+
+    @classmethod
+    def from_root(cls, root: Path) -> MarketdataLayout:
+        return cls(root=root)
+
+    @classmethod
+    def from_default_root(cls) -> MarketdataLayout:
+        return cls(root=DEFAULT_MXM_ROOT)
 
     def instrument_dir(
         self,

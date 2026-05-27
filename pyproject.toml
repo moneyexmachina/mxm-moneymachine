@@ -14,6 +14,7 @@ include = [
 classifiers = ["Typing :: Typed"]
 
 [tool.poetry.dependencies]
+python = ">=3.13,<3.14"
 mxm-types = "^0.2.2"
 mxm-secrets = "^0.2.0"
 mxm-refdata = "^0.3.0"
@@ -26,6 +27,7 @@ databento = "^0.68.2"
 click = "^8.2.1"
 rich = "^15.0.0"
 exchange-calendars = "^4.13"
+prefect = "^3.7.2"
 
 [tool.poetry.group.dev.dependencies]
 isort = "^6.0.1"

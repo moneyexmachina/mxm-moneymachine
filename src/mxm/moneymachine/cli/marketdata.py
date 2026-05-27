@@ -5,12 +5,12 @@ import json
 from pathlib import Path
 from typing import cast
 
-from mxm.moneymachine.marketdata.datasets.instrument_definition_mappings import (
-    jobs as mappings_jobs,
+from mxm.moneymachine.marketdata.datasets.instrument_definitions.ingest import Mode
+from mxm.moneymachine.marketdata.ops.instrument_definitions import (
+    InstrumentDefinitionsRunRequest,
+    run_instrument_definitions,
 )
-from mxm.moneymachine.marketdata.datasets.instrument_definitions import (
-    jobs as definitions_jobs,
-)
+from mxm.moneymachine.runtime.execution_context import cli_execution_context
 from mxm.moneymachine.utils.json_normalise import json_value_from_obj
 
 
@@ -61,6 +61,11 @@ def _configure_instrument_definitions_parser(
     update.add_argument("--reset", action="store_true")
     update.add_argument("--end", type=str, default=None)
     update.add_argument("--root", type=Path, default=None)
+    update.add_argument(
+        "--databento-api-key-secret-path",
+        type=str,
+        default="mxm/dev/databento/api-key",
+    )
 
 
 def _configure_instrument_definition_mappings_parser(
@@ -87,30 +92,21 @@ def dispatch_marketdata(args: argparse.Namespace) -> None:
         args.marketdata_command == "instrument-definitions"
         and args.instrument_definitions_action == "update"
     ):
-        report = definitions_jobs.update_instrument_definitions_for_product(
-            product_id=args.product_id,
-            mode=cast(definitions_jobs.Mode, args.mode),
-            cost_cap_usd=args.cost_cap_usd,
-            window_days=args.window_days,
-            overlap=args.overlap,
-            max_windows=args.max_windows,
-            reset=args.reset,
-            end=args.end,
-            root=args.root,
+        report = run_instrument_definitions(
+            request=InstrumentDefinitionsRunRequest(
+                product_id=args.product_id,
+                mode=cast(Mode, args.mode),
+                cost_cap_usd=args.cost_cap_usd,
+                window_days=args.window_days,
+                overlap=args.overlap,
+                max_windows=args.max_windows,
+                reset=args.reset,
+                end=args.end,
+                databento_api_key_secret_path=args.databento_api_key_secret_path,
+            ),
+            execution_context=cli_execution_context(),
         )
-        print(json.dumps(json_value_from_obj(report), indent=2, sort_keys=False))
-        return
 
-    if (
-        args.marketdata_command == "instrument-definition-mappings"
-        and args.instrument_definition_mappings_action == "rebuild"
-    ):
-        report = mappings_jobs.rebuild_instrument_definition_mappings_for_product(
-            product_id=args.product_id,
-            mode=cast(mappings_jobs.Mode, args.mode),
-            reset=args.reset,
-            root=args.root,
-        )
         print(json.dumps(json_value_from_obj(report), indent=2, sort_keys=False))
         return
 

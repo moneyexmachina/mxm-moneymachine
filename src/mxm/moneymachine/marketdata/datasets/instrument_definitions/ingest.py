@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 import databento as db
 import pandas as pd
@@ -18,7 +18,6 @@ from mxm.moneymachine.marketdata.mapping.vendors.databento.product_roots import 
     DatabentoProductRoot,
     get_databento_product_root,
 )
-from mxm.moneymachine.marketdata.types import InstrumentDefinitionsClient
 from mxm.moneymachine.marketdata.vendors.databento.cost import (
     enforce_cost_cap,
     estimate_cost_instrument_definition,
@@ -178,7 +177,7 @@ def ingest_instrument_definitions(
     *,
     store: InstrumentDefinitionsStore,
     product_id: str,
-    client: InstrumentDefinitionsClient,
+    client: db.Historical,
     mode: Mode,
     cost_cap_usd: float,
     window_days: int = 31,
@@ -251,7 +250,7 @@ def _prepare_instrument_definitions_run(
     *,
     store: InstrumentDefinitionsStore,
     product_id: str,
-    client: InstrumentDefinitionsClient,
+    client: db.Historical,
     mode: Mode,
     cost_cap_usd: float,
     reset: bool,
@@ -359,7 +358,7 @@ def _run_instrument_definitions_windows(
     *,
     store: InstrumentDefinitionsStore,
     product_id: str,
-    client: InstrumentDefinitionsClient,
+    client: db.Historical,
     mode: Mode,
     window_days: int,
     overlap: str,
@@ -457,7 +456,7 @@ def _ingest_instrument_definitions_window(
     *,
     store: InstrumentDefinitionsStore,
     product_id: str,
-    client: InstrumentDefinitionsClient,
+    client: db.Historical,
     start: str,
     window_days: int,
     remaining_cap: float,
@@ -473,9 +472,8 @@ def _ingest_instrument_definitions_window(
 
     print(f"[defs][window {report.windows_attempted + 1}] start={start} end={end_i}")
 
-    db_client = cast(db.Historical, client)
     est = estimate_cost_instrument_definition(
-        client=db_client,
+        client=client,
         dataset=root.dataset,
         symbols=root.parent,
         stype_in=root.stype_in,

@@ -1,0 +1,112 @@
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG:-14}
+    container_name: ${COMPOSE_PROJECT_NAME:-mxm-prefect}-postgres
+    environment:
+      POSTGRES_USER: ${PREFECT_POSTGRES_USER:-prefect}
+      POSTGRES_DB: ${PREFECT_POSTGRES_DB:-prefect}
+      POSTGRES_PASSWORD_FILE: /run/secrets/prefect_postgres_password
+    secrets:
+      - prefect_postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${PREFECT_POSTGRES_HOST_PORT:-15432}:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${PREFECT_POSTGRES_USER:-prefect} -d ${PREFECT_POSTGRES_DB:-prefect}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:${REDIS_IMAGE_TAG:-7}
+    container_name: ${COMPOSE_PROJECT_NAME:-mxm-prefect}-redis
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${PREFECT_REDIS_HOST_PORT:-16379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  prefect-server:
+    image: prefecthq/prefect:${PREFECT_IMAGE_TAG:-3-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-mxm-prefect}-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    secrets:
+      - prefect_postgres_password
+    environment:
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_SERVER_API_PORT: 4200
+      PREFECT_SERVER_UI_API_URL: ${PREFECT_SERVER_UI_API_URL:-http://localhost:4200/api}
+      PREFECT_MESSAGING_BROKER: prefect_redis.messaging
+      PREFECT_MESSAGING_CACHE: prefect_redis.messaging
+      PREFECT_REDIS_MESSAGING_HOST: redis
+      PREFECT_REDIS_MESSAGING_PORT: 6379
+      PREFECT_REDIS_MESSAGING_DB: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        DB_PASS="$$(cat /run/secrets/prefect_postgres_password)"
+        export PREFECT_API_DATABASE_CONNECTION_URL="postgresql+asyncpg://${PREFECT_POSTGRES_USER:-prefect}:$${DB_PASS}@postgres:5432/${PREFECT_POSTGRES_DB:-prefect}"
+        exec prefect server start --no-services
+    ports:
+      - "${PREFECT_SERVER_HOST_PORT:-4200}:4200"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://localhost:4200/api/health', timeout=1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  prefect-services:
+    image: prefecthq/prefect:${PREFECT_IMAGE_TAG:-3-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-mxm-prefect}-services
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    secrets:
+      - prefect_postgres_password
+    environment:
+      PREFECT_MESSAGING_BROKER: prefect_redis.messaging
+      PREFECT_MESSAGING_CACHE: prefect_redis.messaging
+      PREFECT_REDIS_MESSAGING_HOST: redis
+      PREFECT_REDIS_MESSAGING_PORT: 6379
+      PREFECT_REDIS_MESSAGING_DB: 0
+    command:
+      - /bin/sh
+      - -c
+      - |
+        DB_PASS="$$(cat /run/secrets/prefect_postgres_password)"
+        export PREFECT_API_DATABASE_CONNECTION_URL="postgresql+asyncpg://${PREFECT_POSTGRES_USER:-prefect}:$${DB_PASS}@postgres:5432/${PREFECT_POSTGRES_DB:-prefect}"
+        exec prefect server services start
+    restart: unless-stopped
+
+secrets:
+  prefect_postgres_password:
+    environment: PREFECT_POSTGRES_PASSWORD
+
+volumes:
+  postgres_data:
+  redis_data:
+
