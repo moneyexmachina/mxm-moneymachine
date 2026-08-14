@@ -78,6 +78,20 @@ esac
 
 : "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH:=mxm/green/${environment}/prefect/postgres/password}"
 
+export \
+  COMPOSE_PROJECT_NAME \
+  POSTGRES_IMAGE_TAG \
+  REDIS_IMAGE_TAG \
+  PREFECT_IMAGE_TAG \
+  PREFECT_POSTGRES_USER \
+  PREFECT_POSTGRES_DB \
+  PREFECT_POSTGRES_HOST_PORT \
+  PREFECT_REDIS_HOST_PORT \
+  PREFECT_SERVER_HOST_PORT \
+  PREFECT_SERVER_UI_API_URL \
+  PREFECT_API_URL \
+  PREFECT_INTERNAL_API_URL
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "Required command not found: $1" >&2
@@ -93,19 +107,7 @@ load_secrets() {
     gopass show -o "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH}"
   )"
 
-  export COMPOSE_PROJECT_NAME
-  export POSTGRES_IMAGE_TAG
-  export REDIS_IMAGE_TAG
-  export PREFECT_IMAGE_TAG
-  export PREFECT_POSTGRES_USER
-  export PREFECT_POSTGRES_DB
-  export PREFECT_POSTGRES_HOST_PORT
-  export PREFECT_REDIS_HOST_PORT
-  export PREFECT_SERVER_HOST_PORT
-  export PREFECT_SERVER_UI_API_URL
-  export PREFECT_API_URL
-  export PREFECT_INTERNAL_API_URL
-  export PREFECT_POSTGRES_PASSWORD
+ export PREFECT_POSTGRES_PASSWORD
 }
 
 compose() {
