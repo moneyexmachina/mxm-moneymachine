@@ -20,7 +20,7 @@ COMPOSE_FILE="${ROOT_DIR}/infra/prefect/compose.yml"
 : "${PREFECT_API_URL:=http://localhost:4200/api}"
 : "${PREFECT_INTERNAL_API_URL:=http://prefect-server:4200/api}"
 
-: "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH:=mxm/dev/prefect/postgres/password}"
+: "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH:=mxm/green/dev/prefect/postgres/password}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
