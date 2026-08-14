@@ -4,7 +4,63 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${ROOT_DIR}/infra/prefect/compose.yml"
 
-: "${COMPOSE_PROJECT_NAME:=mxm-prefect}"
+usage() {
+  cat <<'EOF'
+Usage:
+  infra/prefect/stack.sh <dev|prod> up
+  infra/prefect/stack.sh <dev|prod> down
+  infra/prefect/stack.sh <dev|prod> reset
+  infra/prefect/stack.sh <dev|prod> ps
+  infra/prefect/stack.sh <dev|prod> logs
+  infra/prefect/stack.sh <dev|prod> config
+  infra/prefect/stack.sh <dev|prod> api-url
+
+Secrets:
+  The script reads the Prefect PostgreSQL password from gopass.
+
+Default secret paths:
+  dev:  mxm/green/dev/prefect/postgres/password
+  prod: mxm/green/prod/prefect/postgres/password
+
+Override with:
+  MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH=...
+
+No .env file containing secrets is written.
+EOF
+}
+
+environment="${1:-}"
+
+case "${environment}" in
+  dev|prod)
+    shift
+    ;;
+  help|--help|-h|"")
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown environment: ${environment}" >&2
+    echo "Expected: dev or prod" >&2
+    exit 1
+    ;;
+esac
+
+case "${environment}" in
+  dev)
+    default_postgres_host_port=15432
+    default_redis_host_port=16379
+    default_server_host_port=4200
+    ;;
+  prod)
+    default_postgres_host_port=15433
+    default_redis_host_port=16380
+    default_server_host_port=4201
+    ;;
+esac
+
+: "${COMPOSE_PROJECT_NAME:=mxm-prefect-${environment}}"
+
 : "${POSTGRES_IMAGE_TAG:=14}"
 : "${REDIS_IMAGE_TAG:=7}"
 : "${PREFECT_IMAGE_TAG:=3-latest}"
@@ -12,15 +68,15 @@ COMPOSE_FILE="${ROOT_DIR}/infra/prefect/compose.yml"
 : "${PREFECT_POSTGRES_USER:=prefect}"
 : "${PREFECT_POSTGRES_DB:=prefect}"
 
-: "${PREFECT_POSTGRES_HOST_PORT:=15432}"
-: "${PREFECT_REDIS_HOST_PORT:=16379}"
-: "${PREFECT_SERVER_HOST_PORT:=4200}"
+: "${PREFECT_POSTGRES_HOST_PORT:=${default_postgres_host_port}}"
+: "${PREFECT_REDIS_HOST_PORT:=${default_redis_host_port}}"
+: "${PREFECT_SERVER_HOST_PORT:=${default_server_host_port}}"
 
-: "${PREFECT_SERVER_UI_API_URL:=http://localhost:4200/api}"
-: "${PREFECT_API_URL:=http://localhost:4200/api}"
+: "${PREFECT_SERVER_UI_API_URL:=http://localhost:${PREFECT_SERVER_HOST_PORT}/api}"
+: "${PREFECT_API_URL:=http://localhost:${PREFECT_SERVER_HOST_PORT}/api}"
 : "${PREFECT_INTERNAL_API_URL:=http://prefect-server:4200/api}"
 
-: "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH:=mxm/green/dev/prefect/postgres/password}"
+: "${MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH:=mxm/green/${environment}/prefect/postgres/password}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -91,27 +147,7 @@ case "${cmd}" in
     ;;
 
   help|--help|-h)
-    cat <<'EOF'
-Usage:
-  infra/prefect/stack.sh up
-  infra/prefect/stack.sh down
-  infra/prefect/stack.sh reset
-  infra/prefect/stack.sh ps
-  infra/prefect/stack.sh logs
-  infra/prefect/stack.sh config
-  infra/prefect/stack.sh api-url
-
-Secrets:
-  The script reads the Prefect Postgres password from gopass.
-
-Default secret path:
-  mxm/infra/prefect/postgres/password
-
-Override with:
-  MXM_PREFECT_POSTGRES_PASSWORD_SECRET_PATH=...
-
-No .env file containing secrets is written.
-EOF
+    usage
     ;;
 
   *)

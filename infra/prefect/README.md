@@ -49,13 +49,13 @@ Docker Compose as a Docker secret.
 Default gopass path:
 
 ```text
-mxm/infra/prefect/postgres/password
+mxm/green/<env>/prefect/postgres/password
 ```
 
 Create it with:
 
 ```bash
-gopass insert mxm/infra/prefect/postgres/password
+gopass insert mxm/green/<env>/prefect/postgres/password
 ```
 
 ## Start
