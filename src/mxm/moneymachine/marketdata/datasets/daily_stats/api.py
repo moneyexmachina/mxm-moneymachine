@@ -12,7 +12,7 @@ from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
 from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.moneymachine.utils.date_utils import utc_day_start
 from mxm.moneymachine.utils.time_utils import ensure_utc_datetime_series
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 # ---------------------------------------------------------------------
 # Public surface
@@ -21,6 +21,7 @@ from mxm.refdata.api.ref_data_api import RefDataAPI
 
 def read_daily_stats_contract(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None = None,
     start: str | pd.Timestamp | None = None,
@@ -50,11 +51,12 @@ def read_daily_stats_contract(
     layout = MarketdataLayout(root=(root or (Path.home() / ".mxm")))
     backend = _build_backend(layout)
     store = DailyStatsStore(layout=layout)
-    api = RefDataAPI()
-    contract = api.get_contract_by_id(contract_id)
+    contract = refdata_reader.get_contract_by_id(contract_id)
     product_id = contract.product_id
 
-    ident = resolve_databento_instrument(backend, contract)
+    ident = resolve_databento_instrument(
+        backend, contract, refdata_reader=refdata_reader
+    )
     start_ts, end_ts = _parse_start_end(start, end)
     df = store.read(
         dataset=ident.dataset,
@@ -68,6 +70,7 @@ def read_daily_stats_contract(
 
 def read_daily_stats_contract_meta(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None = None,
 ) -> dict[str, object] | None:
@@ -95,11 +98,12 @@ def read_daily_stats_contract_meta(
     layout = MarketdataLayout(root=(root or (Path.home() / ".mxm")))
     backend = _build_backend(layout)
     store = DailyStatsStore(layout=layout)
-    api = RefDataAPI()
 
-    contract = api.get_contract_by_id(contract_id)
+    contract = refdata_reader.get_contract_by_id(contract_id)
     product_id = contract.product_id
-    ident = resolve_databento_instrument(backend, contract)
+    ident = resolve_databento_instrument(
+        backend, contract, refdata_reader=refdata_reader
+    )
 
     meta = store.read_meta(
         dataset=ident.dataset,
@@ -127,6 +131,7 @@ def read_daily_stats_contract_meta(
 
 def read_daily_stats_product(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     root: Path | None = None,
     start: str | pd.Timestamp | None = None,
@@ -156,13 +161,14 @@ def read_daily_stats_product(
     start_ts, end_ts = _parse_start_end(start, end)
 
     frames: list[pd.DataFrame] = []
-    api = RefDataAPI()
 
-    for contract in list(api.get_contracts_for_product(product_id)):
+    for contract in refdata_reader.get_contracts_for_product(product_id):
         contract_id = contract.contract_id
 
         try:
-            ident = resolve_databento_instrument(backend, contract)
+            ident = resolve_databento_instrument(
+                backend, contract, refdata_reader=refdata_reader
+            )
         except Exception:
             # Explicitly skip unmapped/ambiguous contracts for this MVP read surface.
             # Inspection layer can later surface skipped counts.

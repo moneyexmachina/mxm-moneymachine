@@ -15,9 +15,9 @@ from mxm.moneymachine.execution.price_accessors import (
     _ProductDailyMarkPriceLookup,
     _ProductDailyStatsPriceLookup,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import (
-    FuturesContract,  # type: ignore
+    FuturesContract,
 )
 
 
@@ -26,7 +26,7 @@ class DummyContract:
     product_id: str
 
 
-class DummyRefDataAPI:
+class DummyRefDataReader:
     def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
@@ -62,8 +62,8 @@ def _contract(*, product_id: str) -> FuturesContract:
     return cast(FuturesContract, DummyContract(product_id=product_id))
 
 
-def _refdata_api(mapping: dict[str, FuturesContract]) -> RefDataAPI:
-    return cast(RefDataAPI, DummyRefDataAPI(mapping))
+def _refdata_reader(mapping: dict[str, FuturesContract]) -> RefDataReader:
+    return cast(RefDataReader, DummyRefDataReader(mapping))
 
 
 def _calendar(
@@ -93,7 +93,7 @@ def _daily_stats_accessor(
 ) -> DailyStatsExecutionPriceAccessor:
     return DailyStatsExecutionPriceAccessor(
         price_field=price_field,
-        ref_data_api=_refdata_api(
+        refdata_reader=_refdata_reader(
             mapping
             if mapping is not None
             else {"corn_mar2026": _contract(product_id="corn")}
@@ -108,7 +108,7 @@ def _daily_mark_accessor(
 ) -> DailyMarkExecutionPriceAccessor:
     return DailyMarkExecutionPriceAccessor(
         mxm_business_calendar=calendar if calendar is not None else _corn_calendar(),
-        ref_data_api=_refdata_api(
+        refdata_reader=_refdata_reader(
             mapping
             if mapping is not None
             else {"corn_mar2026": _contract(product_id="corn")}
@@ -170,24 +170,26 @@ def _valid_daily_mark_frame(*, product_id: str = "corn") -> pd.DataFrame:
 
 def _read_default_daily_stats_product(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     root: Path | None = None,
     start: object | None = None,
     end: object | None = None,
 ) -> pd.DataFrame:
-    _ = root, start, end
+    _ = refdata_reader, root, start, end
     return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
 
 
 def _read_default_daily_mark_product(
     *,
+    refdata_reader: RefDataReader,
     calendar_id: str,
     product_id: str,
     root: Path | None = None,
     start_session_id: int | None = None,
     end_session_id: int | None = None,
 ) -> pd.DataFrame:
-    _ = calendar_id, root, start_session_id, end_session_id
+    _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
     return _valid_daily_mark_frame(product_id=product_id)
 
 
@@ -314,12 +316,13 @@ def test_daily_stats_accessor_returns_execution_price_for_valid_contract_and_ses
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         assert product_id == "corn"
         return _valid_daily_stats_frame(price_field="settle", product_id="corn")
 
@@ -343,12 +346,13 @@ def test_daily_stats_accessor_uses_selected_price_field(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -381,12 +385,13 @@ def test_daily_stats_accessor_loads_product_only_once(
 
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         calls.append(product_id)
         return _valid_daily_stats_frame(price_field="settle", product_id=product_id)
 
@@ -418,12 +423,13 @@ def test_daily_stats_accessor_loads_different_products_separately(
 
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         calls.append(product_id)
         return pd.DataFrame(
             {
@@ -482,12 +488,13 @@ def test_daily_stats_accessor_raises_for_empty_daily_stats(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = product_id, root, start, end
+        _ = refdata_reader, product_id, root, start, end
         return pd.DataFrame()
 
     monkeypatch.setattr(
@@ -509,12 +516,13 @@ def test_daily_stats_accessor_raises_for_missing_required_columns(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -542,12 +550,13 @@ def test_daily_stats_accessor_raises_for_missing_price_field_column(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -576,12 +585,13 @@ def test_daily_stats_accessor_raises_for_null_contract_id(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -610,12 +620,13 @@ def test_daily_stats_accessor_raises_for_null_trading_date(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.NaT],
@@ -644,12 +655,13 @@ def test_daily_stats_accessor_raises_when_price_field_has_no_non_null_rows(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -678,12 +690,13 @@ def test_daily_stats_accessor_filters_null_price_rows_and_uses_non_null_rows(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [
@@ -716,12 +729,13 @@ def test_daily_stats_accessor_raises_for_non_numeric_price_field(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10T00:00:00Z")],
@@ -750,12 +764,13 @@ def test_daily_stats_accessor_raises_for_non_tz_aware_trading_date(
 ) -> None:
     def _read_daily_stats_product(
         *,
+        refdata_reader: RefDataReader,
         product_id: str,
         root: Path | None = None,
         start: object | None = None,
         end: object | None = None,
     ) -> pd.DataFrame:
-        _ = root, start, end
+        _ = refdata_reader, root, start, end
         return pd.DataFrame(
             {
                 "trading_date": [pd.Timestamp("2026-03-10")],
@@ -837,13 +852,14 @@ def test_daily_mark_accessor_returns_execution_price_for_valid_contract_and_sess
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = root, start_session_id, end_session_id
+        _ = refdata_reader, root, start_session_id, end_session_id
         assert calendar_id == "mxm_corn_2026"
         assert product_id == "corn"
         return _valid_daily_mark_frame(product_id="corn")
@@ -888,13 +904,14 @@ def test_daily_mark_accessor_loads_product_only_once(
 
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         calls.append(product_id)
         return _valid_daily_mark_frame(product_id=product_id)
 
@@ -926,13 +943,14 @@ def test_daily_mark_accessor_loads_different_products_separately(
 
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         calls.append(product_id)
         return pd.DataFrame(
             {
@@ -1002,13 +1020,21 @@ def test_daily_mark_accessor_raises_for_empty_daily_mark(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, product_id, root, start_session_id, end_session_id
+        _ = (
+            refdata_reader,
+            calendar_id,
+            product_id,
+            root,
+            start_session_id,
+            end_session_id,
+        )
         return pd.DataFrame()
 
     monkeypatch.setattr(
@@ -1035,13 +1061,14 @@ def test_daily_mark_accessor_raises_for_missing_required_columns(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1075,13 +1102,14 @@ def test_daily_mark_accessor_raises_for_null_contract_id(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1116,13 +1144,14 @@ def test_daily_mark_accessor_raises_for_null_session_id(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [None],
@@ -1157,13 +1186,14 @@ def test_daily_mark_accessor_raises_when_no_markable_rows_exist(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1198,13 +1228,14 @@ def test_daily_mark_accessor_raises_for_null_mark_px_in_markable_rows(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],
@@ -1239,13 +1270,14 @@ def test_daily_mark_accessor_raises_for_non_numeric_mark_px(
 ) -> None:
     def _read_daily_mark_product(
         *,
+        refdata_reader: RefDataReader,
         calendar_id: str,
         product_id: str,
         root: Path | None = None,
         start_session_id: int | None = None,
         end_session_id: int | None = None,
     ) -> pd.DataFrame:
-        _ = calendar_id, root, start_session_id, end_session_id
+        _ = refdata_reader, calendar_id, root, start_session_id, end_session_id
         return pd.DataFrame(
             {
                 "session_id": [10],

@@ -16,13 +16,13 @@ from mxm.moneymachine.marketdata.datasets.instrument_definitions.store import (
 )
 from mxm.moneymachine.marketdata.mapping.vendors.databento.instrument_resolver import (
     RefdataPeriodLookupError,
-    period_by_id,
 )
 from mxm.moneymachine.marketdata.mapping.vendors.databento.product_roots import (
     get_databento_product_root,
 )
 from mxm.moneymachine.utils.time_utils import utc_now_run_ts
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
 
 Mode = Literal["bootstrap", "update"]
 
@@ -95,6 +95,7 @@ class InstrumentDefinitionMappingsBuildReport:
 
 def rebuild_instrument_definition_mappings(
     *,
+    refdata_reader: RefDataReader,
     defs_store: InstrumentDefinitionsStore,
     mappings_store: InstrumentDefinitionMappingsStore,
     product_id: str,
@@ -208,10 +209,12 @@ def rebuild_instrument_definition_mappings(
     # ---------------------------------------------------------------------
     # Phase 2 — enumerate refdata contracts and maturities (deterministic)
     # ---------------------------------------------------------------------
-    api = RefDataAPI()
-    contracts = list(api.get_contracts_for_product(product_id))
+    contracts = refdata_reader.get_contracts_for_product(product_id)
     report.refdata_contracts_total = len(contracts)
-    ref_pairs = _load_refdata_maturities(product_id=product_id)
+    ref_pairs = _load_refdata_maturities(
+        contracts=contracts,
+        refdata_reader=refdata_reader,
+    )
     report.refdata_maturities_total = len(ref_pairs)
 
     if not ref_pairs:
@@ -302,7 +305,11 @@ def _print_gate_fail(report: InstrumentDefinitionMappingsBuildReport) -> None:
         print(f"  - {g.name}: {g.detail}")
 
 
-def _load_refdata_maturities(*, product_id: str) -> list[tuple[int, int]]:
+def _load_refdata_maturities(
+    *,
+    contracts: list[FuturesContract],
+    refdata_reader: RefDataReader,
+) -> list[tuple[int, int]]:
     """
     Enumerate contract maturities (year, month) for a product using refdata:
       FuturesContract.period_id -> Period.first_date.year/month
@@ -312,18 +319,11 @@ def _load_refdata_maturities(*, product_id: str) -> list[tuple[int, int]]:
     - if missing periods exist, raise (this is a refdata integrity issue)
       (you can relax to warn-only later)
     """
-    api = RefDataAPI()
-    contracts = list(api.get_contracts_for_product(product_id))
-    # For reporting only:
-    # (We do not store this in the report in detail to keep it compact.)
-    # But we preserve determinism and correctness here.
-    periods = period_by_id()
-
     pairs: set[tuple[int, int]] = set()
     missing: list[str] = []
 
     for c in contracts:
-        p = periods.get(c.period_id)
+        p = refdata_reader.get_period_by_id(c.period_id)
         if p is None:
             missing.append(str(c.period_id))
             continue

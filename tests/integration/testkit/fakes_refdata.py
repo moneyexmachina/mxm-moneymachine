@@ -25,7 +25,7 @@ def make_contract(
     """
     Construct a FuturesContract using the real domain class.
 
-    NOTE: In production, contract_year_month() resolves via RefDataAPI periods lookup.
+    NOTE: In production, contract_year_month() resolves via RefDataReader periods lookup.
     Hermetic tests should patch contract_year_month() (or period_by_id()) so period_id
     does not require live refdata.
     """

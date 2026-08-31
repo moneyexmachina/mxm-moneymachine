@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from functools import lru_cache
 
 from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.moneymachine.utils.time_utils import utc_now_ts
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
-from mxm.refdata.models.periods import Period
 
 
 @dataclass(frozen=True)
@@ -76,23 +74,14 @@ class RefdataPeriodLookupError(DatabentoInstrumentResolutionError):
 # ---------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def period_by_id() -> dict[str, Period]:
-    """
-    Cache Period objects by period_id for this process lifetime.
-    Uses RefDataAPI().get_periods(), as in Proof 96.
-    """
-    api = RefDataAPI()
-    periods = api.get_periods()
-    return {p.period_id: p for p in periods}
-
-
-def contract_year_month(contract: FuturesContract) -> tuple[int, int]:
+def contract_year_month(
+    contract: FuturesContract, *, refdata_reader: RefDataReader
+) -> tuple[int, int]:
     """
     MVP mapping key extraction:
       FuturesContract.period_id -> Period.first_date.year/month
     """
-    period = period_by_id().get(contract.period_id)
+    period = refdata_reader.get_period_by_id(contract.period_id)
     if period is None:
         raise RefdataPeriodLookupError(period_id=contract.period_id)
 
@@ -108,6 +97,7 @@ def resolve_databento_instrument(
     backend: SQLiteBackend,
     contract: FuturesContract,
     *,
+    refdata_reader: RefDataReader,
     as_of_dt: datetime | None = None,
 ) -> DatabentoInstrumentIdentity:
     """
@@ -136,7 +126,7 @@ def resolve_databento_instrument(
     # once we introduce true mapping-regime semantics.
     _ = as_of_dt
     as_of_dt_utc = utc_now_ts()
-    y, m = contract_year_month(contract)
+    y, m = contract_year_month(contract, refdata_reader=refdata_reader)
 
     tx = getattr(backend, "transaction_no_migrate", backend.transaction)
     with tx() as conn:

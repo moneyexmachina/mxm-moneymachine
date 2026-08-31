@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import pytest
 
 from mxm.moneymachine.marketdata.datasets.daily_mark import api as dmapi
+from mxm.refdata import RefDataReader
 
 
 @dataclass(frozen=True)
@@ -15,7 +17,7 @@ class _FakeContract:
     product_id: str
 
 
-class _FakeRefDataAPI:
+class _FakeRefDataReader:
     def __init__(
         self,
         *,
@@ -106,11 +108,11 @@ class _FakeDailyMarkStore:
 def _patch_api_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    refdata: _FakeRefDataAPI,
+    refdata_reader: _FakeRefDataReader,
     store: _FakeDailyMarkStore,
 ) -> None:
-    def _make_refdata_api() -> _FakeRefDataAPI:
-        return refdata
+    def _make_refdata_reader() -> _FakeRefDataReader:
+        return refdata_reader
 
     def _make_daily_mark_store(
         *,
@@ -119,7 +121,7 @@ def _patch_api_dependencies(
         _ = layout
         return store
 
-    monkeypatch.setattr(dmapi, "RefDataAPI", _make_refdata_api)
+    monkeypatch.setattr(dmapi, "RefDataReader", _make_refdata_reader)
     monkeypatch.setattr(dmapi, "DailyMarkStore", _make_daily_mark_store)
 
 
@@ -155,7 +157,7 @@ def test_read_daily_mark_contract_reads_and_canonicalises_single_contract(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     store = _FakeDailyMarkStore(
         read_map={
             (calendar_id, contract.contract_id): _daily_mark_df(
@@ -163,9 +165,10 @@ def test_read_daily_mark_contract_reads_and_canonicalises_single_contract(
             )
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_contract(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         contract_id=contract.contract_id,
     )
@@ -183,7 +186,7 @@ def test_read_daily_mark_contract_passes_session_id_slice_to_store(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     store = _FakeDailyMarkStore(
         read_map={
             (calendar_id, contract.contract_id): _daily_mark_df(
@@ -191,9 +194,10 @@ def test_read_daily_mark_contract_passes_session_id_slice_to_store(
             )
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     _ = dmapi.read_daily_mark_contract(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         contract_id=contract.contract_id,
         start_session_id=10,
@@ -207,12 +211,13 @@ def test_read_daily_mark_contract_passes_session_id_slice_to_store(
 def test_read_daily_mark_contract_raises_for_unknown_contract_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    refdata = _FakeRefDataAPI(by_id={})
+    refdata_reader = _FakeRefDataReader(by_id={})
     store = _FakeDailyMarkStore()
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     with pytest.raises(ValueError, match=r"unknown contract_id"):
         _ = dmapi.read_daily_mark_contract(
+            refdata_reader=cast(RefDataReader, refdata_reader),
             calendar_id="mxm_business_days_v1_2010-01-01_2050-12-31",
             contract_id="missing-contract",
         )
@@ -223,7 +228,7 @@ def test_read_daily_mark_contract_rejects_missing_session_id_column(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     bad_df = pd.DataFrame(
         {
             "contract_id": [contract.contract_id],
@@ -231,10 +236,11 @@ def test_read_daily_mark_contract_rejects_missing_session_id_column(
         }
     )
     store = _FakeDailyMarkStore(read_map={(calendar_id, contract.contract_id): bad_df})
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     with pytest.raises(ValueError, match=r"missing required column 'session_id'"):
         _ = dmapi.read_daily_mark_contract(
+            refdata_reader=cast(RefDataReader, refdata_reader),
             calendar_id=calendar_id,
             contract_id=contract.contract_id,
         )
@@ -245,13 +251,14 @@ def test_read_daily_mark_contract_rejects_contract_id_mismatch(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     bad_df = _daily_mark_df(contract_id="different-contract")
     store = _FakeDailyMarkStore(read_map={(calendar_id, contract.contract_id): bad_df})
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     with pytest.raises(ValueError, match=r"does not match requested contract_id"):
         _ = dmapi.read_daily_mark_contract(
+            refdata_reader=cast(RefDataReader, refdata_reader),
             calendar_id=calendar_id,
             contract_id=contract.contract_id,
         )
@@ -262,13 +269,14 @@ def test_read_daily_mark_contract_returns_empty_canonical_frame_when_store_empty
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     store = _FakeDailyMarkStore(
         read_map={(calendar_id, contract.contract_id): pd.DataFrame()}
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_contract(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         contract_id=contract.contract_id,
     )
@@ -283,11 +291,12 @@ def test_read_daily_mark_contract_meta_returns_none_when_missing(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     store = _FakeDailyMarkStore(meta_map={(calendar_id, contract.contract_id): None})
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_contract_meta(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         contract_id=contract.contract_id,
     )
@@ -301,7 +310,7 @@ def test_read_daily_mark_contract_meta_enriches_meta_with_contract_fields(
 ) -> None:
     calendar_id = "mxm_business_days_v1_2010-01-01_2050-12-31"
     contract = _contract()
-    refdata = _FakeRefDataAPI(by_id={contract.contract_id: contract})
+    refdata_reader = _FakeRefDataReader(by_id={contract.contract_id: contract})
     store = _FakeDailyMarkStore(
         meta_map={
             (calendar_id, contract.contract_id): {
@@ -310,9 +319,10 @@ def test_read_daily_mark_contract_meta_enriches_meta_with_contract_fields(
             }
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_contract_meta(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         contract_id=contract.contract_id,
     )
@@ -331,12 +341,13 @@ def test_read_daily_mark_contract_meta_enriches_meta_with_contract_fields(
 def test_read_daily_mark_contract_meta_raises_for_unknown_contract_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    refdata = _FakeRefDataAPI(by_id={})
+    refdata_reader = _FakeRefDataReader(by_id={})
     store = _FakeDailyMarkStore()
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     with pytest.raises(ValueError, match=r"unknown contract_id"):
         _ = dmapi.read_daily_mark_contract_meta(
+            refdata_reader=cast(RefDataReader, refdata_reader),
             calendar_id="mxm_business_days_v1_2010-01-01_2050-12-31",
             contract_id="missing-contract",
         )
@@ -355,7 +366,7 @@ def test_read_daily_mark_product_reads_existing_contract_surfaces_and_concatenat
         product_id="cme_emini_snp500_futures",
     )
 
-    refdata = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         by_product={c1.product_id: [c1, c2]},
     )
     store = _FakeDailyMarkStore(
@@ -364,9 +375,10 @@ def test_read_daily_mark_product_reads_existing_contract_surfaces_and_concatenat
             (calendar_id, c2.contract_id): _daily_mark_df(contract_id=c2.contract_id),
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_product(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         product_id=c1.product_id,
     )
@@ -394,7 +406,7 @@ def test_read_daily_mark_product_skips_missing_contract_surfaces(
         product_id="cme_emini_snp500_futures",
     )
 
-    refdata = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         by_product={c1.product_id: [c1, c2]},
     )
     store = _FakeDailyMarkStore(
@@ -402,9 +414,10 @@ def test_read_daily_mark_product_skips_missing_contract_surfaces(
             (calendar_id, c1.contract_id): _daily_mark_df(contract_id=c1.contract_id),
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_product(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         product_id=c1.product_id,
     )
@@ -421,11 +434,12 @@ def test_read_daily_mark_product_returns_empty_canonical_frame_when_no_surfaces_
         contract_id="cme_emini_snp500_futures.Mar-2025",
         product_id=product_id,
     )
-    refdata = _FakeRefDataAPI(by_product={product_id: [c1]})
+    refdata_reader = _FakeRefDataReader(by_product={product_id: [c1]})
     store = _FakeDailyMarkStore(read_map={})
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     out = dmapi.read_daily_mark_product(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id="mxm_business_days_v1_2010-01-01_2050-12-31",
         product_id=product_id,
     )
@@ -443,15 +457,16 @@ def test_read_daily_mark_product_passes_session_id_slice_to_store(
         contract_id="cme_emini_snp500_futures.Mar-2025",
         product_id="cme_emini_snp500_futures",
     )
-    refdata = _FakeRefDataAPI(by_product={c1.product_id: [c1]})
+    refdata_reader = _FakeRefDataReader(by_product={c1.product_id: [c1]})
     store = _FakeDailyMarkStore(
         read_map={
             (calendar_id, c1.contract_id): _daily_mark_df(contract_id=c1.contract_id),
         }
     )
-    _patch_api_dependencies(monkeypatch, refdata=refdata, store=store)
+    _patch_api_dependencies(monkeypatch, refdata_reader=refdata_reader, store=store)
 
     _ = dmapi.read_daily_mark_product(
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_id=calendar_id,
         product_id=c1.product_id,
         start_session_id=100,

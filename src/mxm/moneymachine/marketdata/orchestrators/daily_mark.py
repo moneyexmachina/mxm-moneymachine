@@ -71,10 +71,8 @@ from mxm.moneymachine.marketdata.mapping.vendors.databento.instrument_resolver i
 )
 from mxm.moneymachine.utils.date_utils import coerce_np_day, fmt_iso_day
 from mxm.moneymachine.utils.time_utils import utc_now_run_ts
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm.refdata.models.contracts.futures_contract import (  # type: ignore
-    FuturesContract,
-)
+from mxm.refdata import RefDataReader
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
 
 Mode = Literal["bootstrap", "update"]
 
@@ -109,7 +107,8 @@ class ContractRun:
     downstream_content_sha256: str | None
     downstream_source_content_sha256: str | None
     daily_mark_path: str | None
-    status: str  # built | skipped_unchanged | skipped_no_upstream | skipped_out_of_calendar_range | unmapped | dry_run | error
+
+    status: str
     status_detail: str | None = None
 
     wrote: bool | None = None
@@ -186,6 +185,15 @@ class DailyMarkOrchestratorReport:
 
 @dataclass(frozen=True)
 class DailyMarkRunContext:
+    """
+    Concrete dependencies and run options for one daily-mark orchestration.
+
+    This is deliberately a local orchestration context, not an mxm-runtime
+    RuntimeContext. All dependencies have already been resolved before this
+    object is constructed.
+    """
+
+    refdata_reader: RefDataReader
     product_id: str
     calendar_id: str
     business_calendar: MXMBusinessCalendar
@@ -216,11 +224,16 @@ class DailyMarkContractContext:
     downstream: StoreCoverageSnapshot | None = None
 
 
-def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
+def _enumerate_contracts(
+    product_id: str,
+    *,
+    mode: Mode,
+    context: DailyMarkRunContext,
+) -> list[FuturesContract]:
     _ = mode
-    api = RefDataAPI()
-    contracts = list(api.get_contracts_for_product(product_id))
-    contracts.sort(key=lambda c: str(c.contract_id))
+
+    contracts = list(context.refdata_reader.get_contracts_for_product(product_id))
+    contracts.sort(key=lambda contract: str(contract.contract_id))
     return contracts
 
 
@@ -234,7 +247,7 @@ def _filter_contracts_by_id(
         return contracts
 
     wanted = {str(x) for x in contract_ids}
-    present = {str(c.contract_id) for c in contracts}
+    present = {str(contract.contract_id) for contract in contracts}
 
     missing = sorted(wanted - present)
     if missing:
@@ -243,7 +256,7 @@ def _filter_contracts_by_id(
             f"{product_id!r}: {missing}"
         )
 
-    return [c for c in contracts if str(c.contract_id) in wanted]
+    return [contract for contract in contracts if str(contract.contract_id) in wanted]
 
 
 def _contract_session_ids(
@@ -285,9 +298,20 @@ def _contract_session_ids(
     if labels.size == 0:
         return None
 
-    # Inclusive interval intersection against sorted business-session labels.
-    left = int(np.searchsorted(labels, contract_start, side="left"))
-    right_exclusive = int(np.searchsorted(labels, contract_end, side="right"))
+    left = int(
+        np.searchsorted(
+            labels,
+            contract_start,
+            side="left",
+        )
+    )
+    right_exclusive = int(
+        np.searchsorted(
+            labels,
+            contract_end,
+            side="right",
+        )
+    )
 
     if left >= right_exclusive:
         return None
@@ -299,7 +323,11 @@ def _contract_session_ids(
     min_session_id = int(selected_session_ids[0])
     max_session_id = int(selected_session_ids[-1])
 
-    return min_session_id, max_session_id, selected_session_ids
+    return (
+        min_session_id,
+        max_session_id,
+        selected_session_ids,
+    )
 
 
 def _upstream_snapshot_from_daily_stats(
@@ -315,6 +343,7 @@ def _upstream_snapshot_from_daily_stats(
 
 def derive_daily_mark_for_product(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     calendar_id: str,
     business_calendar: MXMBusinessCalendar,
@@ -336,6 +365,7 @@ def derive_daily_mark_for_product(
     )
 
     context = DailyMarkRunContext(
+        refdata_reader=refdata_reader,
         product_id=product_id,
         calendar_id=calendar_id,
         business_calendar=business_calendar,
@@ -350,6 +380,7 @@ def derive_daily_mark_for_product(
         mode=mode,
         max_contracts=max_contracts,
         contract_ids=contract_ids,
+        context=context,
         report=report,
     )
 
@@ -387,9 +418,15 @@ def _prepare_daily_mark_contracts(
     mode: Mode,
     max_contracts: int | None,
     contract_ids: set[str] | None,
+    context: DailyMarkRunContext,
     report: DailyMarkOrchestratorReport,
 ) -> list[FuturesContract]:
-    contracts = _enumerate_contracts(product_id, mode=mode)
+    contracts = _enumerate_contracts(
+        product_id,
+        mode=mode,
+        context=context,
+    )
+
     contracts = _filter_contracts_by_id(
         contracts=contracts,
         product_id=product_id,
@@ -433,9 +470,18 @@ def _process_daily_mark_contract(
         ):
             return
 
-        _apply_daily_mark_reset_if_requested(context, contract_context)
-        _load_daily_mark_upstream(context, contract_context)
-        _load_daily_mark_downstream(context, contract_context)
+        _apply_daily_mark_reset_if_requested(
+            context,
+            contract_context,
+        )
+        _load_daily_mark_upstream(
+            context,
+            contract_context,
+        )
+        _load_daily_mark_downstream(
+            context,
+            contract_context,
+        )
 
         if _append_if_daily_mark_no_upstream(
             context=context,
@@ -464,19 +510,23 @@ def _process_daily_mark_contract(
             contract_context=contract_context,
         )
 
-    except InstrumentNotMappedError as e:
+    except InstrumentNotMappedError as error:
         report.unmapped += 1
         report.runs.append(
             _daily_mark_unmapped_run(
-                context=context, contract_context=contract_context, error=e
+                context=context,
+                contract_context=contract_context,
+                error=error,
             )
         )
 
-    except Exception as e:
+    except Exception as error:
         report.errors += 1
         report.runs.append(
             _daily_mark_error_run(
-                context=context, contract_context=contract_context, error=e
+                context=context,
+                contract_context=contract_context,
+                error=error,
             )
         )
 
@@ -522,7 +572,7 @@ def _append_if_daily_mark_out_of_calendar_range(
             downstream_source_content_sha256=None,
             daily_mark_path=None,
             status="skipped_out_of_calendar_range",
-            status_detail="contract_lifecycle_outside_configured_business_calendar",
+            status_detail=("contract_lifecycle_outside_configured_business_calendar"),
         )
     )
     return True
@@ -546,14 +596,17 @@ def _load_daily_mark_upstream(
     contract_context: DailyMarkContractContext,
 ) -> None:
     daily_stats_meta = read_daily_stats_contract_meta(
+        refdata_reader=context.refdata_reader,
         contract_id=contract_context.contract_id,
         root=context.root,
     )
 
     df_daily_stats = read_daily_stats_contract(
+        refdata_reader=context.refdata_reader,
         contract_id=contract_context.contract_id,
         root=context.root,
     )
+
     (
         contract_context.upstream_rows,
         contract_context.upstream_min_trading_date,
@@ -615,7 +668,10 @@ def _append_if_daily_mark_no_upstream(
 
     report.skipped_no_upstream += 1
     report.runs.append(
-        _daily_mark_no_upstream_run(context=context, contract_context=contract_context)
+        _daily_mark_no_upstream_run(
+            context=context,
+            contract_context=contract_context,
+        )
     )
     return True
 
@@ -633,7 +689,7 @@ def _append_if_daily_mark_unchanged(
         and contract_context.downstream_calendar_ok
         and contract_context.upstream_content_sha256 is not None
         and down.source_content_sha256 is not None
-        and down.source_content_sha256 == contract_context.upstream_content_sha256
+        and (down.source_content_sha256 == contract_context.upstream_content_sha256)
         and down.min_session_id == contract_context.requested_min_session_id
         and down.max_session_id == contract_context.requested_max_session_id
     )
@@ -643,7 +699,10 @@ def _append_if_daily_mark_unchanged(
 
     report.skipped_unchanged += 1
     report.runs.append(
-        _daily_mark_unchanged_run(context=context, contract_context=contract_context)
+        _daily_mark_unchanged_run(
+            context=context,
+            contract_context=contract_context,
+        )
     )
     return True
 
@@ -659,7 +718,10 @@ def _append_if_daily_mark_dry_run(
 
     report.dry_run_n += 1
     report.runs.append(
-        _daily_mark_dry_run(context=context, contract_context=contract_context)
+        _daily_mark_dry_run(
+            context=context,
+            contract_context=contract_context,
+        )
     )
     return True
 
@@ -680,11 +742,11 @@ def _build_write_and_append_daily_mark(
         daily_stats=df_daily_stats,
     )
 
-    wmeta = context.daily_mark_store.write(
+    write_meta = context.daily_mark_store.write(
         calendar_id=context.calendar_id,
         contract_id=contract_context.contract_id,
         df_new=df_daily_mark,
-        source_content_sha256=contract_context.upstream_content_sha256,
+        source_content_sha256=(contract_context.upstream_content_sha256),
         skip_if_unchanged=True,
     )
 
@@ -693,7 +755,7 @@ def _build_write_and_append_daily_mark(
         _daily_mark_built_run(
             context=context,
             contract_context=contract_context,
-            wmeta=wmeta,
+            wmeta=write_meta,
             diag=diag,
         )
     )
@@ -734,20 +796,20 @@ def _daily_mark_no_upstream_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=False,
         upstream_rows=0,
         upstream_min_trading_date=None,
         upstream_max_trading_date=None,
-        upstream_content_sha256=contract_context.upstream_content_sha256,
+        upstream_content_sha256=(contract_context.upstream_content_sha256),
         daily_stats_path=contract_context.daily_stats_path,
         downstream_exists=bool(down.exists),
         downstream_rows=int(down.row_count),
         downstream_min_session_id=down.min_session_id,
         downstream_max_session_id=down.max_session_id,
         downstream_content_sha256=down.content_sha256,
-        downstream_source_content_sha256=down.source_content_sha256,
+        downstream_source_content_sha256=(down.source_content_sha256),
         daily_mark_path=contract_context.daily_mark_path,
         status="skipped_no_upstream",
         status_detail="daily_stats_missing_or_empty",
@@ -765,20 +827,20 @@ def _daily_mark_unchanged_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=True,
         upstream_rows=contract_context.upstream_rows,
-        upstream_min_trading_date=contract_context.upstream_min_trading_date,
-        upstream_max_trading_date=contract_context.upstream_max_trading_date,
-        upstream_content_sha256=contract_context.upstream_content_sha256,
+        upstream_min_trading_date=(contract_context.upstream_min_trading_date),
+        upstream_max_trading_date=(contract_context.upstream_max_trading_date),
+        upstream_content_sha256=(contract_context.upstream_content_sha256),
         daily_stats_path=contract_context.daily_stats_path,
         downstream_exists=True,
         downstream_rows=int(down.row_count),
         downstream_min_session_id=down.min_session_id,
         downstream_max_session_id=down.max_session_id,
         downstream_content_sha256=down.content_sha256,
-        downstream_source_content_sha256=down.source_content_sha256,
+        downstream_source_content_sha256=(down.source_content_sha256),
         daily_mark_path=contract_context.daily_mark_path,
         status="skipped_unchanged",
         status_detail="source_content_sha256_and_exact_range_match",
@@ -800,20 +862,20 @@ def _daily_mark_dry_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=True,
         upstream_rows=contract_context.upstream_rows,
-        upstream_min_trading_date=contract_context.upstream_min_trading_date,
-        upstream_max_trading_date=contract_context.upstream_max_trading_date,
-        upstream_content_sha256=contract_context.upstream_content_sha256,
+        upstream_min_trading_date=(contract_context.upstream_min_trading_date),
+        upstream_max_trading_date=(contract_context.upstream_max_trading_date),
+        upstream_content_sha256=(contract_context.upstream_content_sha256),
         daily_stats_path=contract_context.daily_stats_path,
         downstream_exists=bool(down.exists),
         downstream_rows=int(down.row_count),
         downstream_min_session_id=down.min_session_id,
         downstream_max_session_id=down.max_session_id,
         downstream_content_sha256=down.content_sha256,
-        downstream_source_content_sha256=down.source_content_sha256,
+        downstream_source_content_sha256=(down.source_content_sha256),
         daily_mark_path=contract_context.daily_mark_path,
         status="dry_run",
         status_detail="would_build_and_write",
@@ -843,20 +905,20 @@ def _daily_mark_built_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=True,
         upstream_rows=contract_context.upstream_rows,
-        upstream_min_trading_date=contract_context.upstream_min_trading_date,
-        upstream_max_trading_date=contract_context.upstream_max_trading_date,
-        upstream_content_sha256=contract_context.upstream_content_sha256,
+        upstream_min_trading_date=(contract_context.upstream_min_trading_date),
+        upstream_max_trading_date=(contract_context.upstream_max_trading_date),
+        upstream_content_sha256=(contract_context.upstream_content_sha256),
         daily_stats_path=contract_context.daily_stats_path,
         downstream_exists=True,
         downstream_rows=int(wmeta.get("rows", 0)),
         downstream_min_session_id=downstream_min_session_id,
         downstream_max_session_id=downstream_max_session_id,
         downstream_content_sha256=str(wmeta["content_sha256"]),
-        downstream_source_content_sha256=contract_context.upstream_content_sha256,
+        downstream_source_content_sha256=(contract_context.upstream_content_sha256),
         daily_mark_path=str(wmeta["path"]),
         status="built",
         status_detail="derived_and_persisted",
@@ -884,8 +946,8 @@ def _daily_mark_unmapped_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=False,
         upstream_rows=0,
         upstream_min_trading_date=None,
@@ -914,8 +976,8 @@ def _daily_mark_error_run(
         product_id=context.product_id,
         contract_id=contract_context.contract_id,
         calendar_id=context.calendar_id,
-        requested_min_session_id=contract_context.requested_min_session_id,
-        requested_max_session_id=contract_context.requested_max_session_id,
+        requested_min_session_id=(contract_context.requested_min_session_id),
+        requested_max_session_id=(contract_context.requested_max_session_id),
         upstream_exists=False,
         upstream_rows=0,
         upstream_min_trading_date=None,
@@ -934,7 +996,9 @@ def _daily_mark_error_run(
     )
 
 
-def _finalize_daily_mark_report(report: DailyMarkOrchestratorReport) -> None:
+def _finalize_daily_mark_report(
+    report: DailyMarkOrchestratorReport,
+) -> None:
     report.cost_used_usd = 0.0
     report.stop_reason = "ok"
     report.stage_status = "ok" if report.errors == 0 else "halted"

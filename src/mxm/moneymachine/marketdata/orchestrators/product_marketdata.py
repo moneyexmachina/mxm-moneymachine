@@ -48,6 +48,7 @@ from mxm.moneymachine.marketdata.orchestrators.statistics_1d import (
 )
 from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.moneymachine.utils.time_utils import utc_now_run_ts
+from mxm.refdata import RefDataReader
 
 Mode = Literal["bootstrap", "update"]
 
@@ -120,6 +121,16 @@ class ProductMarketDataReport:
 
 @dataclass(frozen=True)
 class ProductRunContext:
+    """
+    Concrete dependencies and run options for one product-marketdata run.
+
+    This is deliberately a local orchestration context, not an mxm-runtime
+    RuntimeContext. All dependencies have already been resolved before this
+    object is constructed.
+    """
+
+    refdata_reader: RefDataReader
+
     product_id: str
     mode: Mode
     dry_run: bool
@@ -140,8 +151,11 @@ class ProductStageDecision:
 # -------------------------
 # Public entry point
 # -------------------------
+
+
 def ingest_product_marketdata(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     mode: Mode,
     cost_cap_usd: float,
@@ -160,6 +174,7 @@ def ingest_product_marketdata(
 
     attempts = stores.product_attempts
     run_ts = run_ts_utc or utc_now_run_ts()
+
     attempt_uid = _start_product_marketdata_attempt(
         attempts=attempts,
         product_id=product_id,
@@ -172,6 +187,7 @@ def ingest_product_marketdata(
     )
 
     context = ProductRunContext(
+        refdata_reader=refdata_reader,
         product_id=product_id,
         mode=mode,
         dry_run=dry_run,
@@ -212,7 +228,7 @@ def ingest_product_marketdata(
             message=decision.message,
         )
 
-    except Exception as e:
+    except Exception as error:
         _finish_product_marketdata_error_attempt(
             attempts=attempts,
             attempt_uid=attempt_uid,
@@ -223,7 +239,7 @@ def ingest_product_marketdata(
             reset_local=force_reset,
             cost_cap_usd=cost_cap_usd,
             stages=stages,
-            error=e,
+            error=error,
         )
         raise
 
@@ -260,6 +276,7 @@ def _run_product_marketdata_stages(
 
     remaining, decision = _run_and_gate_product_stage(
         stage=_run_stage_instrument_definition_mappings(
+            refdata_reader=context.refdata_reader,
             product_id=context.product_id,
             mode=context.mode,
             remaining_usd=remaining,
@@ -282,6 +299,7 @@ def _run_product_marketdata_stages(
 
     remaining, decision = _run_and_gate_product_stage(
         stage=_run_stage_ohlcv_1d(
+            refdata_reader=context.refdata_reader,
             product_id=context.product_id,
             mode=context.mode,
             remaining_usd=remaining,
@@ -303,6 +321,7 @@ def _run_product_marketdata_stages(
 
     remaining, decision = _run_and_gate_product_stage(
         stage=_run_stage_statistics_1d(
+            refdata_reader=context.refdata_reader,
             product_id=context.product_id,
             mode=context.mode,
             remaining_usd=remaining,
@@ -324,6 +343,7 @@ def _run_product_marketdata_stages(
 
     remaining, decision = _run_and_gate_product_stage(
         stage=_run_stage_daily_stats(
+            refdata_reader=context.refdata_reader,
             product_id=context.product_id,
             mode=context.mode,
             remaining_usd=remaining,
@@ -368,7 +388,10 @@ def _run_and_gate_product_stage(
     remaining_after = max(0.0, remaining - stage.cost_used_usd)
 
     if stage.status is not StageStatus.OK:
-        stop_reason = _coerce_stop_reason(stage, default=default_stop_reason)
+        stop_reason = _coerce_stop_reason(
+            stage,
+            default=default_stop_reason,
+        )
         status = (
             ProductStatus.HALTED
             if stage.status is StageStatus.HALTED
@@ -378,7 +401,9 @@ def _run_and_gate_product_stage(
             should_stop=True,
             status=status,
             stop_reason=stop_reason,
-            message=f"stopped after {stage_label}: {stage.status} ({stage.stop_reason})",
+            message=(
+                f"stopped after {stage_label}: {stage.status} ({stage.stop_reason})"
+            ),
         )
 
     if gate_budget and remaining_after <= 0.0:
@@ -397,7 +422,9 @@ def _run_and_gate_product_stage(
     )
 
 
-def _mapping_ready_decision(stage: StageEnvelope) -> ProductStageDecision:
+def _mapping_ready_decision(
+    stage: StageEnvelope,
+) -> ProductStageDecision:
     if stage.mapping_ready_for_ohlcv is not False:
         return ProductStageDecision(
             should_stop=False,
@@ -468,7 +495,10 @@ def _finish_product_marketdata_error_attempt(
         stop_reason=stop_reason.value,
         finished_at=utc_now_run_ts(),
         cost_used_usd=_sum_costs(stages),
-        remaining_usd=max(0.0, float(cost_cap_usd) - _sum_costs(stages)),
+        remaining_usd=max(
+            0.0,
+            float(cost_cap_usd) - _sum_costs(stages),
+        ),
         summary=_summary_json(
             product_id=product_id,
             mode=mode,
@@ -497,7 +527,7 @@ class ProductMarketDataStores:
 
     Note:
     The dataset orchestrators each have their own required stores.
-    This container exists purely to pass dependencies cleanly.
+    This container exists purely to pass persistence dependencies cleanly.
     """
 
     backend: SQLiteBackend
@@ -505,7 +535,6 @@ class ProductMarketDataStores:
 
     # Dataset-level stores (opaque here; passed through)
     instrument_definitions_store: InstrumentDefinitionsStore
-
     instrument_definition_mappings_store: InstrumentDefinitionMappingsStore
     ohlcv_1d_store: OHLCV1DStore
     statistics_1d_store: Statistics1DStore
@@ -532,6 +561,7 @@ def _run_stage_instrument_definitions(
     Calls instrument_definitions orchestrator and normalizes its report.
     """
     _ = dry_run  # dry-run currently not supported by instrument_definitions
+
     report = ingest_instrument_definitions(
         store=stores.instrument_definitions_store,
         product_id=product_id,
@@ -551,6 +581,7 @@ def _run_stage_instrument_definitions(
 
 def _run_stage_instrument_definition_mappings(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     mode: Mode,
     remaining_usd: float,
@@ -564,9 +595,10 @@ def _run_stage_instrument_definition_mappings(
     """
     _ = remaining_usd  # stage has no vendor calls; budget not consumed here
     _ = dry_run  # stage is vendor-free by construction
-    _ = max_contracts  # stage currently uses full refdata universe; scope controls deferred
+    _ = max_contracts  # stage currently uses full refdata universe
 
     report = rebuild_instrument_definition_mappings(
+        refdata_reader=refdata_reader,
         defs_store=stores.instrument_definitions_store,
         mappings_store=stores.instrument_definition_mappings_store,
         product_id=product_id,
@@ -574,8 +606,13 @@ def _run_stage_instrument_definition_mappings(
         reset=reset,
     )
 
-    mapping_ready = getattr(report, "mapping_ready_for_ohlcv", None)
+    mapping_ready = getattr(
+        report,
+        "mapping_ready_for_ohlcv",
+        None,
+    )
     mapping_ready_bool = mapping_ready if isinstance(mapping_ready, bool) else None
+
     return _normalize_stage_report(
         name="instrument_definition_mappings",
         report=report,
@@ -585,6 +622,7 @@ def _run_stage_instrument_definition_mappings(
 
 def _run_stage_ohlcv_1d(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     mode: Mode,
     remaining_usd: float,
@@ -596,12 +634,11 @@ def _run_stage_ohlcv_1d(
     max_windows: int | None,
     max_contracts: int | None,
 ) -> StageEnvelope:
-    _ = max_windows  # ohlcv_1d product orchestrator currently does not
-    # window-slice at this level
-    _ = reset  # destructive reset is not supported here;
-    # keep the flag for future parity
+    _ = max_windows
+    _ = reset
 
     report = ingest_ohlcv_1d_for_product(
+        refdata_reader=refdata_reader,
         backend=stores.backend,
         store=stores.ohlcv_1d_store,
         product_id=product_id,
@@ -612,13 +649,17 @@ def _run_stage_ohlcv_1d(
         dry_run=dry_run,
         reset_local=reset_local,
     )
+
     return _normalize_stage_report(
-        name="ohlcv_1d", report=report, mapping_ready_for_ohlcv=None
+        name="ohlcv_1d",
+        report=report,
+        mapping_ready_for_ohlcv=None,
     )
 
 
 def _run_stage_statistics_1d(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     mode: Mode,
     remaining_usd: float,
@@ -630,10 +671,11 @@ def _run_stage_statistics_1d(
     max_windows: int | None,
     max_contracts: int | None,
 ) -> StageEnvelope:
-    _ = reset  # if destructive reset not supported at product-level for this dataset yet
-    _ = max_windows  # if not used
+    _ = reset
+    _ = max_windows
 
     report = ingest_statistics_1d_for_product(
+        refdata_reader=refdata_reader,
         backend=stores.backend,
         store=stores.statistics_1d_store,
         product_id=product_id,
@@ -644,6 +686,7 @@ def _run_stage_statistics_1d(
         dry_run=dry_run,
         force_reset=reset_local,
     )
+
     return _normalize_stage_report(
         name="statistics_1d",
         report=report,
@@ -653,6 +696,7 @@ def _run_stage_statistics_1d(
 
 def _run_stage_daily_stats(
     *,
+    refdata_reader: RefDataReader,
     product_id: str,
     mode: Mode,
     remaining_usd: float,
@@ -663,24 +707,26 @@ def _run_stage_daily_stats(
     max_contracts: int | None,
     allow_fallback_provenance: bool,
 ) -> StageEnvelope:
-    _ = remaining_usd  # compute-only; no vendor calls today
-    _ = reset  # destructive reset not supported (or not used) at this meta-layer
+    _ = remaining_usd
+    _ = reset
 
     require_source_meta = not bool(allow_fallback_provenance)
 
     report = derive_daily_stats_for_product(
+        refdata_reader=refdata_reader,
         backend=stores.backend,
         product_id=product_id,
         mode=mode,
         stats_store=stores.statistics_1d_store,
         daily_store=stores.daily_stats_store,
-        dataset_range_start=None,  # product meta-orchestrator currently not passing range hints
+        dataset_range_start=None,
         dataset_range_end=None,
         max_contracts=max_contracts,
         dry_run=dry_run,
         force_reset=reset_local,
         require_source_meta=require_source_meta,
     )
+
     return _normalize_stage_report(
         name="daily_stats",
         report=report,
@@ -689,13 +735,17 @@ def _run_stage_daily_stats(
 
 
 def _normalize_stage_report(
-    *, name: str, report: Any, mapping_ready_for_ohlcv: bool | None
+    *,
+    name: str,
+    report: Any,
+    mapping_ready_for_ohlcv: bool | None,
 ) -> StageEnvelope:
     """
     Normalize a dataset orchestrator report into StageEnvelope.
 
     Session 13 requirement:
-    We will make minimal changes to dataset orchestrators so they expose a stable surface:
+    We will make minimal changes to dataset orchestrators so they expose a
+    stable surface:
       - cost_used_usd (float)
       - stage_status (str or enum) in {"ok","halted","error"}
       - stop_reason (str|None)
@@ -703,25 +753,31 @@ def _normalize_stage_report(
 
     Until that is done, this function is defensive.
     """
-    # cost
-    cost_used = float(getattr(report, "cost_used_usd", 0.0))
+    cost_used = float(
+        getattr(
+            report,
+            "cost_used_usd",
+            0.0,
+        )
+    )
 
-    # stage_status
     raw_status = (
         getattr(report, "stage_status", None) or getattr(report, "status", None) or "ok"
     )
     status = _coerce_stage_status(raw_status)
 
-    # stop reason (optional)
-    stop_reason = getattr(report, "stop_reason", None)
+    stop_reason = getattr(
+        report,
+        "stop_reason",
+        None,
+    )
 
-    # counts (optional)
     counts = _coerce_stage_counts(report)
 
     return StageEnvelope(
         name=name,
         status=status,
-        stop_reason=str(stop_reason) if stop_reason is not None else None,
+        stop_reason=(str(stop_reason) if stop_reason is not None else None),
         cost_used_usd=cost_used,
         counts=counts,
         raw_report=report,
@@ -729,56 +785,112 @@ def _normalize_stage_report(
     )
 
 
-def _coerce_stage_status(raw: Any) -> StageStatus:
+def _coerce_stage_status(
+    raw: Any,
+) -> StageStatus:
     if isinstance(raw, StageStatus):
         return raw
+
     if isinstance(raw, Enum):
         raw = raw.value
-    s = str(raw).lower()
-    if s in ("ok", "success", "completed", "complete"):
+
+    value = str(raw).lower()
+
+    if value in (
+        "ok",
+        "success",
+        "completed",
+        "complete",
+    ):
         return StageStatus.OK
-    if s in ("halted", "stopped", "blocked", "no_work"):
+
+    if value in (
+        "halted",
+        "stopped",
+        "blocked",
+        "no_work",
+    ):
         return StageStatus.HALTED
-    if s in ("error", "failed", "exception"):
+
+    if value in (
+        "error",
+        "failed",
+        "exception",
+    ):
         return StageStatus.ERROR
+
     return StageStatus.OK
 
 
-def _coerce_stage_counts(report: Any) -> dict[str, Any]:
-    raw_counts = getattr(report, "counts", None)
+def _coerce_stage_counts(
+    report: Any,
+) -> dict[str, Any]:
+    raw_counts = getattr(
+        report,
+        "counts",
+        None,
+    )
 
     if isinstance(raw_counts, dict):
-        counts = cast(dict[object, object], raw_counts)
+        counts = cast(
+            dict[object, object],
+            raw_counts,
+        )
         return {str(key): value for key, value in counts.items()}
 
-    raw_summary = getattr(report, "summary", None)
+    raw_summary = getattr(
+        report,
+        "summary",
+        None,
+    )
 
     if raw_summary is None:
         return {}
 
-    return {"_counts": raw_summary}
+    return {
+        "_counts": raw_summary,
+    }
 
 
 def _coerce_stop_reason(
-    stage: StageEnvelope, *, default: ProductStopReason
+    stage: StageEnvelope,
+    *,
+    default: ProductStopReason,
 ) -> ProductStopReason:
-    # If stage provides a stop_reason that matches product stop reasons, use it.
     if stage.stop_reason:
-        s = stage.stop_reason.lower().strip()
-        for r in ProductStopReason:
-            if s == r.value:
-                return r
-        # Common mappings
-        if s in ("budget", "budget_exhausted"):
+        value = stage.stop_reason.lower().strip()
+
+        for reason in ProductStopReason:
+            if value == reason.value:
+                return reason
+
+        if value in (
+            "budget",
+            "budget_exhausted",
+        ):
             return ProductStopReason.BUDGET_EXHAUSTED
-        if s in ("blocked", "downstream_blocked"):
+
+        if value in (
+            "blocked",
+            "downstream_blocked",
+        ):
             return ProductStopReason.DOWNSTREAM_BLOCKED
-        if s in ("dry_run", "dry_run_only"):
+
+        if value in (
+            "dry_run",
+            "dry_run_only",
+        ):
             return ProductStopReason.DRY_RUN_ONLY
-        if s in ("no_work",):
+
+        if value == "no_work":
             return ProductStopReason.NO_WORK
-        if s in ("error", "failed"):
+
+        if value in (
+            "error",
+            "failed",
+        ):
             return ProductStopReason.ERROR
+
     return default
 
 
@@ -851,15 +963,19 @@ def _summary_json(
     message: str | None,
 ) -> dict[str, Any]:
     stage_map: dict[str, Any] = {}
-    for s in stages:
-        stage_map[s.name] = {
-            "status": s.status.value,
-            "stop_reason": s.stop_reason,
-            "cost_used_usd": s.cost_used_usd,
-            "counts": s.counts,
+
+    for stage in stages:
+        stage_map[stage.name] = {
+            "status": stage.status.value,
+            "stop_reason": stage.stop_reason,
+            "cost_used_usd": stage.cost_used_usd,
+            "counts": stage.counts,
         }
-        if s.mapping_ready_for_ohlcv is not None:
-            stage_map[s.name]["mapping_ready_for_ohlcv"] = s.mapping_ready_for_ohlcv
+
+        if stage.mapping_ready_for_ohlcv is not None:
+            stage_map[stage.name][
+                "mapping_ready_for_ohlcv"
+            ] = stage.mapping_ready_for_ohlcv
 
     return {
         "product_id": product_id,
@@ -874,5 +990,7 @@ def _summary_json(
     }
 
 
-def _sum_costs(stages: list[StageEnvelope]) -> float:
-    return float(sum(s.cost_used_usd for s in stages))
+def _sum_costs(
+    stages: list[StageEnvelope],
+) -> float:
+    return float(sum(stage.cost_used_usd for stage in stages))

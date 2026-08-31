@@ -24,7 +24,7 @@ from mxm.moneymachine.execution.price_accessors import ExecutionPriceAccessor
 from mxm.moneymachine.execution.session_engine import SessionEngine, SessionResult
 from mxm.moneymachine.synthetic_assets.target_holdings import TargetHoldings
 from mxm.moneymachine.utils.time_utils import to_utc_ts
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 S1 = np.datetime64("2026-03-10", "D")
 S2 = np.datetime64("2026-03-11", "D")
@@ -37,7 +37,7 @@ class DummyContract:
         self.last_trading_day = last_trading_day
 
 
-class DummyRefDataAPI:
+class DummyRefDataReader:
     def __init__(self, contracts: dict[str, DummyContract]) -> None:
         self._contracts = contracts
 
@@ -96,7 +96,7 @@ class DummyCalendarService:
 
 def _make_backtester(
     *,
-    ref_data_api: DummyRefDataAPI,
+    refdata_reader: DummyRefDataReader,
     prices: dict[tuple[str, np.datetime64], float],
     default_min_block_size: int = 1,
     timestamp_policy: OrderTimestampPolicy = OrderTimestampPolicy.SESSION_OPEN,
@@ -107,7 +107,7 @@ def _make_backtester(
 
     if calendars_by_product is None:
         product_ids = {
-            contract.product_id for contract in ref_data_api._contracts.values()
+            contract.product_id for contract in refdata_reader._contracts.values()
         }
         calendars_by_product = {
             product_id: DummyCalendar() for product_id in product_ids
@@ -120,11 +120,11 @@ def _make_backtester(
             default_min_block_size=default_min_block_size,
             timestamp_policy=timestamp_policy,
         ),
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_service=cast(TradingCalendarService, calendar_service),
     )
     session_engine = SessionEngine(
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         order_generator=order_generator,
         executor=executor,
     )
@@ -154,7 +154,7 @@ def _make_target_holdings(
 
 
 def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -164,7 +164,7 @@ def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
     )
 
     backtester, accessor = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", S1): 101.5,
             ("corn_mar2026", S2): 102.25,
@@ -219,7 +219,7 @@ def test_run_target_holdings_happy_path_chains_sessions_correctly() -> None:
 
 
 def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -229,7 +229,7 @@ def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -
     )
 
     backtester, _ = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={("corn_mar2026", S1): 101.5},
     )
 
@@ -249,7 +249,7 @@ def test_run_target_holdings_uses_empty_initial_realised_holdings_by_default() -
 
 
 def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -259,7 +259,7 @@ def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> Non
     )
 
     backtester, _ = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={("corn_mar2026", S1): 101.5},
     )
 
@@ -287,7 +287,7 @@ def test_run_target_holdings_accepts_explicit_initial_realised_holdings() -> Non
 
 
 def test_run_target_holdings_slices_correct_target_holdings_per_session() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -301,7 +301,7 @@ def test_run_target_holdings_slices_correct_target_holdings_per_session() -> Non
     )
 
     backtester, _ = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", S1): 101.5,
             ("corn_may2026", S1): 102.25,
@@ -345,7 +345,7 @@ def test_run_target_holdings_slices_correct_target_holdings_per_session() -> Non
 def test_run_target_holdings_carries_realised_holdings_forward_between_sessions() -> (
     None
 ):
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -355,7 +355,7 @@ def test_run_target_holdings_carries_realised_holdings_forward_between_sessions(
     )
 
     backtester, _ = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", S1): 101.5,
             ("corn_mar2026", S2): 102.25,
@@ -399,7 +399,7 @@ def test_run_target_holdings_carries_realised_holdings_forward_between_sessions(
 
 
 def test_run_target_holdings_respects_rounding_across_sessions() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -409,7 +409,7 @@ def test_run_target_holdings_respects_rounding_across_sessions() -> None:
     )
 
     backtester, accessor = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", S1): 101.5,
             ("corn_mar2026", S3): 103.25,
@@ -504,7 +504,7 @@ def test_backtest_result_rejects_unsorted_session_results() -> None:
 
 def test_run_target_holdings_propagates_session_engine_failure() -> None:
     initial_realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(
                 product_id="corn",
@@ -514,7 +514,7 @@ def test_run_target_holdings_propagates_session_engine_failure() -> None:
     )
 
     backtester, _ = _make_backtester(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={},
     )
 

@@ -6,7 +6,7 @@ import pandas as pd
 
 from mxm.moneymachine.marketdata.datasets.daily_mark.store import DailyMarkStore
 from mxm.moneymachine.marketdata.stores.layout import MarketdataLayout
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 # ---------------------------------------------------------------------
 # Public surface
@@ -15,6 +15,7 @@ from mxm.refdata.api.ref_data_api import RefDataAPI
 
 def read_daily_mark_contract(
     *,
+    refdata_reader: RefDataReader,
     calendar_id: str,
     contract_id: str,
     root: Path | None = None,
@@ -44,9 +45,8 @@ def read_daily_mark_contract(
     """
     layout = MarketdataLayout(root=(root or (Path.home() / ".mxm")))
     store = DailyMarkStore(layout=layout)
-    api = RefDataAPI()
 
-    contract = api.get_contract_by_id(contract_id)
+    contract = refdata_reader.get_contract_by_id(contract_id)
     product_id = contract.product_id
 
     df = store.read(
@@ -60,6 +60,7 @@ def read_daily_mark_contract(
 
 def read_daily_mark_contract_meta(
     *,
+    refdata_reader: RefDataReader,
     calendar_id: str,
     contract_id: str,
     root: Path | None = None,
@@ -85,9 +86,8 @@ def read_daily_mark_contract_meta(
     """
     layout = MarketdataLayout(root=(root or (Path.home() / ".mxm")))
     store = DailyMarkStore(layout=layout)
-    api = RefDataAPI()
 
-    contract = api.get_contract_by_id(contract_id)
+    contract = refdata_reader.get_contract_by_id(contract_id)
     product_id = contract.product_id
 
     meta = store.read_meta(
@@ -112,6 +112,7 @@ def read_daily_mark_contract_meta(
 
 def read_daily_mark_product(
     *,
+    refdata_reader: RefDataReader,
     calendar_id: str,
     product_id: str,
     root: Path | None = None,
@@ -140,9 +141,8 @@ def read_daily_mark_product(
     store = DailyMarkStore(layout=layout)
 
     frames: list[pd.DataFrame] = []
-    api = RefDataAPI()
 
-    for contract in list(api.get_contracts_for_product(product_id)):
+    for contract in refdata_reader.get_contracts_for_product(product_id):
         contract_id = str(contract.contract_id)
 
         try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import cast
 
 import pandas as pd
 from _pytest.monkeypatch import MonkeyPatch
@@ -12,6 +13,7 @@ from mxm.moneymachine.marketdata.datasets.statistics_1d.attempts_store import (
 )
 from mxm.moneymachine.marketdata.datasets.statistics_1d.store import Statistics1DStore
 from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
+from mxm.refdata import RefDataReader
 from tests.integration.testkit.fakes_refdata import make_contract
 from tests.integration.testkit.patching_statistics_1d import (
     OfflineStats1DConfig,
@@ -101,18 +103,22 @@ def test_statistics_1d_orchestrator_roundtrip_idempotent(
     )
 
     # Patch RefDataAPI used inside orchestrator._enumerate_contracts
-    class FakeRefDataAPI:
+    class _FakeRefDataReader:
         def get_contracts_for_product(self, pid: str):
             assert pid == product_id
             return [make_contract(product_id=product_id)]
 
-    monkeypatch.setattr(orch_mod, "RefDataAPI", FakeRefDataAPI)
+    refdata_reader = cast(
+        RefDataReader,
+        _FakeRefDataReader(),
+    )
 
     # Clean slate for the instrument
     store.delete(dataset="TEST.DATASET", publisher_id=1, instrument_id=instrument_id)
 
     # Run twice
     r1 = orch_mod.ingest_statistics_1d_for_product(
+        refdata_reader=refdata_reader,
         backend=backend,
         store=store,
         product_id=product_id,
@@ -183,6 +189,7 @@ def test_statistics_1d_orchestrator_roundtrip_idempotent(
     )
 
     r2 = orch_mod.ingest_statistics_1d_for_product(
+        refdata_reader=refdata_reader,
         backend=backend,
         store=store,
         product_id=product_id,

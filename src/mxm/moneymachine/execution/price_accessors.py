@@ -89,7 +89,7 @@ from mxm.moneymachine.marketdata.datasets.daily_stats.api import (
     read_daily_stats_product,
 )
 from mxm.moneymachine.utils.date_utils import coerce_np_day
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 class ExecutionPriceAccessor(ABC):
@@ -280,9 +280,9 @@ class _DailyStatsPriceAccessorBase:
     root:
         Optional MXM root used by the market-data read surface.
 
-    ref_data_api:
-        Reference-data API used to resolve contract_id -> product_id.
-        If omitted, a default RefDataAPI() instance is constructed.
+    refdata_reader:
+        Reference-data reader used to resolve contract_id -> product_id.
+        If omitted, a default RefDataReader() instance is constructed.
 
     Notes
     -----
@@ -291,8 +291,8 @@ class _DailyStatsPriceAccessorBase:
     """
 
     price_field: str
+    refdata_reader: RefDataReader
     root: Path | None = None
-    ref_data_api: RefDataAPI = field(default_factory=RefDataAPI)
     _cache: dict[str, _ProductDailyStatsPriceLookup] = field(
         default_factory=_empty_product_lookup_cache,
         init=False,
@@ -323,7 +323,7 @@ class _DailyStatsPriceAccessorBase:
             cannot be loaded, or no price exists for the given
             contract/session key.
         """
-        contract = self.ref_data_api.get_contract_by_id(contract_id)
+        contract = self.refdata_reader.get_contract_by_id(contract_id)
 
         product_id = contract.product_id
         trading_date = _session_to_trading_date_key(session)
@@ -353,6 +353,7 @@ class _DailyStatsPriceAccessorBase:
         Load and normalise daily_stats prices for one product.
         """
         df = read_daily_stats_product(
+            refdata_reader=self.refdata_reader,
             product_id=product_id,
             root=self.root,
         )
@@ -594,9 +595,9 @@ class _DailyMarkPriceAccessorBase:
     root:
         Optional MXM root used by the market-data read surface.
 
-    ref_data_api:
+    refdata_reader:
         Reference-data API used to resolve contract_id -> product_id.
-        If omitted, a default RefDataAPI() instance is constructed.
+        If omitted, a default RefDataReader() instance is constructed.
 
     Notes
     -----
@@ -605,8 +606,8 @@ class _DailyMarkPriceAccessorBase:
     """
 
     mxm_business_calendar: MXMBusinessCalendar
+    refdata_reader: RefDataReader
     root: Path | None = None
-    ref_data_api: RefDataAPI = field(default_factory=RefDataAPI)
     _cache: dict[str, _ProductDailyMarkPriceLookup] = field(
         default_factory=_empty_daily_mark_product_lookup_cache,
         init=False,
@@ -638,7 +639,7 @@ class _DailyMarkPriceAccessorBase:
             configured business calendar, or no price exists for the
             given contract/session key.
         """
-        contract = self.ref_data_api.get_contract_by_id(contract_id)
+        contract = self.refdata_reader.get_contract_by_id(contract_id)
 
         product_id = contract.product_id
         session_day = coerce_np_day(session)
@@ -669,6 +670,7 @@ class _DailyMarkPriceAccessorBase:
         Load and normalise daily_mark prices for one product.
         """
         df = read_daily_mark_product(
+            refdata_reader=self.refdata_reader,
             calendar_id=self.mxm_business_calendar.calendar_id,
             product_id=product_id,
             root=self.root,

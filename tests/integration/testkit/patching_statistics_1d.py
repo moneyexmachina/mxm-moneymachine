@@ -15,6 +15,7 @@ from mxm.moneymachine.marketdata.schema.statistics_1d import (
     STATISTICS_1D,
     coerce_statistics_1d,
 )
+from mxm.refdata import RefDataReader
 from tests.integration.testkit.fixtures_statistics import make_statistics_1d_rawish_df
 
 type ColumnDefault = str | int | float | bool | pd.Timestamp | None
@@ -232,8 +233,10 @@ def _fake_gate_definitions_available(
     )
 
 
-def _fake_contract_year_month(contract: object) -> tuple[int, int]:
-    _ = contract
+def _fake_contract_year_month(
+    contract: object, refdata_reader: RefDataReader
+) -> tuple[int, int]:
+    _ = contract, refdata_reader
     return (2020, 1)
 
 
@@ -256,8 +259,9 @@ def _fake_resolve_databento_instrument(cfg: OfflineStats1DConfig):
     def fake_resolve_databento_instrument(
         backend: object,
         contract: object,
+        refdata_reader: RefDataReader,
     ) -> OfflineIdent:
-        _ = backend
+        _ = backend, refdata_reader
         return OfflineIdent(
             feed=cfg.feed,
             dataset=cfg.dataset,

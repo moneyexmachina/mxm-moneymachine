@@ -19,9 +19,8 @@ from mxm.moneymachine.marketdata.datasets.daily_mark.store import (
     StoreCoverageSnapshot,
 )
 from mxm.moneymachine.marketdata.orchestrators import daily_mark as dm
-from mxm.refdata.models.contracts.futures_contract import (
-    FuturesContract,  # type: ignore
-)
+from mxm.refdata import RefDataReader
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
 
 
 @dataclass(frozen=True)
@@ -58,6 +57,16 @@ class _FakeBusinessCalendar:
             if x == label:
                 return int(i)
         raise KeyError(label)
+
+
+class _FakeRefDataReader:
+    """
+    Narrow test double for the explicit refdata dependency.
+
+    These orchestrator tests monkeypatch contract enumeration, so the reader
+    itself is not queried. Its presence verifies the public dependency shape
+    without constructing real refdata infrastructure.
+    """
 
 
 class _FakeDailyMarkStore:
@@ -98,15 +107,31 @@ class _FakeDailyMarkStore:
         self.write_calls: list[dict[str, object]] = []
         self.mark_path_calls: list[dict[str, object]] = []
 
-    def delete(self, *, calendar_id: str, contract_id: str) -> bool:
+    def delete(
+        self,
+        *,
+        calendar_id: str,
+        contract_id: str,
+    ) -> bool:
         self.delete_calls.append(
-            {"calendar_id": calendar_id, "contract_id": contract_id}
+            {
+                "calendar_id": calendar_id,
+                "contract_id": contract_id,
+            }
         )
         return True
 
-    def mark_path(self, *, calendar_id: str, contract_id: str) -> Path:
+    def mark_path(
+        self,
+        *,
+        calendar_id: str,
+        contract_id: str,
+    ) -> Path:
         self.mark_path_calls.append(
-            {"calendar_id": calendar_id, "contract_id": contract_id}
+            {
+                "calendar_id": calendar_id,
+                "contract_id": contract_id,
+            }
         )
         return Path(f"/tmp/{calendar_id}/{contract_id}/daily_mark.parquet")
 
@@ -116,7 +141,12 @@ class _FakeDailyMarkStore:
         calendar_id: str,
         contract_id: str,
     ) -> StoreCoverageSnapshot:
-        self.scan_calls.append({"calendar_id": calendar_id, "contract_id": contract_id})
+        self.scan_calls.append(
+            {
+                "calendar_id": calendar_id,
+                "contract_id": contract_id,
+            }
+        )
         return self._coverage
 
     def read_meta(
@@ -126,7 +156,10 @@ class _FakeDailyMarkStore:
         contract_id: str,
     ) -> dict[str, object] | None:
         self.read_meta_calls.append(
-            {"calendar_id": calendar_id, "contract_id": contract_id}
+            {
+                "calendar_id": calendar_id,
+                "contract_id": contract_id,
+            }
         )
         return self._meta
 
@@ -167,8 +200,21 @@ def _fixed_run_ts() -> str:
     return "2020-01-01T00:00:00Z"
 
 
-def _patch_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dm, "utc_now_run_ts", _fixed_run_ts)
+def _patch_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dm,
+        "utc_now_run_ts",
+        _fixed_run_ts,
+    )
+
+
+def _refdata_reader() -> RefDataReader:
+    return cast(
+        RefDataReader,
+        _FakeRefDataReader(),
+    )
 
 
 def _business_calendar() -> MXMBusinessCalendar:
@@ -181,10 +227,16 @@ def _business_calendar() -> MXMBusinessCalendar:
         ],
         dtype="datetime64[D]",
     )
-    session_ids = np.arange(labels.size, dtype=np.int32)
+    session_ids = np.arange(
+        labels.size,
+        dtype=np.int32,
+    )
     return cast(
         MXMBusinessCalendar,
-        _FakeBusinessCalendar(session_ids=session_ids, labels=labels),
+        _FakeBusinessCalendar(
+            session_ids=session_ids,
+            labels=labels,
+        ),
     )
 
 
@@ -216,13 +268,34 @@ def _daily_stats_df() -> pd.DataFrame:
                 ],
                 utc=True,
             ),
-            "contract_id": ["CME.ESM2025", "CME.ESM2025"],
-            "product_id": ["CME.ES", "CME.ES"],
-            "instrument_id": [4916, 4916],
-            "publisher_id": [1, 1],
-            "dataset": ["GLBX.MDP3", "GLBX.MDP3"],
-            "raw_symbol": ["ESM5", "ESM5"],
-            "settle_px": [100.0, 101.0],
+            "contract_id": [
+                "CME.ESM2025",
+                "CME.ESM2025",
+            ],
+            "product_id": [
+                "CME.ES",
+                "CME.ES",
+            ],
+            "instrument_id": [
+                4916,
+                4916,
+            ],
+            "publisher_id": [
+                1,
+                1,
+            ],
+            "dataset": [
+                "GLBX.MDP3",
+                "GLBX.MDP3",
+            ],
+            "raw_symbol": [
+                "ESM5",
+                "ESM5",
+            ],
+            "settle_px": [
+                100.0,
+                101.0,
+            ],
         }
     )
 
@@ -231,18 +304,41 @@ def _built_daily_mark_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "session_id": [1, 2],
-            "contract_id": ["CME.ESM2025", "CME.ESM2025"],
-            "mark_px": [100.0, 101.0],
-            "mark_source": ["observed_settle", "observed_settle"],
-            "mark_quality": ["final", "final"],
-            "is_markable": [True, True],
-            "is_carried": [False, False],
-            "carry_streak": [0, 0],
+            "contract_id": [
+                "CME.ESM2025",
+                "CME.ESM2025",
+            ],
+            "mark_px": [
+                100.0,
+                101.0,
+            ],
+            "mark_source": [
+                "observed_settle",
+                "observed_settle",
+            ],
+            "mark_quality": [
+                "final",
+                "final",
+            ],
+            "is_markable": [
+                True,
+                True,
+            ],
+            "is_carried": [
+                False,
+                False,
+            ],
+            "carry_streak": [
+                0,
+                0,
+            ],
         }
     )
 
 
-def _build_diagnostics(contract_id: str = "CME.ESM2025") -> DailyMarkBuildDiagnostics:
+def _build_diagnostics(
+    contract_id: str = "CME.ESM2025",
+) -> DailyMarkBuildDiagnostics:
     return DailyMarkBuildDiagnostics(
         contract_id=contract_id,
         sessions_total=2,
@@ -259,16 +355,23 @@ def _store_pair(
     coverage: _FakeCoverageSnapshot | None = None,
     meta: dict[str, object] | None = None,
 ) -> tuple[_FakeDailyMarkStore, DailyMarkStore]:
-    fake_store = _FakeDailyMarkStore(coverage=coverage, meta=meta)
-    return fake_store, cast(DailyMarkStore, fake_store)
+    fake_store = _FakeDailyMarkStore(
+        coverage=coverage,
+        meta=meta,
+    )
+    return (
+        fake_store,
+        cast(DailyMarkStore, fake_store),
+    )
 
 
 def _enumerate_one_contract(
     product_id: str,
     *,
     mode: dm.Mode,
+    context: dm.DailyMarkRunContext,
 ) -> list[FuturesContract]:
-    _ = product_id, mode
+    _ = product_id, mode, context
     return [_contract()]
 
 
@@ -276,8 +379,9 @@ def _enumerate_old_contract(
     product_id: str,
     *,
     mode: dm.Mode,
+    context: dm.DailyMarkRunContext,
 ) -> list[FuturesContract]:
-    _ = product_id, mode
+    _ = product_id, mode, context
     return [
         _contract(
             contract_id="CME.ESZ2000",
@@ -291,38 +395,46 @@ def _enumerate_two_contracts(
     product_id: str,
     *,
     mode: dm.Mode,
+    context: dm.DailyMarkRunContext,
 ) -> list[FuturesContract]:
-    _ = product_id, mode
+    _ = product_id, mode, context
     return [
-        _contract(contract_id="CME.ESM2025"),
-        _contract(contract_id="CME.ESU2025"),
+        _contract(
+            contract_id="CME.ESM2025",
+        ),
+        _contract(
+            contract_id="CME.ESU2025",
+        ),
     ]
 
 
 def _read_default_daily_stats_contract(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None,
 ) -> pd.DataFrame:
-    _ = contract_id, root
+    _ = refdata_reader, contract_id, root
     return _daily_stats_df()
 
 
 def _read_empty_daily_stats_contract(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None,
 ) -> pd.DataFrame:
-    _ = contract_id, root
+    _ = refdata_reader, contract_id, root
     return pd.DataFrame()
 
 
 def _read_default_daily_stats_contract_meta(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None,
 ) -> dict[str, object]:
-    _ = contract_id, root
+    _ = refdata_reader, contract_id, root
     return {
         "content_sha256": "upstream-sha",
         "path": "/tmp/daily_stats.parquet",
@@ -331,10 +443,11 @@ def _read_default_daily_stats_contract_meta(
 
 def _read_no_daily_stats_contract_meta(
     *,
+    refdata_reader: RefDataReader,
     contract_id: str,
     root: Path | None,
 ) -> dict[str, object] | None:
-    _ = contract_id, root
+    _ = refdata_reader, contract_id, root
     return None
 
 
@@ -346,18 +459,21 @@ def _build_default_daily_mark(
     daily_stats: pd.DataFrame,
 ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
     _ = session_ids, business_calendar, daily_stats
-    return _built_daily_mark_df(), _build_diagnostics(contract_id)
+    return (
+        _built_daily_mark_df(),
+        _build_diagnostics(contract_id),
+    )
 
 
 def test_contract_session_ids_derives_inclusive_business_range() -> None:
     cal = _business_calendar()
-    c = _contract(
+    contract = _contract(
         first_day_of_interest=date(2025, 1, 2),
         last_trading_day=date(2025, 1, 3),
     )
 
     session_range = dm._contract_session_ids(
-        contract=c,
+        contract=contract,
         business_calendar=cal,
     )
 
@@ -371,13 +487,13 @@ def test_contract_session_ids_derives_inclusive_business_range() -> None:
 
 def test_contract_session_ids_clips_to_business_calendar_overlap() -> None:
     cal = _business_calendar()
-    c = _contract(
+    contract = _contract(
         first_day_of_interest=date(2024, 12, 15),
         last_trading_day=date(2025, 1, 2),
     )
 
     session_range = dm._contract_session_ids(
-        contract=c,
+        contract=contract,
         business_calendar=cal,
     )
 
@@ -391,13 +507,13 @@ def test_contract_session_ids_clips_to_business_calendar_overlap() -> None:
 
 def test_contract_session_ids_returns_none_when_no_calendar_overlap() -> None:
     cal = _business_calendar()
-    c = _contract(
+    contract = _contract(
         first_day_of_interest=date(1995, 10, 1),
         last_trading_day=date(2000, 12, 31),
     )
 
     session_range = dm._contract_session_ids(
-        contract=c,
+        contract=contract,
         business_calendar=cal,
     )
 
@@ -408,12 +524,19 @@ def test_derive_daily_mark_for_product_skips_no_upstream_when_daily_stats_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_empty_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_empty_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -430,13 +553,26 @@ def test_derive_daily_mark_for_product_skips_no_upstream_when_daily_stats_empty(
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         build_flag.called = True
-        return _built_daily_mark_df(), _build_diagnostics()
+        return (
+            _built_daily_mark_df(),
+            _build_diagnostics(),
+        )
 
-    monkeypatch.setattr(dm, "build_daily_mark", _build)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -454,6 +590,7 @@ def test_derive_daily_mark_for_product_skips_no_upstream_when_daily_stats_empty(
     assert rep.runs[0].status == "skipped_no_upstream"
     assert rep.runs[0].requested_min_session_id == 1
     assert rep.runs[0].requested_max_session_id == 2
+
     assert build_flag.called is False
     assert len(fake_store.write_calls) == 0
 
@@ -462,28 +599,35 @@ def test_derive_daily_mark_for_product_skips_out_of_calendar_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_old_contract)
+    monkeypatch.setattr(
+        dm,
+        "_enumerate_contracts",
+        _enumerate_old_contract,
+    )
 
     read_called = _CallFlags()
 
     def _read_daily_stats_contract(
         *,
+        refdata_reader: RefDataReader,
         contract_id: str,
         root: Path | None,
     ) -> pd.DataFrame:
-        _ = contract_id, root
+        _ = refdata_reader, contract_id, root
         read_called.daily_stats = True
         return _daily_stats_df()
 
     def _read_daily_stats_contract_meta(
         *,
+        refdata_reader: RefDataReader,
         contract_id: str,
         root: Path | None,
     ) -> dict[str, object] | None:
-        _ = contract_id, root
+        _ = refdata_reader, contract_id, root
         read_called.daily_stats_meta = True
         return {
             "content_sha256": "upstream-sha",
@@ -497,19 +641,36 @@ def test_derive_daily_mark_for_product_skips_out_of_calendar_range(
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         read_called.build = True
-        return _built_daily_mark_df(), _build_diagnostics("CME.ESZ2000")
+        return (
+            _built_daily_mark_df(),
+            _build_diagnostics("CME.ESZ2000"),
+        )
 
-    monkeypatch.setattr(dm, "read_daily_stats_contract", _read_daily_stats_contract)
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_daily_stats_contract,
+    )
     monkeypatch.setattr(
         dm,
         "read_daily_stats_contract_meta",
         _read_daily_stats_contract_meta,
     )
-    monkeypatch.setattr(dm, "build_daily_mark", _build)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -533,6 +694,7 @@ def test_derive_daily_mark_for_product_skips_out_of_calendar_range(
     assert read_called.daily_stats is False
     assert read_called.daily_stats_meta is False
     assert read_called.build is False
+
     assert len(fake_store.write_calls) == 0
 
 
@@ -540,21 +702,33 @@ def test_derive_daily_mark_for_product_builds_and_writes_on_happy_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_default_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_default_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
         "read_daily_stats_contract_meta",
         _read_default_daily_stats_contract_meta,
     )
-    monkeypatch.setattr(dm, "build_daily_mark", _build_default_daily_mark)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build_default_daily_mark,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -600,6 +774,7 @@ def test_derive_daily_mark_for_product_skips_unchanged_when_source_hash_calendar
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair(
         coverage=_FakeCoverageSnapshot(
@@ -612,12 +787,20 @@ def test_derive_daily_mark_for_product_skips_unchanged_when_source_hash_calendar
             artifact_sha256="artifact-sha",
             source_content_sha256="upstream-sha",
         ),
-        meta={"calendar_id": "mxm_business_days_v1"},
+        meta={
+            "calendar_id": "mxm_business_days_v1",
+        },
     )
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_default_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_default_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -634,13 +817,26 @@ def test_derive_daily_mark_for_product_skips_unchanged_when_source_hash_calendar
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         build_flag.called = True
-        return _built_daily_mark_df(), _build_diagnostics()
+        return (
+            _built_daily_mark_df(),
+            _build_diagnostics(),
+        )
 
-    monkeypatch.setattr(dm, "build_daily_mark", _build)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -654,6 +850,7 @@ def test_derive_daily_mark_for_product_skips_unchanged_when_source_hash_calendar
     assert rep.errors == 0
     assert len(rep.runs) == 1
     assert rep.runs[0].status == "skipped_unchanged"
+
     assert build_flag.called is False
     assert len(fake_store.write_calls) == 0
 
@@ -662,12 +859,19 @@ def test_derive_daily_mark_for_product_honours_dry_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_default_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_default_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -684,13 +888,26 @@ def test_derive_daily_mark_for_product_honours_dry_run(
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         build_flag.called = True
-        return _built_daily_mark_df(), _build_diagnostics()
+        return (
+            _built_daily_mark_df(),
+            _build_diagnostics(),
+        )
 
-    monkeypatch.setattr(dm, "build_daily_mark", _build)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -704,6 +921,7 @@ def test_derive_daily_mark_for_product_honours_dry_run(
     assert rep.built == 0
     assert rep.errors == 0
     assert rep.runs[0].status == "dry_run"
+
     assert build_flag.called is False
     assert len(fake_store.write_calls) == 0
 
@@ -712,21 +930,33 @@ def test_derive_daily_mark_for_product_honours_force_reset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_default_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_default_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
         "read_daily_stats_contract_meta",
         _read_default_daily_stats_contract_meta,
     )
-    monkeypatch.setattr(dm, "build_daily_mark", _build_default_daily_mark)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build_default_daily_mark,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -748,12 +978,19 @@ def test_derive_daily_mark_for_product_filters_contract_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     _, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_two_contracts)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_empty_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_two_contracts,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_empty_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -762,13 +999,16 @@ def test_derive_daily_mark_for_product_filters_contract_ids(
     )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
         daily_mark_store=store,
         root=None,
         mode="bootstrap",
-        contract_ids={"CME.ESU2025"},
+        contract_ids={
+            "CME.ESU2025",
+        },
     )
 
     assert rep.contracts_total == 1
@@ -780,12 +1020,19 @@ def test_derive_daily_mark_for_product_limits_max_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     _, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_two_contracts)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_empty_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_two_contracts,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_empty_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -794,6 +1041,7 @@ def test_derive_daily_mark_for_product_limits_max_contracts(
     )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -811,12 +1059,19 @@ def test_derive_daily_mark_for_product_records_error_when_builder_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     _, store = _store_pair()
 
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
     monkeypatch.setattr(
-        dm, "read_daily_stats_contract", _read_default_daily_stats_contract
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _read_default_daily_stats_contract,
     )
     monkeypatch.setattr(
         dm,
@@ -831,12 +1086,22 @@ def test_derive_daily_mark_for_product_records_error_when_builder_raises(
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(dm, "build_daily_mark", _boom)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _boom,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
         calendar_id="mxm_business_days_v1",
         business_calendar=cal,
@@ -857,27 +1122,41 @@ def test_derive_daily_mark_for_product_records_unmapped_when_daily_stats_mapping
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+    refdata_reader = _refdata_reader()
     cal = _business_calendar()
     fake_store, store = _store_pair()
 
     class _FakeInstrumentNotMappedError(Exception):
         pass
 
-    monkeypatch.setattr(dm, "InstrumentNotMappedError", _FakeInstrumentNotMappedError)
-    monkeypatch.setattr(dm, "_enumerate_contracts", _enumerate_one_contract)
+    monkeypatch.setattr(
+        dm,
+        "InstrumentNotMappedError",
+        _FakeInstrumentNotMappedError,
+    )
+    monkeypatch.setattr(
+        dm,
+        "_enumerate_contracts",
+        _enumerate_one_contract,
+    )
 
     def _raise_unmapped(
         *,
+        refdata_reader: RefDataReader,
         contract_id: str,
         root: Path | None,
     ) -> pd.DataFrame:
-        _ = contract_id, root
+        _ = refdata_reader, contract_id, root
         raise _FakeInstrumentNotMappedError(
             "No Databento instrument mapping found for "
             "(product_id=CME.ES, period_id=Mar-2025, contract=2025-03)."
         )
 
-    monkeypatch.setattr(dm, "read_daily_stats_contract", _raise_unmapped)
+    monkeypatch.setattr(
+        dm,
+        "read_daily_stats_contract",
+        _raise_unmapped,
+    )
     monkeypatch.setattr(
         dm,
         "read_daily_stats_contract_meta",
@@ -893,15 +1172,28 @@ def test_derive_daily_mark_for_product_records_unmapped_when_daily_stats_mapping
         business_calendar: MXMBusinessCalendar,
         daily_stats: pd.DataFrame,
     ) -> tuple[pd.DataFrame, DailyMarkBuildDiagnostics]:
-        _ = contract_id, session_ids, business_calendar, daily_stats
+        _ = (
+            contract_id,
+            session_ids,
+            business_calendar,
+            daily_stats,
+        )
         build_flag.called = True
-        return _built_daily_mark_df(), _build_diagnostics()
+        return (
+            _built_daily_mark_df(),
+            _build_diagnostics(),
+        )
 
-    monkeypatch.setattr(dm, "build_daily_mark", _build)
+    monkeypatch.setattr(
+        dm,
+        "build_daily_mark",
+        _build,
+    )
 
     rep = dm.derive_daily_mark_for_product(
+        refdata_reader=refdata_reader,
         product_id="CME.ES",
-        calendar_id="mxm_business_days_v1_2025-01-01_2025-01-06",
+        calendar_id=("mxm_business_days_v1_2025-01-01_2025-01-06"),
         business_calendar=cal,
         daily_mark_store=store,
         root=None,

@@ -103,7 +103,7 @@ class PeriodIndex:
             return self.by_id[period_id]
         except KeyError as e:
             raise KeyError(
-                f"Unknown period_id {period_id!r} (missing from RefDataAPI.get_periods())"
+                f"Unknown period_id {period_id!r} (missing from reference data periods)"
             ) from e
 
 

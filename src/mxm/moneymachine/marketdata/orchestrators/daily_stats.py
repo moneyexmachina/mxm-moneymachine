@@ -75,10 +75,8 @@ from mxm.moneymachine.utils.time_utils import (
     to_utc_ts,
     utc_now_run_ts,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
-from mxm.refdata.models.contracts.futures_contract import (
-    FuturesContract,  # type: ignore
-)
+from mxm.refdata import RefDataReader
+from mxm.refdata.models.contracts.futures_contract import FuturesContract
 
 Mode = Literal["bootstrap", "update"]
 
@@ -162,6 +160,15 @@ class DailyStatsOrchestratorReport:
 
 @dataclass(frozen=True)
 class DailyStatsRunContext:
+    """
+    Concrete dependencies and run options for one daily-stats orchestration.
+
+    This is deliberately a local orchestration context, not an mxm-runtime
+    RuntimeContext. All dependencies have already been resolved before this
+    object is constructed.
+    """
+
+    refdata_reader: RefDataReader
     backend: Any
     stats_store: Statistics1DStore
     daily_store: DailyStatsStore
@@ -174,6 +181,8 @@ class DailyStatsRunContext:
 @dataclass
 class DailyStatsContractContext:
     contract: FuturesContract
+    contract_key: str
+
     ident: DatabentoInstrumentIdentity | None = None
     dataset: str | None = None
     publisher_id: int | None = None
@@ -181,9 +190,16 @@ class DailyStatsContractContext:
     raw_symbol: str | None = None
 
 
-def _contract_key(c: FuturesContract) -> str:
-    y, m = contract_year_month(c)
-    return f"{c.product_id}:{y:04d}-{m:02d}"
+def _contract_key(
+    contract: FuturesContract,
+    *,
+    refdata_reader: RefDataReader,
+) -> str:
+    year, month = contract_year_month(
+        contract,
+        refdata_reader=refdata_reader,
+    )
+    return f"{contract.product_id}:{year:04d}-{month:02d}"
 
 
 def _as_date(x: Any) -> date:
@@ -196,6 +212,7 @@ def _as_date(x: Any) -> date:
 
 def _filter_contracts_by_id(
     *,
+    context: DailyStatsRunContext,
     contracts: list[FuturesContract],
     product_id: str,
     contract_ids: set[str] | None,
@@ -214,14 +231,34 @@ def _filter_contracts_by_id(
         )
 
     out = [c for c in contracts if str(c.contract_id) in wanted]
-    out.sort(key=lambda c: (*contract_year_month(c), str(c.contract_id)))
+    out.sort(
+        key=lambda c: (
+            *contract_year_month(
+                c,
+                refdata_reader=context.refdata_reader,
+            ),
+            str(c.contract_id),
+        )
+    )
     return out
 
 
-def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract]:
-    api = RefDataAPI()
-    contracts = list(api.get_contracts_for_product(product_id))
-    contracts.sort(key=lambda c: (*contract_year_month(c), str(c.contract_id)))
+def _enumerate_contracts(
+    product_id: str,
+    *,
+    mode: Mode,
+    context: DailyStatsRunContext,
+) -> list[FuturesContract]:
+    contracts = list(context.refdata_reader.get_contracts_for_product(product_id))
+    contracts.sort(
+        key=lambda c: (
+            *contract_year_month(
+                c,
+                refdata_reader=context.refdata_reader,
+            ),
+            str(c.contract_id),
+        )
+    )
 
     if mode == "bootstrap":
         return contracts
@@ -231,10 +268,11 @@ def _enumerate_contracts(product_id: str, *, mode: Mode) -> list[FuturesContract
     cutoff = today.replace(year=today.year - 1)
 
     eligible: list[FuturesContract] = []
-    for c in contracts:
-        ltd = _as_date(getattr(c, "last_trading_day", None))
+    for contract in contracts:
+        ltd = _as_date(getattr(contract, "last_trading_day", None))
         if ltd >= cutoff:
-            eligible.append(c)
+            eligible.append(contract)
+
     return eligible
 
 
@@ -247,18 +285,25 @@ def _subset_eligible_contracts(
     eligible: list[FuturesContract] = []
     excluded = 0
 
-    for c in contracts_all:
-        w = contract_window_utc_half_open(
-            start_date=c.first_day_of_interest,
-            end_date_inclusive=c.last_trading_day,
+    for contract in contracts_all:
+        window = contract_window_utc_half_open(
+            start_date=contract.first_day_of_interest,
+            end_date_inclusive=contract.last_trading_day,
         )
-        w_range = DayRange(start=to_utc_ts(w.start), end=to_utc_ts(w.end))
-        ds_range = DayRange(start=dataset_start, end=dataset_end)
+        window_range = DayRange(
+            start=to_utc_ts(window.start),
+            end=to_utc_ts(window.end),
+        )
+        dataset_range = DayRange(
+            start=dataset_start,
+            end=dataset_end,
+        )
 
-        if not w_range.intersects(ds_range):
+        if not window_range.intersects(dataset_range):
             excluded += 1
             continue
-        eligible.append(c)
+
+        eligible.append(contract)
 
     return eligible, excluded
 
@@ -266,6 +311,7 @@ def _subset_eligible_contracts(
 def _default_session_date_of(ts_event: pd.Series) -> pd.Series:
     """
     Session-date label for event-time anchored stats.
+
     Current convention: UTC day (midnight-aligned tz-aware).
     """
     dt = pd.to_datetime(ts_event, errors="coerce", utc=True)
@@ -274,6 +320,7 @@ def _default_session_date_of(ts_event: pd.Series) -> pd.Series:
 
 def derive_daily_stats_for_product(
     *,
+    refdata_reader: RefDataReader,
     backend: Any,  # SQLiteBackend
     product_id: str,
     mode: Mode,
@@ -291,9 +338,13 @@ def derive_daily_stats_for_product(
     """
     Build daily_stats for a product by contract.
     """
-    report = _init_daily_stats_report(product_id=product_id, mode=mode)
+    report = _init_daily_stats_report(
+        product_id=product_id,
+        mode=mode,
+    )
 
     context = DailyStatsRunContext(
+        refdata_reader=refdata_reader,
         backend=backend,
         stats_store=stats_store,
         daily_store=daily_store,
@@ -310,15 +361,23 @@ def derive_daily_stats_for_product(
         dataset_range_end=dataset_range_end,
         max_contracts=max_contracts,
         contract_ids=contract_ids,
+        context=context,
         report=report,
     )
 
     for contract in contracts:
+        contract_context = DailyStatsContractContext(
+            contract=contract,
+            contract_key=_contract_key(
+                contract,
+                refdata_reader=context.refdata_reader,
+            ),
+        )
+
         _process_daily_stats_contract(
-            product_id=product_id,
             context=context,
             report=report,
-            contract_context=DailyStatsContractContext(contract=contract),
+            contract_context=contract_context,
         )
 
     _finalize_daily_stats_report(report)
@@ -345,9 +404,14 @@ def _prepare_daily_stats_contracts(
     dataset_range_end: str | None,
     max_contracts: int | None,
     contract_ids: set[str] | None,
+    context: DailyStatsRunContext,
     report: DailyStatsOrchestratorReport,
 ) -> list[FuturesContract]:
-    contracts = _enumerate_contracts(product_id, mode=mode)
+    contracts = _enumerate_contracts(
+        product_id,
+        mode=mode,
+        context=context,
+    )
 
     contracts = _filter_daily_stats_contracts_by_dataset_range(
         contracts=contracts,
@@ -355,11 +419,14 @@ def _prepare_daily_stats_contracts(
         dataset_range_end=dataset_range_end,
         report=report,
     )
+
     contracts = _filter_contracts_by_id(
+        context=context,
         contracts=contracts,
         product_id=product_id,
         contract_ids=contract_ids,
     )
+
     contracts = _limit_daily_stats_contracts(
         contracts=contracts,
         max_contracts=max_contracts,
@@ -418,7 +485,6 @@ def _limit_daily_stats_contracts(
 
 def _process_daily_stats_contract(
     *,
-    product_id: str,
     context: DailyStatsRunContext,
     report: DailyStatsOrchestratorReport,
     contract_context: DailyStatsContractContext,
@@ -433,49 +499,55 @@ def _process_daily_stats_contract(
         if contract_context.ident is None:
             return
 
-        _apply_daily_stats_reset_if_requested(context, contract_context)
+        _apply_daily_stats_reset_if_requested(
+            context,
+            contract_context,
+        )
 
-        up = context.stats_store.scan_coverage(
+        upstream = context.stats_store.scan_coverage(
             dataset=_require_daily_stats_dataset(contract_context),
             publisher_id=_require_daily_stats_publisher_id(contract_context),
             instrument_id=_require_daily_stats_instrument_id(contract_context),
         )
-        down = context.daily_store.scan_coverage(
+        downstream = context.daily_store.scan_coverage(
             dataset=_require_daily_stats_dataset(contract_context),
             publisher_id=_require_daily_stats_publisher_id(contract_context),
             instrument_id=_require_daily_stats_instrument_id(contract_context),
         )
 
         if _append_if_daily_stats_missing_required_source_meta(
-            up=up,
-            down=down,
+            up=upstream,
+            down=downstream,
             context=context,
             report=report,
             contract_context=contract_context,
         ):
             return
 
-        _validate_daily_stats_strict_source_meta(up=up, context=context)
+        _validate_daily_stats_strict_source_meta(
+            up=upstream,
+            context=context,
+        )
 
         if _append_if_daily_stats_no_upstream(
-            up=up,
-            down=down,
+            up=upstream,
+            down=downstream,
             report=report,
             contract_context=contract_context,
         ):
             return
 
         if _append_if_daily_stats_unchanged(
-            up=up,
-            down=down,
+            up=upstream,
+            down=downstream,
             report=report,
             contract_context=contract_context,
         ):
             return
 
         if _append_if_daily_stats_dry_run(
-            up=up,
-            down=down,
+            up=upstream,
+            down=downstream,
             context=context,
             report=report,
             contract_context=contract_context,
@@ -483,15 +555,20 @@ def _process_daily_stats_contract(
             return
 
         _build_write_and_append_daily_stats(
-            up=up,
+            up=upstream,
             context=context,
             report=report,
             contract_context=contract_context,
         )
 
-    except Exception as e:
+    except Exception as error:
         report.errors += 1
-        report.runs.append(_daily_stats_error_run(contract_context, e))
+        report.runs.append(
+            _daily_stats_error_run(
+                contract_context,
+                error,
+            )
+        )
 
 
 def _resolve_daily_stats_identity(
@@ -500,13 +577,20 @@ def _resolve_daily_stats_identity(
     report: DailyStatsOrchestratorReport,
     contract_context: DailyStatsContractContext,
 ) -> None:
-    contract = contract_context.contract
-
     try:
-        ident = resolve_databento_instrument(context.backend, contract)
-    except Exception as e:
+        ident = resolve_databento_instrument(
+            context.backend,
+            contract_context.contract,
+            refdata_reader=context.refdata_reader,
+        )
+    except Exception as error:
         report.unmapped += 1
-        report.runs.append(_daily_stats_unmapped_run(contract, e))
+        report.runs.append(
+            _daily_stats_unmapped_run(
+                contract_context,
+                error,
+            )
+        )
         return
 
     contract_context.ident = ident
@@ -667,7 +751,11 @@ def _append_if_daily_stats_dry_run(
         return False
 
     report.runs.append(
-        _daily_stats_dry_run(contract_context=contract_context, up=up, down=down)
+        _daily_stats_dry_run(
+            contract_context=contract_context,
+            up=up,
+            down=down,
+        )
     )
     return True
 
@@ -694,7 +782,7 @@ def _build_write_and_append_daily_stats(
         session_date_of=context.session_date_of,
     )
 
-    wmeta = context.daily_store.write(
+    write_meta = context.daily_store.write(
         dataset=dataset,
         publisher_id=publisher_id,
         instrument_id=instrument_id,
@@ -708,18 +796,20 @@ def _build_write_and_append_daily_stats(
         _daily_stats_built_run(
             contract_context=contract_context,
             up=up,
-            wmeta=wmeta,
+            wmeta=write_meta,
         )
     )
 
 
 def _daily_stats_unmapped_run(
-    contract: FuturesContract,
+    contract_context: DailyStatsContractContext,
     error: Exception,
 ) -> ContractRun:
+    contract = contract_context.contract
+
     return ContractRun(
         contract_id=str(contract.contract_id),
-        contract_key=_contract_key(contract),
+        contract_key=contract_context.contract_key,
         dataset=None,
         publisher_id=None,
         instrument_id=None,
@@ -750,7 +840,7 @@ def _daily_stats_skipped_no_upstream_run(
 ) -> ContractRun:
     return ContractRun(
         contract_id=str(contract_context.contract.contract_id),
-        contract_key=_contract_key(contract_context.contract),
+        contract_key=contract_context.contract_key,
         dataset=_require_daily_stats_dataset(contract_context),
         publisher_id=_require_daily_stats_publisher_id(contract_context),
         instrument_id=_require_daily_stats_instrument_id(contract_context),
@@ -780,7 +870,7 @@ def _daily_stats_unchanged_run(
 ) -> ContractRun:
     return ContractRun(
         contract_id=str(contract_context.contract.contract_id),
-        contract_key=_contract_key(contract_context.contract),
+        contract_key=contract_context.contract_key,
         dataset=_require_daily_stats_dataset(contract_context),
         publisher_id=_require_daily_stats_publisher_id(contract_context),
         instrument_id=_require_daily_stats_instrument_id(contract_context),
@@ -814,7 +904,7 @@ def _daily_stats_dry_run(
 ) -> ContractRun:
     return ContractRun(
         contract_id=str(contract_context.contract.contract_id),
-        contract_key=_contract_key(contract_context.contract),
+        contract_key=contract_context.contract_key,
         dataset=_require_daily_stats_dataset(contract_context),
         publisher_id=_require_daily_stats_publisher_id(contract_context),
         instrument_id=_require_daily_stats_instrument_id(contract_context),
@@ -853,7 +943,7 @@ def _daily_stats_built_run(
 
     return ContractRun(
         contract_id=str(contract_context.contract.contract_id),
-        contract_key=_contract_key(contract_context.contract),
+        contract_key=contract_context.contract_key,
         dataset=_require_daily_stats_dataset(contract_context),
         publisher_id=_require_daily_stats_publisher_id(contract_context),
         instrument_id=_require_daily_stats_instrument_id(contract_context),
@@ -867,7 +957,9 @@ def _daily_stats_built_run(
         downstream_rows=int(wmeta.get("rows", 0)),
         downstream_min=ds_min_s,
         downstream_max=ds_max_s,
-        downstream_content_sha256=str(content_sha) if content_sha is not None else None,
+        downstream_content_sha256=(
+            str(content_sha) if content_sha is not None else None
+        ),
         downstream_source_content_sha256=up.content_sha256,
         status="built",
         status_detail="derived_and_persisted",
@@ -893,22 +985,12 @@ def _daily_stats_error_run(
     contract = contract_context.contract
 
     return ContractRun(
-        contract_id=str(getattr(contract, "contract_id", "unknown")),
-        contract_key=(
-            _contract_key(contract) if hasattr(contract, "contract_id") else "unknown"
-        ),
-        dataset=str(getattr(ident, "dataset", None)) if ident else None,
-        publisher_id=(
-            int(ident.publisher_id)
-            if ident and getattr(ident, "publisher_id", None) is not None
-            else None
-        ),
-        instrument_id=(
-            int(ident.instrument_id)
-            if ident and getattr(ident, "instrument_id", None) is not None
-            else None
-        ),
-        raw_symbol=str(getattr(ident, "raw_symbol", None)) if ident else None,
+        contract_id=str(contract.contract_id),
+        contract_key=contract_context.contract_key,
+        dataset=str(ident.dataset) if ident else None,
+        publisher_id=(int(ident.publisher_id) if ident is not None else None),
+        instrument_id=(int(ident.instrument_id) if ident is not None else None),
+        raw_symbol=(str(ident.raw_symbol) if ident is not None else None),
         upstream_exists=False,
         upstream_rows=0,
         upstream_min=None,
@@ -925,7 +1007,9 @@ def _daily_stats_error_run(
     )
 
 
-def _finalize_daily_stats_report(report: DailyStatsOrchestratorReport) -> None:
+def _finalize_daily_stats_report(
+    report: DailyStatsOrchestratorReport,
+) -> None:
     report.cost_used_usd = 0.0
     report.stop_reason = "ok"
     report.stage_status = "ok" if report.errors == 0 else "halted"

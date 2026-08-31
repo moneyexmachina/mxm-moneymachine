@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import pytest
 
 from mxm.moneymachine.marketdata.orchestrators import product_marketdata as pm
+from mxm.refdata import RefDataReader
 
 type AttemptValue = str | int | float | bool | None | pm.ProductStopReason
 type AttemptPayload = dict[str, AttemptValue]
 type StageCountValue = str | int | float | bool | None
 type StageCounts = dict[str, StageCountValue]
+
+
+class _FakeRefDataReader:
+    """
+    Narrow test double for the product-level refdata capability.
+
+    These tests patch all stage runners, so no refdata methods are exercised.
+    The fake exists only to satisfy and verify the explicit composition shape.
+    """
 
 
 @dataclass
@@ -27,6 +38,13 @@ class _FakeAttemptsStore:
 
     def finish_attempt(self, **kwargs: AttemptValue) -> None:
         self.finished.append(dict(kwargs))
+
+
+def _refdata_reader() -> RefDataReader:
+    return cast(
+        RefDataReader,
+        _FakeRefDataReader(),
+    )
 
 
 def _stage(
@@ -49,7 +67,10 @@ def _stage(
     )
 
 
-def _stores(*, attempts: _FakeAttemptsStore) -> pm.ProductMarketDataStores:
+def _stores(
+    *,
+    attempts: _FakeAttemptsStore,
+) -> pm.ProductMarketDataStores:
     """
     Construct a ProductMarketDataStores bundle with dummy dataset stores.
 
@@ -70,17 +91,29 @@ def _fixed_run_ts() -> str:
     return "2020-01-01T00:00:00Z"
 
 
-def _patch_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Make reports deterministic.
-    monkeypatch.setattr(pm, "utc_now_run_ts", _fixed_run_ts)
+def _patch_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pm,
+        "utc_now_run_ts",
+        _fixed_run_ts,
+    )
 
 
-def _stage_instrument_definitions_ok(**kwargs: object) -> pm.StageEnvelope:
+def _stage_instrument_definitions_ok(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
-    return _stage(name="instrument_definitions", cost_used_usd=1.0)
+    return _stage(
+        name="instrument_definitions",
+        cost_used_usd=1.0,
+    )
 
 
-def _stage_mappings_ready(**kwargs: object) -> pm.StageEnvelope:
+def _stage_mappings_ready(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
     return _stage(
         name="instrument_definition_mappings",
@@ -89,7 +122,9 @@ def _stage_mappings_ready(**kwargs: object) -> pm.StageEnvelope:
     )
 
 
-def _stage_mappings_not_ready(**kwargs: object) -> pm.StageEnvelope:
+def _stage_mappings_not_ready(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
     return _stage(
         name="instrument_definition_mappings",
@@ -98,12 +133,19 @@ def _stage_mappings_not_ready(**kwargs: object) -> pm.StageEnvelope:
     )
 
 
-def _stage_ohlcv_ok(**kwargs: object) -> pm.StageEnvelope:
+def _stage_ohlcv_ok(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
-    return _stage(name="ohlcv_1d", cost_used_usd=2.0)
+    return _stage(
+        name="ohlcv_1d",
+        cost_used_usd=2.0,
+    )
 
 
-def _stage_ohlcv_halted_cost_cap(**kwargs: object) -> pm.StageEnvelope:
+def _stage_ohlcv_halted_cost_cap(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
     return _stage(
         name="ohlcv_1d",
@@ -113,17 +155,35 @@ def _stage_ohlcv_halted_cost_cap(**kwargs: object) -> pm.StageEnvelope:
     )
 
 
-def _stage_statistics_ok(**kwargs: object) -> pm.StageEnvelope:
+def _stage_statistics_ok(
+    **kwargs: object,
+) -> pm.StageEnvelope:
     _ = kwargs
-    return _stage(name="statistics_1d", cost_used_usd=3.0)
+    return _stage(
+        name="statistics_1d",
+        cost_used_usd=3.0,
+    )
+
+
+def _stage_daily_stats_ok(
+    **kwargs: object,
+) -> pm.StageEnvelope:
+    _ = kwargs
+    return _stage(
+        name="daily_stats",
+        cost_used_usd=0.0,
+    )
 
 
 def test_product_marketdata_success_path_stage_order_and_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+
+    refdata_reader = _refdata_reader()
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
+
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
@@ -134,9 +194,23 @@ def test_product_marketdata_success_path_stage_order_and_budget(
         "_run_stage_instrument_definition_mappings",
         _stage_mappings_ready,
     )
-    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _stage_ohlcv_ok)
-    monkeypatch.setattr(pm, "_run_stage_statistics_1d", _stage_statistics_ok)
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_ohlcv_1d",
+        _stage_ohlcv_ok,
+    )
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_statistics_1d",
+        _stage_statistics_ok,
+    )
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_daily_stats",
+        _stage_daily_stats_ok,
+    )
     rep = pm.ingest_product_marketdata(
+        refdata_reader=refdata_reader,
         product_id="p",
         mode="update",
         cost_cap_usd=10.0,
@@ -151,7 +225,7 @@ def test_product_marketdata_success_path_stage_order_and_budget(
     )
 
     assert rep.status is pm.ProductStatus.SUCCESS
-    assert [s.name for s in rep.stages] == [
+    assert [stage.name for stage in rep.stages] == [
         "instrument_definitions",
         "instrument_definition_mappings",
         "ohlcv_1d",
@@ -162,7 +236,6 @@ def test_product_marketdata_success_path_stage_order_and_budget(
     assert rep.cost_used_usd == 6.0
     assert rep.remaining_usd == 4.0
 
-    # attempt ledger: start and finish written once
     assert len(attempts.started) == 1
     assert len(attempts.finished) == 1
     assert attempts.finished[0]["status"] == "success"
@@ -172,12 +245,15 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Regression test: remaining budget must be decremented by st3 cost
+    Regression test: remaining budget must be decremented by stage 3 cost
     before early return finalization.
     """
     _patch_time(monkeypatch)
+
+    refdata_reader = _refdata_reader()
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
+
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
@@ -188,17 +264,31 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
         "_run_stage_instrument_definition_mappings",
         _stage_mappings_ready,
     )
-    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _stage_ohlcv_halted_cost_cap)
-    # Stage 4 must not run if Stage 3 halts/errors.
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_ohlcv_1d",
+        _stage_ohlcv_halted_cost_cap,
+    )
+
     called_stage4 = {"called": False}
 
-    def _stage4(**_: object) -> pm.StageEnvelope:
+    def _stage4(
+        **_: object,
+    ) -> pm.StageEnvelope:
         called_stage4["called"] = True
-        return _stage(name="statistics_1d", cost_used_usd=999.0)
+        return _stage(
+            name="statistics_1d",
+            cost_used_usd=999.0,
+        )
 
-    monkeypatch.setattr(pm, "_run_stage_statistics_1d", _stage4)
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_statistics_1d",
+        _stage4,
+    )
 
     rep = pm.ingest_product_marketdata(
+        refdata_reader=refdata_reader,
         product_id="p",
         mode="update",
         cost_cap_usd=10.0,
@@ -212,13 +302,12 @@ def test_product_marketdata_early_stop_after_stage3_remaining_includes_stage3_co
 
     assert called_stage4["called"] is False
     assert rep.status is pm.ProductStatus.HALTED
-    assert [s.name for s in rep.stages] == [
+    assert [stage.name for stage in rep.stages] == [
         "instrument_definitions",
         "instrument_definition_mappings",
         "ohlcv_1d",
     ]
 
-    # st1 + st2 + st3 costs must be included.
     assert rep.cost_used_usd == 3.0
     assert rep.remaining_usd == 7.0
     assert rep.stop_reason in (
@@ -231,8 +320,11 @@ def test_product_marketdata_mappings_gate_blocks_downstream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+
+    refdata_reader = _refdata_reader()
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
+
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
@@ -243,20 +335,43 @@ def test_product_marketdata_mappings_gate_blocks_downstream(
         "_run_stage_instrument_definition_mappings",
         _stage_mappings_not_ready,
     )
-    called = {"ohlcv": False, "stats": False}
 
-    def _ohlcv(**_: object) -> pm.StageEnvelope:
+    called = {
+        "ohlcv": False,
+        "stats": False,
+    }
+
+    def _ohlcv(
+        **_: object,
+    ) -> pm.StageEnvelope:
         called["ohlcv"] = True
-        return _stage(name="ohlcv_1d", cost_used_usd=1.0)
+        return _stage(
+            name="ohlcv_1d",
+            cost_used_usd=1.0,
+        )
 
-    def _stats(**_: object) -> pm.StageEnvelope:
+    def _stats(
+        **_: object,
+    ) -> pm.StageEnvelope:
         called["stats"] = True
-        return _stage(name="statistics_1d", cost_used_usd=1.0)
+        return _stage(
+            name="statistics_1d",
+            cost_used_usd=1.0,
+        )
 
-    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _ohlcv)
-    monkeypatch.setattr(pm, "_run_stage_statistics_1d", _stats)
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_ohlcv_1d",
+        _ohlcv,
+    )
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_statistics_1d",
+        _stats,
+    )
 
     rep = pm.ingest_product_marketdata(
+        refdata_reader=refdata_reader,
         product_id="p",
         mode="update",
         cost_cap_usd=10.0,
@@ -270,10 +385,12 @@ def test_product_marketdata_mappings_gate_blocks_downstream(
 
     assert called["ohlcv"] is False
     assert called["stats"] is False
+
     assert rep.status is pm.ProductStatus.HALTED
     assert rep.stop_reason is pm.ProductStopReason.DOWNSTREAM_BLOCKED
     assert rep.message == "ohlcv_1d blocked: mappings not ready"
-    assert [s.name for s in rep.stages] == [
+
+    assert [stage.name for stage in rep.stages] == [
         "instrument_definitions",
         "instrument_definition_mappings",
     ]
@@ -283,8 +400,11 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+
+    refdata_reader = _refdata_reader()
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
+
     monkeypatch.setattr(
         pm,
         "_run_stage_instrument_definitions",
@@ -296,13 +416,23 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
         _stage_mappings_ready,
     )
 
-    def _boom(**_: object) -> pm.StageEnvelope:
+    def _boom(
+        **_: object,
+    ) -> pm.StageEnvelope:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(pm, "_run_stage_ohlcv_1d", _boom)
+    monkeypatch.setattr(
+        pm,
+        "_run_stage_ohlcv_1d",
+        _boom,
+    )
 
-    with pytest.raises(RuntimeError, match="boom"):
+    with pytest.raises(
+        RuntimeError,
+        match="boom",
+    ):
         pm.ingest_product_marketdata(
+            refdata_reader=refdata_reader,
             product_id="p",
             mode="update",
             cost_cap_usd=10.0,
@@ -316,11 +446,14 @@ def test_product_marketdata_exception_finishes_attempt_and_reraises(
 
     assert len(attempts.started) == 1
     assert len(attempts.finished) == 1
-    fin = attempts.finished[0]
-    assert fin["status"] == "error"
-    assert fin["stop_reason"] == pm.ProductStopReason.ERROR.value
-    assert fin["error_type"] == "RuntimeError"
-    error_message = fin["error_message"]
+
+    finished = attempts.finished[0]
+
+    assert finished["status"] == "error"
+    assert finished["stop_reason"] == pm.ProductStopReason.ERROR.value
+    assert finished["error_type"] == "RuntimeError"
+
+    error_message = finished["error_message"]
     assert isinstance(error_message, str)
     assert "boom" in error_message
 
@@ -329,11 +462,17 @@ def test_product_marketdata_cost_cap_must_be_positive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_time(monkeypatch)
+
+    refdata_reader = _refdata_reader()
     attempts = _FakeAttemptsStore()
     stores = _stores(attempts=attempts)
 
-    with pytest.raises(ValueError, match="cost_cap_usd must be > 0"):
+    with pytest.raises(
+        ValueError,
+        match="cost_cap_usd must be > 0",
+    ):
         pm.ingest_product_marketdata(
+            refdata_reader=refdata_reader,
             product_id="p",
             mode="update",
             cost_cap_usd=0.0,

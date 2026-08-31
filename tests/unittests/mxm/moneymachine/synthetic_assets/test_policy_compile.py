@@ -9,6 +9,31 @@ from mxm.refdata.models import (
     ProductUnit,
     SettlementMethod,
 )
+from mxm.refdata.models.products.futures_product import (
+    ContractRules,
+    FirstDayOfInterestRule,
+    FirstDayOfInterestShiftRule,
+    LastTradingRule,
+)
+from mxm.refdata.models.reference_events import ReferenceEvent
+
+
+def _contract_rules() -> ContractRules:
+    return ContractRules(
+        last_trading_rule=LastTradingRule(
+            period_offset=0,
+            reference_event=ReferenceEvent.BUSINESS_DAY_OF_PERIOD,
+            n_reference=-1,
+            business_day_offset=0,
+        ),
+        first_day_of_interest_rule=FirstDayOfInterestRule(
+            shift_rule=FirstDayOfInterestShiftRule(
+                shift_period_type=PeriodType.MONTH,
+                n_shift={},
+            ),
+            reference_rule="test-only",
+        ),
+    )
 
 
 def _product(
@@ -23,15 +48,11 @@ def _product(
     listing_rule: str,
     settlement: SettlementMethod,
 ) -> FuturesProduct:
-    """
-    Minimal FuturesProduct fixture helper for policy-compile tests.
+    """Construct a complete FuturesProduct for policy-compile tests."""
 
-    Only a subset of fields are materially used by compile_specs_from_policy,
-    but FuturesProduct is an authoritative dataclass so we populate all required
-    constructor fields.
-    """
     return FuturesProduct(
         product_id=product_id,
+        asset_class="futures",
         venue=venue,
         description=description,
         currency=currency,
@@ -41,9 +62,10 @@ def _product(
         listing_rule=listing_rule,
         period_types=(PeriodType.MONTH,),
         settlement=settlement,
-        last_trading_rule="dummy last trading rule",
-        expiry_rule="dummy expiry rule",
+        last_trading_rule="test-only",
+        expiry_rule="test-only",
         trading_calendar="CMES",
+        contract_rules=_contract_rules(),
         trading_hours=None,
         tick_size=None,
         tick_value=None,

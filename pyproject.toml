@@ -50,9 +50,6 @@ priority = "primary"
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.scripts]
-mxm = "mxm.moneymachine.cli.main:main"
-
 # ---- Tooling (package-local, MXM defaults) ----
 [tool.black]
 line-length = 88
