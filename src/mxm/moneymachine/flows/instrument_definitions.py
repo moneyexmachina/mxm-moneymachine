@@ -9,12 +9,7 @@ from mxm.moneymachine.marketdata.ops.instrument_definitions import (
     InstrumentDefinitionsRunRequest,
     run_instrument_definitions,
 )
-from mxm.moneymachine.runtime.execution_context import ExecutionContext
 from mxm.moneymachine.utils.json_normalise import json_value_from_obj
-
-
-def prefect_execution_context() -> ExecutionContext:
-    return ExecutionContext(runtime_kind="prefect")
 
 
 @task(
@@ -25,11 +20,9 @@ def prefect_execution_context() -> ExecutionContext:
 def run_instrument_definitions_task(
     *,
     request: InstrumentDefinitionsRunRequest,
-    execution_context: ExecutionContext,
 ) -> dict[str, object]:
     report = run_instrument_definitions(
         request=request,
-        execution_context=execution_context,
     )
 
     payload = json_value_from_obj(report)
@@ -75,7 +68,6 @@ def instrument_definitions_flow(
 
     result = run_instrument_definitions_task(
         request=request,
-        execution_context=prefect_execution_context(),
     )
 
     logger.info(

@@ -19,7 +19,6 @@ from mxm.moneymachine.marketdata.stores.sqlite.backend import SQLiteBackend
 from mxm.moneymachine.marketdata.vendors.databento.timeseries import (
     DatabentoTimeseriesFetcher,
 )
-from mxm.moneymachine.runtime.execution_context import ExecutionContext
 from mxm.secrets import get_secret
 
 
@@ -40,10 +39,7 @@ class InstrumentDefinitionsRunRequest:
 def run_instrument_definitions(
     *,
     request: InstrumentDefinitionsRunRequest,
-    execution_context: ExecutionContext,
 ) -> InstrumentDefinitionsIngestReport:
-    _ = execution_context
-
     api_key = get_secret(request.databento_api_key_secret_path)
     client = db.Historical(api_key)
 
