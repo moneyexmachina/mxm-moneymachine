@@ -58,7 +58,7 @@ from mxm.moneymachine.execution.price_accessors import MarkPriceAccessor
 from mxm.moneymachine.execution.session_engine import SessionResult
 from mxm.moneymachine.fx.spot_fx_converter import SpotFXConverter
 from mxm.moneymachine.pnl.models import ContractPnL, PnLSeries, SessionPnL
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 def build_pnl_series(
@@ -66,7 +66,7 @@ def build_pnl_series(
     session_results: Sequence[SessionResult],
     mark_price_accessor: MarkPriceAccessor,
     spot_fx_converter: SpotFXConverter,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     target_currency: str,
 ) -> PnLSeries:
     """
@@ -88,7 +88,7 @@ def build_pnl_series(
             construction returns an FX multiplier of 1.0; cross-currency
             construction raises NotImplementedError.
 
-    ref_data_api:
+    refdata_reader:
         Reference-data API used to resolve contract metadata such as
         contract size and contract currency.
 
@@ -109,7 +109,7 @@ def build_pnl_series(
                 session_result=session_result,
                 mark_price_accessor=mark_price_accessor,
                 spot_fx_converter=spot_fx_converter,
-                ref_data_api=ref_data_api,
+                refdata_reader=refdata_reader,
                 target_currency=target_currency,
             )
         )
@@ -122,7 +122,7 @@ def _build_session_pnl(
     session_result: SessionResult,
     mark_price_accessor: MarkPriceAccessor,
     spot_fx_converter: SpotFXConverter,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     target_currency: str,
 ) -> SessionPnL:
     """
@@ -138,7 +138,7 @@ def _build_session_pnl(
                 session_result=session_result,
                 mark_price_accessor=mark_price_accessor,
                 spot_fx_converter=spot_fx_converter,
-                ref_data_api=ref_data_api,
+                refdata_reader=refdata_reader,
                 target_currency=target_currency,
             )
         )
@@ -181,7 +181,7 @@ def _build_contract_pnl(
     session_result: SessionResult,
     mark_price_accessor: MarkPriceAccessor,
     spot_fx_converter: SpotFXConverter,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     target_currency: str,
 ) -> ContractPnL:
     """
@@ -198,13 +198,13 @@ def _build_contract_pnl(
 
     contract_multiplier = _get_contract_multiplier(
         contract_id=contract_id,
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
     )
     fx_multiplier = _get_fx_multiplier(
         contract_id=contract_id,
         session=session_result.session,
         target_currency=target_currency,
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         spot_fx_converter=spot_fx_converter,
     )
 
@@ -354,12 +354,12 @@ def _get_fill_price(
 def _get_contract_multiplier(
     *,
     contract_id: str,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> float:
     """
     Return the authoritative economic size of the contract.
     """
-    contract = ref_data_api.get_contract_by_id(contract_id)
+    contract = refdata_reader.get_contract_by_id(contract_id)
 
     return float(contract.contract_size)
 
@@ -369,7 +369,7 @@ def _get_fx_multiplier(
     contract_id: str,
     session: np.datetime64,
     target_currency: str,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     spot_fx_converter: SpotFXConverter,
 ) -> float:
     """
@@ -398,7 +398,7 @@ def _get_fx_multiplier(
     NotImplementedError
         If contract currency differs from target currency.
     """
-    currency = ref_data_api.get_contract_by_id(contract_id).currency
+    currency = refdata_reader.get_contract_by_id(contract_id).currency
     return float(
         spot_fx_converter.get_fx_multiplier(
             from_currency=currency,

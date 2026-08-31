@@ -68,9 +68,7 @@ from mxm.moneymachine.synthetic_assets.rolling.trading_days_to_ltd_on_business_s
 )
 from mxm.moneymachine.synthetic_assets.weights_rules import parse_weights_rule_id
 from mxm.moneymachine.utils.date_utils import coerce_np_day, searchsorted_exact
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
+from mxm.refdata import RefDataReader
 
 
 class UnsupportedWeightsRule(ValueError):
@@ -174,7 +172,7 @@ def build_component_weights(
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
     mxm_business_calendar: MXMBusinessCalendar,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> ComponentWeights:
     """
     Realise ComponentWeights from SyntheticAssetSpec on the MXM business-session
@@ -214,7 +212,7 @@ def build_component_weights(
             sessions=sessions,
             contract_ids=anchor_contract_ids,
             calendar_service=calendar_service,
-            refdata_api=refdata_api,
+            refdata_reader=refdata_reader,
         )
 
         if len(tdays.sessions) != len(sessions) or not np.array_equal(
@@ -393,7 +391,7 @@ def realise_component_weights(
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
     mxm_business_calendar: MXMBusinessCalendar,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> ComponentWeights:
     component_contracts = build_component_contracts(
         spec=spec,
@@ -409,5 +407,5 @@ def realise_component_weights(
         engine=engine,
         calendar_service=calendar_service,
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
     )

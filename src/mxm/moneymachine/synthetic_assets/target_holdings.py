@@ -40,8 +40,8 @@ from mxm.moneymachine.synthetic_assets.component_weights import ComponentWeights
 from mxm.moneymachine.synthetic_assets.models import SyntheticAssetSpec
 from mxm.moneymachine.synthetic_assets.unit_conversion import UnitConverter
 from mxm.moneymachine.utils.date_utils import coerce_np_day
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
+from mxm.refdata import (
+    RefDataReader,
 )
 
 
@@ -92,7 +92,7 @@ def build_target_holdings(
     spec: SyntheticAssetSpec,
     component_contracts: ComponentContracts,
     component_weights: ComponentWeights,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     unit_converter: UnitConverter,
 ) -> TargetHoldings:
     """
@@ -128,7 +128,7 @@ def build_target_holdings(
 
     contract_meta = _build_contract_metadata_frame(
         contract_ids=joined["contract_id"].unique().tolist(),
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         unit_converter=unit_converter,
         synthetic_unit=spec.unit,
     )
@@ -255,7 +255,7 @@ def _stack_component_weights(component_weights: ComponentWeights) -> pd.DataFram
 def _build_contract_metadata_frame(
     *,
     contract_ids: list[str],
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     unit_converter: UnitConverter,
     synthetic_unit: str,
 ) -> pd.DataFrame:
@@ -270,7 +270,7 @@ def _build_contract_metadata_frame(
     rows: list[dict[str, object]] = []
 
     for contract_id in contract_ids:
-        contract = refdata_api.get_contract_by_id(contract_id)
+        contract = refdata_reader.get_contract_by_id(contract_id)
         contract_unit = contract.unit
         contract_size = float(contract.contract_size)
 

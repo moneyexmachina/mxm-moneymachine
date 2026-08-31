@@ -53,13 +53,13 @@ from __future__ import annotations
 import numpy as np
 
 from mxm.moneymachine.execution.contract_bundles import ContractBundle
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 def prepare_initial_holdings(
     realised_holdings: ContractBundle,
     session: np.datetime64,
-    ref_data_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> ContractBundle:
     """
     Prepare decision-ready initial holdings from prior realised holdings.
@@ -113,7 +113,7 @@ def prepare_initial_holdings(
     invalid_contract_ids: list[str] = []
 
     for contract_id in held_contract_ids:
-        contract = ref_data_api.get_contract_by_id(contract_id)
+        contract = refdata_reader.get_contract_by_id(contract_id)
 
         last_trading_day = contract.last_trading_day
         if session_date >= last_trading_day:

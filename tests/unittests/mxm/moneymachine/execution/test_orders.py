@@ -18,7 +18,7 @@ from mxm.moneymachine.execution.orders import (
 )
 from mxm.moneymachine.utils.pandas_timestamps import ts_ns_to_pd_timestamp
 from mxm.moneymachine.utils.timestamps import TSNSScalar, ts_ns_from_str
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import (
     FuturesContract,  # type: ignore
 )
@@ -34,7 +34,7 @@ class DummyContract:
         self.product_id = product_id
 
 
-class DummyRefDataAPI:
+class DummyRefDataReader:
     def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
@@ -98,7 +98,7 @@ def _make_generator(
             "wheat_jul2026": "wheat",
         }
 
-    refdata = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             contract_id: _contract(product_id=product_id)
             for contract_id, product_id in contract_to_product.items()
@@ -117,7 +117,7 @@ def _make_generator(
 
     return OrderGenerator(
         policy=policy,
-        ref_data_api=cast(RefDataAPI, refdata),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_service=cast(TradingCalendarService, calendar_service),
     )
 

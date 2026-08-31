@@ -23,7 +23,7 @@ from mxm.moneymachine.synthetic_assets.weights_rules import (
     canonical_weights_rule_id,
 )
 from mxm.moneymachine.utils.canonical_id_encoding import encode_canonical_id_component
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 from mxm.refdata.models import ProductUnit
 
 _TEST_WR_ID = canonical_weights_rule_id(
@@ -46,16 +46,16 @@ _TEST_CANONICAL_ID = (
 
 
 @dataclass(frozen=True, slots=True)
-class _StubContract:
+class _FakeContract:
     unit: ProductUnit
     contract_size: float
 
 
-class _StubRefDataAPI:
-    def __init__(self, contracts: dict[str, _StubContract]) -> None:
+class _FakeRefDataReader:
+    def __init__(self, contracts: dict[str, _FakeContract]) -> None:
         self._contracts = contracts
 
-    def get_contract_by_id(self, contract_id: str) -> _StubContract:
+    def get_contract_by_id(self, contract_id: str) -> _FakeContract:
         return self._contracts[contract_id]
 
 
@@ -286,11 +286,11 @@ def test_build_target_holdings_cont_happy_path_identity_units() -> None:
         },
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLJ2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLM2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLJ2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLM2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -299,7 +299,7 @@ def test_build_target_holdings_cont_happy_path_identity_units() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         unit_converter=unit_converter,
     )
 
@@ -336,9 +336,9 @@ def test_build_target_holdings_aggregates_same_contract_across_components() -> N
         },
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -347,7 +347,7 @@ def test_build_target_holdings_aggregates_same_contract_across_components() -> N
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         unit_converter=unit_converter,
     )
 
@@ -381,10 +381,10 @@ def test_build_target_holdings_applies_size_scaling() -> None:
         },
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLJ2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLJ2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -393,7 +393,7 @@ def test_build_target_holdings_applies_size_scaling() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         unit_converter=unit_converter,
     )
 
@@ -428,13 +428,13 @@ def test_build_target_holdings_applies_unit_conversion() -> None:
         },
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "GCJ2026": _StubContract(
+            "GCJ2026": _FakeContract(
                 unit=ProductUnit.TROY_OUNCE,
                 contract_size=1.0,
             ),
-            "GCK2026": _StubContract(
+            "GCK2026": _FakeContract(
                 unit=ProductUnit.TROY_OUNCE,
                 contract_size=1.0,
             ),
@@ -450,7 +450,7 @@ def test_build_target_holdings_applies_unit_conversion() -> None:
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         unit_converter=unit_converter,
     )
 
@@ -478,10 +478,10 @@ def test_build_target_holdings_raises_on_component_contracts_asset_mismatch() ->
         columns={"cur": [0.7], "nxt": [0.3]},
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLJ2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLJ2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -491,7 +491,7 @@ def test_build_target_holdings_raises_on_component_contracts_asset_mismatch() ->
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
             unit_converter=unit_converter,
         )
 
@@ -517,10 +517,10 @@ def test_build_target_holdings_raises_on_component_column_mismatch() -> None:
         columns={"cur": [0.7], "far": [0.3]},
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLJ2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLJ2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -530,7 +530,7 @@ def test_build_target_holdings_raises_on_component_column_mismatch() -> None:
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
             unit_converter=unit_converter,
         )
 
@@ -553,11 +553,11 @@ def test_build_target_holdings_raises_on_session_index_mismatch() -> None:
         },
     )
 
-    refdata_api = _StubRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         {
-            "CLJ2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLK2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
-            "CLM2026": _StubContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLJ2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLK2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
+            "CLM2026": _FakeContract(unit=ProductUnit.CONTRACT, contract_size=1000.0),
         }
     )
     unit_converter = UnitConverter()
@@ -567,6 +567,6 @@ def test_build_target_holdings_raises_on_session_index_mismatch() -> None:
             spec=spec,
             component_contracts=component_contracts,
             component_weights=component_weights,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
             unit_converter=unit_converter,
         )

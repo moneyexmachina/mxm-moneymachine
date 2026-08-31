@@ -17,7 +17,7 @@ Inputs:
 - `sessions[t]` are MXM business-session labels
 - `contract_id[t]` is aligned 1:1 with `sessions[t]`
 - `TradingCalendarService` resolves `product_id -> TradingCalendar`
-- `RefDataAPI` provides contract metadata (`last_trading_day`)
+- `RefDataReader` provides contract metadata (`last_trading_day`)
 
 The output answers:
 
@@ -53,7 +53,7 @@ Pure function of:
 - input MXM business-session labels
 - input contract_ids
 - TradingCalendar.bdays_to_ltd semantics
-- RefDataAPI LTD values
+- RefDataReader LTD values
 """
 
 from __future__ import annotations
@@ -66,9 +66,7 @@ from numpy.typing import NDArray
 from mxm.moneymachine.calendars.mapping import map_business_to_trading_sessions
 from mxm.moneymachine.calendars.service import TradingCalendarService
 from mxm.moneymachine.utils.date_utils import coerce_np_day, ensure_1d_day_array
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
+from mxm.refdata import RefDataReader
 
 
 class UnknownContractId(ValueError):
@@ -111,7 +109,7 @@ def build_trading_days_to_ltd_on_business_sessions(
     sessions: NDArray[np.datetime64],
     contract_ids: list[str],
     calendar_service: TradingCalendarService,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> TradingDaysToLTDOnBusinessSessions:
     """
     Build a trading-calendar distance-to-LTD surface from an MXM
@@ -127,7 +125,7 @@ def build_trading_days_to_ltd_on_business_sessions(
         Contract identity aligned 1:1 with `sessions`.
     calendar_service:
         Resolves product_id -> TradingCalendar.
-    refdata_api:
+    refdata_reader:
         Resolves contract_id -> FuturesContract metadata, including LTD.
 
     Returns
@@ -162,7 +160,7 @@ def build_trading_days_to_ltd_on_business_sessions(
 
     ltd: NDArray[np.datetime64] = np.empty(n, dtype="datetime64[D]")
     for i, cid in enumerate(contract_ids):
-        contract = refdata_api.get_contract_by_id(cid)
+        contract = refdata_reader.get_contract_by_id(cid)
         ltd[i] = coerce_np_day(contract.last_trading_day)
 
     d_raw = cal.bdays_to_ltd(

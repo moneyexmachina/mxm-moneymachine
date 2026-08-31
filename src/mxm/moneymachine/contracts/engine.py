@@ -75,7 +75,7 @@ import numpy as np
 from mxm.moneymachine.calendars.service import TradingCalendarService
 from mxm.moneymachine.utils.date_utils import coerce_np_day, fmt_iso_day
 from mxm.moneymachine.utils.time_utils import UtcTimestampInput, fmt_run_ts
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
 from mxm.refdata.models.periods import Period
 
@@ -113,17 +113,17 @@ class ContractSelectorEngine:
     Deterministic contract-selection engine for MXM V1 (Session 18).
     """
 
-    refdata: RefDataAPI
+    refdata_reader: RefDataReader
     calendars: TradingCalendarService
     period_index: PeriodIndex
 
     @staticmethod
     def build(
-        refdata: RefDataAPI, calendars: TradingCalendarService
+        refdata_reader: RefDataReader, calendars: TradingCalendarService
     ) -> ContractSelectorEngine:
-        periods = refdata.get_periods()
+        periods = refdata_reader.get_periods()
         return ContractSelectorEngine(
-            refdata=refdata,
+            refdata_reader=refdata_reader,
             calendars=calendars,
             period_index=PeriodIndex.from_periods(periods),
         )
@@ -182,7 +182,7 @@ class ContractSelectorEngine:
         ).as_of_session(as_of_ts)
         as_of_session = fmt_iso_day(as_of_session_np)
 
-        chain: list[FuturesContract] = self.refdata.get_contracts_for_product(
+        chain: list[FuturesContract] = self.refdata_reader.get_contracts_for_product(
             product_id, period_type=pf.period_type
         )
         admissible = self._apply_period_filter(chain, pf)
@@ -298,7 +298,9 @@ class ContractSelectorEngine:
         allowed = set(pf.cycle_elements)
 
         period_ids = [c.period_id for c in chain]
-        elem_by_pid = self.refdata.get_cycle_elements(period_ids, cycle_id=pf.cycle_id)
+        elem_by_pid = self.refdata_reader.get_cycle_elements(
+            period_ids, cycle_id=pf.cycle_id
+        )
 
         out: list[FuturesContract] = []
         for c in chain:

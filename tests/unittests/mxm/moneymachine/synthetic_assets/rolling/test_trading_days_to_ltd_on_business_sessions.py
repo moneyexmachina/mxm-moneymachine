@@ -18,7 +18,7 @@ from mxm.moneymachine.synthetic_assets.rolling.trading_days_to_ltd_on_business_s
     UnknownContractId,
     build_trading_days_to_ltd_on_business_sessions,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 type DateArray = npt.NDArray[np.datetime64]
 type IntArray = npt.NDArray[np.int64]
@@ -30,7 +30,7 @@ class _FakeContract:
     last_trading_day: date
 
 
-class _FakeRefDataAPI:
+class _FakeRefDataReader:
     """Minimal reference-data surface used by the builder."""
 
     def __init__(self, contracts: Mapping[str, _FakeContract]) -> None:
@@ -151,10 +151,12 @@ def _days(*date_strings: str) -> DateArray:
 def _make_service_with_calendar(
     monkeypatch: MonkeyPatch,
     *,
-    refdata_api: _FakeRefDataAPI,
+    refdata_reader: _FakeRefDataReader,
     calendar: _CalendarProtocol,
 ) -> TradingCalendarService:
-    calendar_service = TradingCalendarService(refdata_api=cast(RefDataAPI, refdata_api))
+    calendar_service = TradingCalendarService(
+        refdata_reader=cast(RefDataReader, refdata_reader)
+    )
 
     def fake_calendar_for_product(
         self: TradingCalendarService,
@@ -217,7 +219,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Build trading-days-to-LTD on business sessions under controlled inputs."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
@@ -237,7 +239,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
 
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         calendar=calendar,
     )
 
@@ -255,7 +257,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_functional_oracle(
         sessions=sessions,
         contract_ids=contract_ids,
         calendar_service=calendar_service,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     assert result.sessions.tolist() == sessions.tolist()
@@ -268,7 +270,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_interaction_calls_calend
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Verify that the builder calls the calendar with mapped business sessions."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
@@ -286,7 +288,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_interaction_calls_calend
     )
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         calendar=spy_calendar,
     )
 
@@ -298,7 +300,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_interaction_calls_calend
         sessions=sessions,
         contract_ids=contract_ids,
         calendar_service=calendar_service,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     assert len(spy_calendar.calls) == 1
@@ -325,7 +327,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_unknown_contra
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Raise when the contract id cannot be resolved."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
         }
@@ -336,7 +338,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_unknown_contra
     )
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         calendar=calendar,
     )
 
@@ -349,7 +351,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_unknown_contra
             sessions=sessions,
             contract_ids=contract_ids,
             calendar_service=calendar_service,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )
 
 
@@ -357,7 +359,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_length_mismatc
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Raise when sessions and contract ids are not aligned."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
         }
@@ -368,7 +370,7 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_length_mismatc
     )
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         calendar=calendar,
     )
 
@@ -381,5 +383,5 @@ def test_build_trading_days_to_ltd_on_business_sessions_raises_on_length_mismatc
             sessions=_days("2026-03-18", "2026-03-19"),
             contract_ids=["C1"],
             calendar_service=calendar_service,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )

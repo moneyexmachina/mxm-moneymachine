@@ -24,9 +24,9 @@ from mxm.moneymachine.execution.price_accessors import ExecutionPriceAccessor
 from mxm.moneymachine.execution.session_engine import SessionEngine
 from mxm.moneymachine.utils.pandas_timestamps import ts_ns_to_pd_timestamp
 from mxm.moneymachine.utils.timestamps import TSNSScalar, ts_ns_from_str
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import (
-    FuturesContract,  # type: ignore
+    FuturesContract,
 )
 
 SESSION = np.datetime64("2026-03-10", "D")
@@ -35,7 +35,7 @@ SESSION_OPEN_TS = ts_ns_from_str("2026-03-10T08:00:00.000000000Z")
 SESSION_CLOSE_TS = ts_ns_from_str("2026-03-10T16:00:00.000000000Z")
 
 
-class DummyRefDataAPI:
+class FakeRefDataReader:
     def __init__(self, contracts: dict[str, FuturesContract]) -> None:
         self._contracts = contracts
 
@@ -49,17 +49,17 @@ class DummyRefDataAPI:
 def _contract(*, product_id: str, last_trading_day: date) -> FuturesContract:
     return cast(
         FuturesContract,
-        DummyContract(product_id=product_id, last_trading_day=last_trading_day),
+        FakeContract(product_id=product_id, last_trading_day=last_trading_day),
     )
 
 
-class DummyContract:
+class FakeContract:
     def __init__(self, product_id: str, last_trading_day: date) -> None:
         self.product_id = product_id
         self.last_trading_day = last_trading_day
 
 
-class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
+class FakeExecutionPriceAccessor(ExecutionPriceAccessor):
     def __init__(self, prices: dict[tuple[str, np.datetime64], float]) -> None:
         self._prices = prices
         self.calls: list[tuple[str, np.datetime64]] = []
@@ -74,7 +74,7 @@ class DummyExecutionPriceAccessor(ExecutionPriceAccessor):
         return self._prices[key]
 
 
-class DummyCalendar:
+class FakeCalendar:
     def __init__(
         self,
         *,
@@ -93,11 +93,11 @@ class DummyCalendar:
         return ts_ns_to_pd_timestamp(self._close_ts)
 
 
-class DummyCalendarService:
-    def __init__(self, mapping: dict[str, DummyCalendar]) -> None:
+class FakeCalendarService:
+    def __init__(self, mapping: dict[str, FakeCalendar]) -> None:
         self._mapping = mapping
 
-    def calendar_for_product(self, product_id: str) -> DummyCalendar:
+    def calendar_for_product(self, product_id: str) -> FakeCalendar:
         try:
             return self._mapping[product_id]
         except KeyError as exc:
@@ -106,35 +106,35 @@ class DummyCalendarService:
 
 def _make_engine(
     *,
-    ref_data_api: DummyRefDataAPI,
+    refdata_reader: FakeRefDataReader,
     prices: dict[tuple[str, np.datetime64], float],
     default_min_block_size: int = 1,
     timestamp_policy: OrderTimestampPolicy = OrderTimestampPolicy.SESSION_OPEN,
-    calendars_by_product: dict[str, DummyCalendar] | None = None,
-) -> tuple[SessionEngine, DummyExecutionPriceAccessor]:
-    accessor = DummyExecutionPriceAccessor(prices=prices)
+    calendars_by_product: dict[str, FakeCalendar] | None = None,
+) -> tuple[SessionEngine, FakeExecutionPriceAccessor]:
+    accessor = FakeExecutionPriceAccessor(prices=prices)
     executor = PerfectBacktestExecutor(execution_price_accessor=accessor)
 
     if calendars_by_product is None:
         product_ids = {
-            contract.product_id for contract in ref_data_api._contracts.values()
+            contract.product_id for contract in refdata_reader._contracts.values()
         }
         calendars_by_product = {
-            product_id: DummyCalendar() for product_id in product_ids
+            product_id: FakeCalendar() for product_id in product_ids
         }
 
-    calendar_service = DummyCalendarService(calendars_by_product)
+    calendar_service = FakeCalendarService(calendars_by_product)
     order_generator = OrderGenerator(
         policy=OrderGenerationPolicy(
             default_min_block_size=default_min_block_size,
             timestamp_policy=timestamp_policy,
         ),
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar_service=cast(TradingCalendarService, calendar_service),
     )
 
     engine = SessionEngine(
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         order_generator=order_generator,
         executor=executor,
     )
@@ -142,7 +142,7 @@ def _make_engine(
 
 
 def test_run_session_happy_path_returns_full_session_result() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -156,7 +156,7 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
     )
 
     engine, accessor = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
             ("corn_may2026", SESSION): 102.25,
@@ -224,7 +224,7 @@ def test_run_session_happy_path_returns_full_session_result() -> None:
 
 
 def test_run_session_accepts_none_previous_session_for_first_step() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -234,7 +234,7 @@ def test_run_session_accepts_none_previous_session_for_first_step() -> None:
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
         },
@@ -252,7 +252,7 @@ def test_run_session_accepts_none_previous_session_for_first_step() -> None:
 
 
 def test_run_session_accepts_session_day_labels() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -262,7 +262,7 @@ def test_run_session_accepts_session_day_labels() -> None:
     )
 
     engine, accessor = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
         },
@@ -281,7 +281,7 @@ def test_run_session_accepts_session_day_labels() -> None:
 
 
 def test_run_session_uses_order_generator_timestamp_for_order_and_fill_times() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -291,12 +291,12 @@ def test_run_session_uses_order_generator_timestamp_for_order_and_fill_times() -
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
         },
         calendars_by_product={
-            "corn": DummyCalendar(open_ts=SESSION_OPEN_TS),
+            "corn": FakeCalendar(open_ts=SESSION_OPEN_TS),
         },
     )
 
@@ -316,7 +316,7 @@ def test_run_session_uses_order_generator_timestamp_for_order_and_fill_times() -
 
 
 def test_run_session_can_use_session_close_timestamp_policy() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -326,13 +326,13 @@ def test_run_session_can_use_session_close_timestamp_policy() -> None:
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
         },
         timestamp_policy=OrderTimestampPolicy.SESSION_CLOSE,
         calendars_by_product={
-            "corn": DummyCalendar(close_ts=SESSION_CLOSE_TS),
+            "corn": FakeCalendar(close_ts=SESSION_CLOSE_TS),
         },
     )
 
@@ -350,7 +350,7 @@ def test_run_session_can_use_session_close_timestamp_policy() -> None:
 
 
 def test_run_session_respects_order_generation_rounding() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -360,7 +360,7 @@ def test_run_session_respects_order_generation_rounding() -> None:
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={
             ("corn_mar2026", SESSION): 101.5,
         },
@@ -401,7 +401,7 @@ def test_run_session_respects_order_generation_rounding() -> None:
 def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_unchanged() -> (
     None
 ):
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -411,7 +411,7 @@ def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_uncha
     )
 
     engine, accessor = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={},
     )
 
@@ -438,7 +438,7 @@ def test_run_session_with_zero_implemented_trades_leaves_realised_holdings_uncha
 
 
 def test_run_session_propagates_prepare_initial_holdings_failure() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -448,7 +448,7 @@ def test_run_session_propagates_prepare_initial_holdings_failure() -> None:
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={},
     )
 
@@ -464,7 +464,7 @@ def test_run_session_propagates_prepare_initial_holdings_failure() -> None:
 
 
 def test_run_session_propagates_executor_failure() -> None:
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = FakeRefDataReader(
         {
             "corn_mar2026": _contract(
                 product_id="corn",
@@ -474,7 +474,7 @@ def test_run_session_propagates_executor_failure() -> None:
     )
 
     engine, _ = _make_engine(
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         prices={},
     )
 

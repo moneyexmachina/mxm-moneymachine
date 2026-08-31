@@ -55,9 +55,7 @@ from mxm.moneymachine.synthetic_assets.target_holdings import (
     build_target_holdings,
 )
 from mxm.moneymachine.synthetic_assets.unit_conversion import UnitConverter
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
+from mxm.refdata import RefDataReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,7 +242,7 @@ def build_synthetic_asset(
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
     mxm_business_calendar: MXMBusinessCalendar,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     unit_converter: UnitConverter,
 ) -> SyntheticAsset:
     """
@@ -272,14 +270,14 @@ def build_synthetic_asset(
         engine=engine,
         calendar_service=calendar_service,
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
     )
 
     target_holdings = build_target_holdings(
         spec=spec,
         component_contracts=component_contracts,
         component_weights=component_weights,
-        refdata_api=refdata_api,
+        refdata_reader=refdata_reader,
         unit_converter=unit_converter,
     )
 

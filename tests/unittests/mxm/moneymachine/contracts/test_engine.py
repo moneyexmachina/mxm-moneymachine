@@ -14,7 +14,7 @@ from mxm.moneymachine.contracts.exceptions import (
 )
 from mxm.moneymachine.contracts.relative_ids import canonical_relative_id, short_rel_id
 from mxm.moneymachine.contracts.selectors import PeriodFilter, SelectorRule
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
 from mxm.refdata.models.currencies import Currency
 from mxm.refdata.models.periods import Period, PeriodType
@@ -43,7 +43,7 @@ class _FakeCalendarService:
 
 
 @dataclass
-class _FakeRefData:
+class _FakeRefDataReader:
     periods: list[Period]
     contracts_by_product: dict[str, list[FuturesContract]]
     cycle_elements: dict[str, dict[str, int]]  # cycle_id -> period_id -> element
@@ -77,8 +77,8 @@ def _currency(value: str) -> Currency:
     return cast(Currency, value)
 
 
-def _refdata(ref: _FakeRefData) -> RefDataAPI:
-    return cast(RefDataAPI, ref)
+def _refdata_reader(ref: _FakeRefDataReader) -> RefDataReader:
+    return cast(RefDataReader, ref)
 
 
 def _calendar_service(calendars: _FakeCalendarService) -> TradingCalendarService:
@@ -158,7 +158,7 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
         ),
     ]
 
-    ref = _FakeRefData(
+    ref = _FakeRefDataReader(
         periods=sample_periods,
         contracts_by_product={"ES": contracts},
         cycle_elements={
@@ -174,7 +174,7 @@ def engine(sample_periods: list[Period]) -> ContractSelectorEngine:
     )
 
     return ContractSelectorEngine.build(
-        refdata=_refdata(ref), calendars=_calendar_service(cal_svc)
+        refdata_reader=_refdata_reader(ref), calendars=_calendar_service(cal_svc)
     )
 
 
@@ -202,7 +202,7 @@ def test_select_happy_path_n2(engine: ContractSelectorEngine) -> None:
 def test_eligibility_is_strict_greater_than(engine: ContractSelectorEngine) -> None:
     # Move as_of_session to exactly the first contract's LTD => it becomes ineligible.
     engine2 = ContractSelectorEngine.build(
-        refdata=engine.refdata,
+        refdata_reader=engine.refdata_reader,
         calendars=_calendar_service(
             _FakeCalendarService(
                 by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 3, 20))}
@@ -220,7 +220,7 @@ def test_eligibility_is_strict_greater_than(engine: ContractSelectorEngine) -> N
 def test_no_eligible_contracts_raises(engine: ContractSelectorEngine) -> None:
     # as_of_session beyond all LTDs => none eligible
     engine2 = ContractSelectorEngine.build(
-        refdata=engine.refdata,
+        refdata_reader=engine.refdata_reader,
         calendars=_calendar_service(
             _FakeCalendarService(
                 by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}
@@ -316,7 +316,7 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
         ),
     ]
 
-    ref = _FakeRefData(
+    ref = _FakeRefDataReader(
         periods=sample_periods,
         contracts_by_product={"ES": contracts},
         cycle_elements={},
@@ -325,7 +325,7 @@ def test_tie_break_by_period_then_contract_id(sample_periods: list[Period]) -> N
         by_product={"ES": _FakeCalendar(as_of_session_value=date(2026, 1, 1))}
     )
     eng = ContractSelectorEngine.build(
-        refdata=_refdata(ref), calendars=_calendar_service(cal_svc)
+        refdata_reader=_refdata_reader(ref), calendars=_calendar_service(cal_svc)
     )
 
     pf = PeriodFilter(period_type=PeriodType.MONTH, cycle_id=None, cycle_elements=None)
@@ -353,7 +353,7 @@ def test_explain_includes_labels_on_no_eligible_failure(
     engine: ContractSelectorEngine,
 ) -> None:
     engine2 = ContractSelectorEngine.build(
-        refdata=engine.refdata,
+        refdata_reader=engine.refdata_reader,
         calendars=_calendar_service(
             _FakeCalendarService(
                 by_product={"ES": _FakeCalendar(as_of_session_value=date(2027, 1, 1))}

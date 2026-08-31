@@ -92,9 +92,7 @@ from mxm.moneymachine.execution.holdings import (
 from mxm.moneymachine.execution.orders import Order, OrderGenerator
 from mxm.moneymachine.execution.trades import build_target_trades
 from mxm.moneymachine.utils.date_utils import coerce_np_day
-from mxm.refdata.api.ref_data_api import (
-    RefDataAPI,  # type: ignore[reportMissingTypeStubs]
-)
+from mxm.refdata import RefDataReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,8 +171,8 @@ class SessionEngine:
 
     Parameters
     ----------
-    ref_data_api:
-        Reference-data API used during holdings preparation.
+    refdata_reader:
+        Reference-data read-only api used during holdings preparation.
 
     order_generator:
         Generator used to convert target trades into implemented trades
@@ -185,7 +183,7 @@ class SessionEngine:
         outcomes.
     """
 
-    ref_data_api: RefDataAPI
+    refdata_reader: RefDataReader
     order_generator: OrderGenerator
     executor: Executor
 
@@ -228,7 +226,7 @@ class SessionEngine:
         initial_holdings = prepare_initial_holdings(
             realised_holdings=previous_realised_holdings,
             session=session_day,
-            ref_data_api=self.ref_data_api,
+            refdata_reader=self.refdata_reader,
         )
 
         target_trades = build_target_trades(

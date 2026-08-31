@@ -20,9 +20,9 @@ from mxm.moneymachine.pnl.constructor import (
     _compute_contract_trade_pnl,
     build_pnl_series,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import (
-    FuturesContract,  # type: ignore
+    FuturesContract,
 )
 from mxm.refdata.models.currencies import Currency
 
@@ -34,7 +34,7 @@ class DummyContract:
     currency: str
 
 
-class DummyRefDataAPI:
+class DummyRefDataReader:
     def __init__(self, mapping: dict[str, FuturesContract]) -> None:
         self._mapping = mapping
 
@@ -107,8 +107,8 @@ def _contract(
     )
 
 
-def _refdata(api: DummyRefDataAPI) -> RefDataAPI:
-    return cast(RefDataAPI, api)
+def _refdata_reader(api: DummyRefDataReader) -> RefDataReader:
+    return cast(RefDataReader, api)
 
 
 def _session_result(x: DummySessionResult) -> SessionResult:
@@ -129,14 +129,14 @@ def _fill_prices(mapping: dict[str, float]) -> pd.Series:
     return series.sort_index()
 
 
-def _default_refdata(
+def _default_refdata_reader(
     *,
     contract_size: float = 1.0,
     currency: str = "USD",
     contract_id: str = "corn_mar2026",
-) -> RefDataAPI:
-    return _refdata(
-        DummyRefDataAPI(
+) -> RefDataReader:
+    return _refdata_reader(
+        DummyRefDataReader(
             {
                 contract_id: _contract(
                     product_id="corn",
@@ -318,7 +318,7 @@ def test_build_contract_pnl_combines_price_move_and_trade_components() -> None:
         session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
-        ref_data_api=_default_refdata(contract_id=contract_id),
+        refdata_reader=_default_refdata_reader(contract_id=contract_id),
         target_currency="USD",
     )
 
@@ -356,7 +356,9 @@ def test_build_contract_pnl_applies_contract_multiplier() -> None:
         session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
-        ref_data_api=_default_refdata(contract_size=10.0, contract_id=contract_id),
+        refdata_reader=_default_refdata_reader(
+            contract_size=10.0, contract_id=contract_id
+        ),
         target_currency="USD",
     )
 
@@ -403,8 +405,8 @@ def test_build_session_pnl_aggregates_contract_rows() -> None:
         }
     )
 
-    ref_data_api = _refdata(
-        DummyRefDataAPI(
+    refdata_reader = _refdata_reader(
+        DummyRefDataReader(
             {
                 "corn_mar2026": _contract(product_id="corn"),
                 "wheat_mar2026": _contract(product_id="wheat"),
@@ -416,7 +418,7 @@ def test_build_session_pnl_aggregates_contract_rows() -> None:
         session_result=_session_result(session_result),
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
-        ref_data_api=ref_data_api,
+        refdata_reader=refdata_reader,
         target_currency="USD",
     )
 
@@ -468,7 +470,7 @@ def test_build_pnl_series_builds_ordered_series() -> None:
         session_results=[_session_result(x) for x in session_results],
         mark_price_accessor=mark_accessor,
         spot_fx_converter=DummySpotFXConverter(),
-        ref_data_api=_default_refdata(contract_id=contract_id),
+        refdata_reader=_default_refdata_reader(contract_id=contract_id),
         target_currency="USD",
     )
 
@@ -504,7 +506,7 @@ def test_build_contract_pnl_raises_for_missing_fill_price() -> None:
             session_result=_session_result(session_result),
             mark_price_accessor=mark_accessor,
             spot_fx_converter=DummySpotFXConverter(),
-            ref_data_api=_default_refdata(contract_id=contract_id),
+            refdata_reader=_default_refdata_reader(contract_id=contract_id),
             target_currency="USD",
         )
 
@@ -531,7 +533,7 @@ def test_build_contract_pnl_raises_for_cross_currency_case() -> None:
             session_result=_session_result(session_result),
             mark_price_accessor=mark_accessor,
             spot_fx_converter=DummySpotFXConverter(),
-            ref_data_api=_default_refdata(
+            refdata_reader=_default_refdata_reader(
                 contract_id=contract_id,
                 currency="EUR",
             ),

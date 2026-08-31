@@ -18,7 +18,7 @@ from mxm.moneymachine.synthetic_assets.models import SyntheticAssetSpec
 from mxm.moneymachine.synthetic_assets.runtime import SyntheticAsset
 from mxm.moneymachine.synthetic_assets.target_holdings import TargetHoldings
 from mxm.moneymachine.synthetic_assets.unit_conversion import UnitConverter
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader  # type: ignore
 
 
 def _days(*xs: str) -> np.ndarray:
@@ -33,8 +33,8 @@ def _unused_calendar_service() -> TradingCalendarService:
     return cast(TradingCalendarService, object())
 
 
-def _unused_refdata_api() -> RefDataAPI:
-    return cast(RefDataAPI, object())
+def _unused_refdata_reader() -> RefDataReader:
+    return cast(RefDataReader, object())
 
 
 def _unused_unit_converter() -> UnitConverter:
@@ -209,7 +209,7 @@ def _fake_build_component_weights(
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
     mxm_business_calendar: MXMBusinessCalendar,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> ComponentWeights:
     _build_capture.weights_kwargs = {
         "spec": spec,
@@ -217,7 +217,7 @@ def _fake_build_component_weights(
         "engine": engine,
         "calendar_service": calendar_service,
         "mxm_business_calendar": mxm_business_calendar,
-        "refdata_api": refdata_api,
+        "refdata_reader": refdata_reader,
     }
 
     if _build_component_weights_result is None:
@@ -231,14 +231,14 @@ def _fake_build_target_holdings(
     spec: SyntheticAssetSpec,
     component_contracts: ComponentContracts,
     component_weights: ComponentWeights,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     unit_converter: UnitConverter,
 ) -> TargetHoldings:
     _build_capture.holdings_kwargs = {
         "spec": spec,
         "component_contracts": component_contracts,
         "component_weights": component_weights,
-        "refdata_api": refdata_api,
+        "refdata_reader": refdata_reader,
         "unit_converter": unit_converter,
     }
 
@@ -451,7 +451,7 @@ def test_build_synthetic_asset_threads_mxm_business_calendar_to_component_builde
         engine=_unused_engine(),
         calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=_unused_refdata_api(),
+        refdata_reader=_unused_refdata_reader(),
         unit_converter=_unused_unit_converter(),
     )
 
@@ -498,7 +498,7 @@ def test_build_synthetic_asset_returns_synthetic_asset_from_builder_outputs(
         engine=_unused_engine(),
         calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=_unused_refdata_api(),
+        refdata_reader=_unused_refdata_reader(),
         unit_converter=_unused_unit_converter(),
     )
 

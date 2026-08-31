@@ -77,9 +77,7 @@ from mxm.moneymachine.execution.contract_bundles import (
 from mxm.moneymachine.utils.date_utils import coerce_np_day
 from mxm.moneymachine.utils.pandas_timestamps import ts_ns_from_pd_timestamp
 from mxm.moneymachine.utils.timestamps import TSNSScalar, assert_not_nat, assert_ts_ns
-from mxm.refdata.api.ref_data_api import (
-    RefDataAPI,  # type: ignore[reportMissingTypeStubs]
-)
+from mxm.refdata import RefDataReader
 
 
 class OrderType(str, Enum):
@@ -283,8 +281,8 @@ class OrderGenerator:
         Declarative generation policy controlling block sizes, order
         rendering defaults, and timestamp assignment.
 
-    ref_data_api:
-        Reference-data API used to resolve contract_id -> product_id.
+    refdata_reader:
+        Reference-data reader used to resolve contract_id -> product_id.
 
     calendar_service:
         Trading-calendar bridge used to resolve product calendars for
@@ -292,7 +290,7 @@ class OrderGenerator:
     """
 
     policy: OrderGenerationPolicy
-    ref_data_api: RefDataAPI
+    refdata_reader: RefDataReader
     calendar_service: TradingCalendarService
 
     def generate_orders(
@@ -385,7 +383,7 @@ class OrderGenerator:
         timestamped executable order instructions. Calendar open/close values are
         pandas boundary timestamps; generated orders store canonical MXM timestamps.
         """
-        contract = self.ref_data_api.get_contract_by_id(contract_id)
+        contract = self.refdata_reader.get_contract_by_id(contract_id)
         product_id = contract.product_id
         calendar = self.calendar_service.calendar_for_product(product_id)
 

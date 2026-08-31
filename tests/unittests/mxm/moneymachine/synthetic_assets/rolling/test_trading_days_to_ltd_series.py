@@ -18,7 +18,7 @@ from mxm.moneymachine.synthetic_assets.rolling.trading_days_to_ltd_series import
     UnknownContractId,
     build_trading_days_to_ltd_series,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 type DateArray = npt.NDArray[np.datetime64]
 type IntArray = npt.NDArray[np.int64]
@@ -30,7 +30,7 @@ class _FakeContract:
     last_trading_day: date
 
 
-class _FakeRefDataAPI:
+class _FakeRefDataReader:
     """Minimal reference-data surface used by the builder."""
 
     def __init__(self, contracts: Mapping[str, _FakeContract]) -> None:
@@ -159,10 +159,10 @@ def _make_series(
 def _make_service_with_calendar(
     monkeypatch: MonkeyPatch,
     *,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
     calendar: _CalendarProtocol,
 ) -> TradingCalendarService:
-    calendar_service = TradingCalendarService(refdata_api=refdata_api)
+    calendar_service = TradingCalendarService(refdata_reader=refdata_reader)
 
     def fake_calendar_for_product(
         self: TradingCalendarService,
@@ -184,7 +184,7 @@ def test_build_trading_days_to_ltd_series_functional_oracle(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Build trading-days-to-LTD series under fully controlled inputs."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
@@ -204,7 +204,7 @@ def test_build_trading_days_to_ltd_series_functional_oracle(
 
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar=calendar,
     )
 
@@ -217,7 +217,7 @@ def test_build_trading_days_to_ltd_series_functional_oracle(
     result = build_trading_days_to_ltd_series(
         series=series,
         calendar_service=calendar_service,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     assert result.sessions.tolist() == series.sessions.tolist()
@@ -230,7 +230,7 @@ def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Verify that the builder calls the trading calendar with the expected inputs."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
             "C2": _FakeContract(last_trading_day=date(2026, 6, 19)),
@@ -240,7 +240,7 @@ def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     spy_calendar = _SpyCalendar()
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar=spy_calendar,
     )
 
@@ -253,7 +253,7 @@ def test_build_trading_days_to_ltd_series_interaction_calls_calendar_correctly(
     result = build_trading_days_to_ltd_series(
         series=series,
         calendar_service=calendar_service,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     assert len(spy_calendar.calls) == 1
@@ -275,7 +275,7 @@ def test_build_trading_days_to_ltd_series_raises_on_unknown_contract_id(
     monkeypatch: MonkeyPatch,
 ) -> None:
     """Raise when the contract series references an unknown contract id."""
-    refdata_api = _FakeRefDataAPI(
+    refdata_reader = _FakeRefDataReader(
         contracts={
             "C1": _FakeContract(last_trading_day=date(2026, 3, 20)),
         }
@@ -286,7 +286,7 @@ def test_build_trading_days_to_ltd_series_raises_on_unknown_contract_id(
     )
     calendar_service = _make_service_with_calendar(
         monkeypatch,
-        refdata_api=cast(RefDataAPI, refdata_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendar=calendar,
     )
 
@@ -300,7 +300,7 @@ def test_build_trading_days_to_ltd_series_raises_on_unknown_contract_id(
         build_trading_days_to_ltd_series(
             series=series,
             calendar_service=calendar_service,
-            refdata_api=cast(RefDataAPI, refdata_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )
 
 

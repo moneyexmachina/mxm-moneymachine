@@ -6,7 +6,7 @@ from pathlib import Path
 from mxm.moneymachine.calendars.loader import load_calendar
 from mxm.moneymachine.calendars.models import TradingCalendar
 from mxm.moneymachine.calendars.registry import CalendarRegistryError
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 class CalendarForProductError(RuntimeError):
@@ -59,7 +59,7 @@ class TradingCalendarService:
     - optional in-memory cache
     """
 
-    refdata_api: RefDataAPI
+    refdata_reader: RefDataReader
     calendars_root: Path | None = None
     _cache: dict[str, TradingCalendar] = field(default_factory=_empty_cache)
 
@@ -73,7 +73,7 @@ class TradingCalendarService:
           - UnknownCalendarForProduct
         """
         try:
-            product = self.refdata_api.get_product_by_id(product_id)
+            product = self.refdata_reader.get_product_by_id(product_id)
         except Exception as e:
             raise UnknownProductId(f"Unknown product_id {product_id!r}") from e
 

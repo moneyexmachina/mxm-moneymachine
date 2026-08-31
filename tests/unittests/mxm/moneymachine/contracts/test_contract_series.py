@@ -16,7 +16,7 @@ from mxm.moneymachine.contracts.contract_series import (
 from mxm.moneymachine.contracts.engine import ContractSelectorEngine
 from mxm.moneymachine.contracts.relative_ids import canonical_relative_id, short_rel_id
 from mxm.moneymachine.contracts.selectors import PeriodFilter, SelectorRule
-from mxm.refdata.api.ref_data_api import RefDataAPI  # type: ignore
+from mxm.refdata import RefDataReader
 from mxm.refdata.models.contracts.futures_contract import FuturesContract
 from mxm.refdata.models.currencies import Currency
 from mxm.refdata.models.periods import Period, PeriodType
@@ -32,10 +32,6 @@ def _unit(value: str) -> ProductUnit:
 
 def _currency(value: str) -> Currency:
     return cast(Currency, value)
-
-
-def _refdata(ref: _FakeRefData) -> RefDataAPI:
-    return cast(RefDataAPI, ref)
 
 
 def _calendar_service(calendars: _FakeCalendarService) -> TradingCalendarService:
@@ -72,7 +68,7 @@ class _FakeCalendarService:
 
 
 @dataclass
-class _FakeRefData:
+class _FakeRefDataReader:
     periods: list[Period]
     contracts_by_product: dict[str, list[FuturesContract]]
     cycle_elements: dict[str, dict[str, int]]
@@ -164,7 +160,7 @@ def engine_and_calendar(
         ),
     ]
 
-    ref = _FakeRefData(
+    refdata_reader = _FakeRefDataReader(
         periods=sample_periods,
         contracts_by_product={"ES": contracts},
         cycle_elements={
@@ -193,7 +189,7 @@ def engine_and_calendar(
 
     calendar_service = _calendar_service(cal_svc)
     eng = ContractSelectorEngine.build(
-        refdata=_refdata(ref),
+        refdata_reader=cast(RefDataReader, refdata_reader),
         calendars=calendar_service,
     )
     return eng, calendar_service

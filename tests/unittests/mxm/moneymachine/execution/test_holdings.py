@@ -10,7 +10,7 @@ from mxm.moneymachine.execution.holdings import (
     apply_realised_trades,
     prepare_initial_holdings,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 class DummyContract:
@@ -18,7 +18,7 @@ class DummyContract:
         self.last_trading_day = last_trading_day
 
 
-class DummyRefDataAPI:
+class DummyRefDataReader:
     def __init__(self, contracts: dict[str, DummyContract]) -> None:
         self._contracts = contracts
 
@@ -33,12 +33,12 @@ def test_prepare_initial_holdings_returns_empty_bundle_for_empty_realised_holdin
     None
 ):
     realised_holdings = ContractBundle.empty()
-    ref_data_api = DummyRefDataAPI({})
+    refdata_reader = DummyRefDataReader({})
 
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     expected = pd.Series(dtype="int64", index=pd.Index([], name="contract_id"))
@@ -57,7 +57,7 @@ def test_prepare_initial_holdings_returns_same_bundle_when_all_held_contracts_ar
         }
     )
 
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(last_trading_day=dt.date(2026, 3, 20)),
             "corn_may2026": DummyContract(last_trading_day=dt.date(2026, 5, 20)),
@@ -67,7 +67,7 @@ def test_prepare_initial_holdings_returns_same_bundle_when_all_held_contracts_ar
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     expected = pd.Series(
@@ -81,13 +81,13 @@ def test_prepare_initial_holdings_returns_same_bundle_when_all_held_contracts_ar
 
 def test_prepare_initial_holdings_raises_for_missing_contract_in_refdata() -> None:
     realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
-    ref_data_api = DummyRefDataAPI({})
+    refdata_reader = DummyRefDataReader({})
 
     with pytest.raises(ValueError, match="could not resolve held contract"):
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=cast(RefDataAPI, ref_data_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )
 
 
@@ -95,7 +95,7 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_on_last_trading_d
     None
 ):
     realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {"corn_mar2026": DummyContract(last_trading_day=dt.date(2026, 3, 10))}
     )
 
@@ -103,7 +103,7 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_on_last_trading_d
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=cast(RefDataAPI, ref_data_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )
 
 
@@ -111,7 +111,7 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_after_last_tradin
     None
 ):
     realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {"corn_mar2026": DummyContract(last_trading_day=dt.date(2026, 3, 9))}
     )
 
@@ -119,13 +119,13 @@ def test_prepare_initial_holdings_raises_when_held_contract_is_after_last_tradin
         prepare_initial_holdings(
             realised_holdings=realised_holdings,
             session=pd.Timestamp("2026-03-10").to_datetime64(),
-            ref_data_api=cast(RefDataAPI, ref_data_api),
+            refdata_reader=cast(RefDataReader, refdata_reader),
         )
 
 
 def test_prepare_initial_holdings_ignores_unheld_contracts_in_refdata() -> None:
     realised_holdings = ContractBundle.from_dict({"corn_mar2026": 1})
-    ref_data_api = DummyRefDataAPI(
+    refdata_reader = DummyRefDataReader(
         {
             "corn_mar2026": DummyContract(last_trading_day=dt.date(2026, 3, 20)),
             "corn_may2026": DummyContract(last_trading_day=None),
@@ -135,7 +135,7 @@ def test_prepare_initial_holdings_ignores_unheld_contracts_in_refdata() -> None:
     result = prepare_initial_holdings(
         realised_holdings=realised_holdings,
         session=pd.Timestamp("2026-03-10").to_datetime64(),
-        ref_data_api=cast(RefDataAPI, ref_data_api),
+        refdata_reader=cast(RefDataReader, refdata_reader),
     )
 
     expected = pd.Series(

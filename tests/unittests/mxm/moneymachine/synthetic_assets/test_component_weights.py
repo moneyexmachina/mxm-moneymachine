@@ -24,7 +24,7 @@ from mxm.moneymachine.synthetic_assets.models import (
     ComponentBinding,
     SyntheticAssetSpec,
 )
-from mxm.refdata.api.ref_data_api import RefDataAPI
+from mxm.refdata import RefDataReader
 
 
 def _days(*xs: str) -> np.ndarray:
@@ -39,8 +39,8 @@ def _unused_calendar_service() -> TradingCalendarService:
     return cast(TradingCalendarService, object())
 
 
-def _unused_refdata_api() -> RefDataAPI:
-    return cast(RefDataAPI, object())
+def _unused_refdata_reader() -> RefDataReader:
+    return cast(RefDataReader, object())
 
 
 def _make_component_weights_frame(
@@ -420,13 +420,13 @@ def test_build_component_weights_returns_business_session_indexed_weights(
         sessions: np.ndarray,
         contract_ids: list[str],
         calendar_service: TradingCalendarService,
-        refdata_api: RefDataAPI,
+        refdata_reader: RefDataReader,
     ) -> _AlignedFakeTradingDays:
         captured.product_id = product_id
         captured.sessions = sessions
         captured.contract_ids = contract_ids
 
-        _ = calendar_service, refdata_api
+        _ = calendar_service, refdata_reader
         return _AlignedFakeTradingDays(sessions)
 
     monkeypatch.setattr(
@@ -449,7 +449,7 @@ def test_build_component_weights_returns_business_session_indexed_weights(
         engine=_unused_engine(),
         calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=_unused_refdata_api(),
+        refdata_reader=_unused_refdata_reader(),
     )
 
     expected_sessions = _days("2026-03-18", "2026-03-19", "2026-03-20", "2026-03-23")
@@ -490,9 +490,9 @@ def _fake_misaligned_trading_days_to_ltd(
     sessions: np.ndarray,
     contract_ids: list[str],
     calendar_service: TradingCalendarService,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> _MisalignedFakeTradingDays:
-    _ = product_id, sessions, contract_ids, calendar_service, refdata_api
+    _ = product_id, sessions, contract_ids, calendar_service, refdata_reader
     return _MisalignedFakeTradingDays()
 
 
@@ -526,7 +526,7 @@ def test_build_component_weights_raises_when_bdays_sessions_do_not_match_compone
             engine=_unused_engine(),
             calendar_service=_unused_calendar_service(),
             mxm_business_calendar=mxm_business_calendar,
-            refdata_api=_unused_refdata_api(),
+            refdata_reader=_unused_refdata_reader(),
         )
 
 
@@ -571,7 +571,7 @@ def _fake_build_component_weights(
     engine: ContractSelectorEngine,
     calendar_service: TradingCalendarService,
     mxm_business_calendar: MXMBusinessCalendar,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> ComponentWeights:
     _REALISE_CAPTURE.build_component_weights_kwargs = {
         "spec": spec,
@@ -579,7 +579,7 @@ def _fake_build_component_weights(
         "engine": engine,
         "calendar_service": calendar_service,
         "mxm_business_calendar": mxm_business_calendar,
-        "refdata_api": refdata_api,
+        "refdata_reader": refdata_reader,
     }
 
     return ComponentWeights(
@@ -624,7 +624,7 @@ def test_realise_component_weights_threads_business_calendar_through_builders(
         engine=_unused_engine(),
         calendar_service=_unused_calendar_service(),
         mxm_business_calendar=mxm_business_calendar,
-        refdata_api=_unused_refdata_api(),
+        refdata_reader=_unused_refdata_reader(),
     )
 
     assert _REALISE_CAPTURE.build_component_contracts_kwargs is not None

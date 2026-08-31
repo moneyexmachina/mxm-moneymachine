@@ -13,7 +13,7 @@ Inputs:
 - `sessions[t]` are product trading sessions
 - `contract_id[t]` is aligned 1:1 with `sessions[t]`
 - `TradingCalendarService` resolves `product_id -> TradingCalendar`
-- `RefDataAPI` provides contract metadata (`last_trading_day`)
+- `RefDataReader` provides contract metadata (`last_trading_day`)
 
 Therefore the output answers:
 
@@ -25,9 +25,9 @@ and not:
 
 That latter machine-time notion belongs in a separate module.
 
-Why RefDataAPI is injected
+Why RefDataReader is injected
 --------------------------
-RefDataAPI maintains an internal cache; callers should construct it once and
+RefDataReader maintains an internal cache; callers should construct it once and
 pass it through runtime services to avoid repeated initialisation and to ensure
 consistent cached behaviour across the process.
 
@@ -47,7 +47,7 @@ Determinism
 Pure function of:
 - ContractSeries.sessions
 - ContractSeries.contract_ids
-- RefDataAPI LTD values
+- RefDataReader LTD values
 - TradingCalendar.trading_days_to_ltd / bdays_to_ltd semantics
 """
 
@@ -61,9 +61,7 @@ from numpy.typing import NDArray
 from mxm.moneymachine.calendars.service import TradingCalendarService
 from mxm.moneymachine.contracts.contract_series import ContractSeries
 from mxm.moneymachine.utils.date_utils import coerce_np_day
-from mxm.refdata.api.ref_data_api import (  # type: ignore[reportMissingTypeStubs]
-    RefDataAPI,
-)
+from mxm.refdata import RefDataReader
 
 
 class UnknownContractId(ValueError):
@@ -86,7 +84,7 @@ def build_trading_days_to_ltd_series(
     *,
     series: ContractSeries,
     calendar_service: TradingCalendarService,
-    refdata_api: RefDataAPI,
+    refdata_reader: RefDataReader,
 ) -> TradingDaysToLTDSeries:
     """
     Build a trading-calendar days-to-LTD surface from a trading-session-aligned
@@ -98,7 +96,7 @@ def build_trading_days_to_ltd_series(
         Trading-session-aligned contract identity surface.
     calendar_service:
         Resolves product_id -> TradingCalendar.
-    refdata_api:
+    refdata_reader:
         Resolves contract_id -> FuturesContract metadata, including LTD.
 
     Returns
@@ -131,7 +129,7 @@ def build_trading_days_to_ltd_series(
 
     ltd: NDArray[np.datetime64] = np.empty(n, dtype="datetime64[D]")
     for i, cid in enumerate(series.contract_ids):
-        contract = refdata_api.get_contract_by_id(cid)
+        contract = refdata_reader.get_contract_by_id(cid)
         ltd[i] = coerce_np_day(contract.last_trading_day)
 
     # Force ndarray-return mode to keep types stable.
