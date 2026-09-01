@@ -16,6 +16,12 @@ deployments:
       environment: dev
       role: marketdata
 
+    schedules:
+      - cron: "0 5 * * *"
+        timezone: Europe/London
+        slug: daily-refdata-build
+        active: true
+
     work_pool:
       name: mxm-dev-process
       work_queue_name: default
