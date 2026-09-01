@@ -1,0 +1,21 @@
+name: mxm-moneymachine
+prefect-version: "3"
+
+build: null
+push: null
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /home/mxm/mxm-moneymachine
+
+deployments:
+  - name: refdata-build-dev
+    entrypoint: src/mxm/moneymachine/flows/refdata.py:refdata_build_flow
+
+    parameters:
+      environment: dev
+      role: marketdata
+
+    work_pool:
+      name: mxm-dev-process
+      work_queue_name: default
