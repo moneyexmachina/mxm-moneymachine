@@ -1,0 +1,28 @@
+[Unit]
+Description=MXM Prefect Dev Process Worker
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+
+User=mxm
+Group=mxm
+
+WorkingDirectory=/home/mxm/mxm-moneymachine
+
+Environment="HOME=/home/mxm"
+Environment="PATH=/home/mxm/mxm-moneymachine/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PREFECT_PROFILE=mxm-dev"
+Environment="PREFECT_API_URL=http://localhost:4200/api"
+Environment="PYTHONUNBUFFERED=1"
+
+ExecStart=/home/mxm/mxm-moneymachine/.venv/bin/prefect worker start --pool mxm-dev-process --name monolith-dev --limit 1
+
+Restart=always
+RestartSec=5
+
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
